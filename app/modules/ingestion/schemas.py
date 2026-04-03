@@ -1,0 +1,143 @@
+import re
+from enum import StrEnum
+from typing import Any
+
+from pydantic import BaseModel, Field, field_validator
+
+
+# ── Channel-agnostic inbound schema ──────────────────────────────────────────
+
+
+class Channel(StrEnum):
+    WHATSAPP = "whatsapp"
+    SMS = "sms"
+    WEB = "web"
+
+
+# E.164 phone number: optional + then 7–15 digits
+_PHONE_RE = re.compile(r"^\+?[1-9]\d{6,14}$")
+
+
+class InboundMessageRequest(BaseModel):
+    """
+    Normalised inbound message accepted by POST /api/v1/webhooks/webhook.
+
+    This is the canonical entry point for messages regardless of channel.
+    The Meta Cloud API raw webhook is still accepted at POST /webhooks/whatsapp.
+    """
+
+    channel: Channel = Field(..., description="Source channel: whatsapp | sms | web")
+    sender: str = Field(
+        ...,
+        description="Sender identifier — E.164 phone number or opaque web session ID",
+        min_length=3,
+        max_length=40,
+    )
+    message: str = Field(
+        ...,
+        description="Raw message text from the sender",
+        min_length=1,
+        max_length=4096,
+    )
+    tenant_id: str = Field(
+        ...,
+        description="UUID of the owning tenant — injected by the gateway or read from X-Tenant-ID header",
+        min_length=1,
+    )
+    message_id: str | None = Field(
+        default=None,
+        description="Channel-assigned message ID (e.g. WhatsApp wamid). Used for deduplication.",
+    )
+
+    @field_validator("sender")
+    @classmethod
+    def validate_sender(cls, v: str) -> str:
+        v = v.strip()
+        # Only enforce E.164 for phone-based channels at parse time.
+        # Web sessions may use arbitrary IDs.
+        return v
+
+    @field_validator("message")
+    @classmethod
+    def strip_message(cls, v: str) -> str:
+        return v.strip()
+
+    @field_validator("channel", mode="before")
+    @classmethod
+    def normalise_channel(cls, v: str) -> str:
+        return str(v).strip().lower()
+
+
+class NormalizedMessage(BaseModel):
+    """
+    The cleaned, canonical form of an inbound message ready for downstream processing.
+    Produced by IngestionService.normalize().
+    """
+
+    channel: Channel
+    sender: str  # normalised (stripped, lowercased for non-phone)
+    message: str  # stripped
+    message_lower: str  # lowercase — useful for keyword matching
+    word_count: int
+    tenant_id: str
+    is_empty: bool  # True only when message was whitespace-only before strip
+
+
+class MessageReceivedPayload(BaseModel):
+    """Payload embedded inside the MessageReceived event."""
+
+    channel: str
+    sender: str
+    message: str
+    message_lower: str
+    word_count: int
+    tenant_id: str
+    message_id: str | None = None  # channel-assigned ID forwarded for deduplication
+
+    model_config = {"from_attributes": True}
+
+
+# ── Meta Cloud API raw webhook types (kept for META push endpoint) ─────────────
+
+
+class WhatsAppContact(BaseModel):
+    profile: dict[str, Any]
+    wa_id: str
+
+
+class WhatsAppMessage(BaseModel):
+    from_: str
+    id: str
+    timestamp: str
+    type: str
+    text: dict[str, str] | None = None
+
+    model_config = {"populate_by_name": True}
+
+    @classmethod
+    def model_validate(cls, obj: Any, **kwargs: Any) -> "WhatsAppMessage":
+        if isinstance(obj, dict) and "from" in obj:
+            obj = {**obj, "from_": obj.pop("from")}
+        return super().model_validate(obj, **kwargs)
+
+
+class WhatsAppValue(BaseModel):
+    messaging_product: str
+    metadata: dict[str, Any]
+    contacts: list[WhatsAppContact] = []
+    messages: list[WhatsAppMessage] = []
+
+
+class WhatsAppChange(BaseModel):
+    value: WhatsAppValue
+    field: str
+
+
+class WhatsAppEntry(BaseModel):
+    id: str
+    changes: list[WhatsAppChange]
+
+
+class WhatsAppWebhookPayload(BaseModel):
+    object: str
+    entry: list[WhatsAppEntry]

@@ -1,0 +1,124 @@
+from contextlib import asynccontextmanager
+from typing import Any
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from app.core.config import get_settings
+from app.core.exceptions import (
+    ChatToSalesError,
+    chattosales_error_handler,
+    unhandled_error_handler,
+)
+from app.core.logging import get_logger
+from app.infra.cache import close_redis, init_redis
+from app.infra.database import create_all_tables, dispose_engine
+from app.modules.conversation.handlers import register_message_received_handler
+from app.modules.orders.handlers import register_order_intent_handler
+from app.modules.payments.handlers import register_payment_confirmed_handler
+from app.modules.notifications.handlers import (
+    register_order_created_notification_handler,
+    register_order_state_changed_notification_handler,
+    register_payment_confirmed_notification_handler,
+)
+from app.modules.realtime.router import manager as ws_manager
+from app.modules.realtime.router import router as realtime_router
+from app.modules.realtime.service import register_realtime_listener
+from app.modules.conversation.router import router as conversation_router
+from app.modules.ingestion.router import router as ingestion_router
+from app.modules.notifications.router import router as notifications_router
+from app.modules.orders.router import router as orders_router
+from app.modules.payments.router import router as payments_router
+
+logger = get_logger(__name__)
+settings = get_settings()
+
+
+# ── Lifespan (startup / shutdown) ─────────────────────────────────────────────
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("Starting %s [%s]", settings.APP_NAME, settings.ENVIRONMENT)
+    await init_redis()
+
+    # Ensure all tables exist. In production, remove this and rely on Alembic.
+    await create_all_tables()
+    logger.info("Database tables verified/created")
+
+    # Start Redis event consumer for the default dev tenant.
+    # In production, fetch active tenant IDs from DB and register one task each.
+    _listener_tasks = []
+    if settings.is_development:
+        _listener_tasks.append(register_message_received_handler("tenant-abc-123"))
+        _listener_tasks.append(register_order_intent_handler("tenant-abc-123"))
+        _listener_tasks.append(register_payment_confirmed_handler("tenant-abc-123"))
+        _listener_tasks.append(register_realtime_listener("tenant-abc-123", ws_manager))
+        _listener_tasks.append(
+            register_order_created_notification_handler("tenant-abc-123")
+        )
+        _listener_tasks.append(
+            register_order_state_changed_notification_handler("tenant-abc-123")
+        )
+        _listener_tasks.append(
+            register_payment_confirmed_notification_handler("tenant-abc-123")
+        )
+        logger.info("Event listeners started for dev tenant")
+
+    yield
+
+    logger.info("Shutting down %s", settings.APP_NAME)
+    for task in _listener_tasks:
+        task.cancel()
+    await close_redis()
+    await dispose_engine()
+
+
+# ── Application factory ───────────────────────────────────────────────────────
+
+
+def create_app() -> FastAPI:
+    app = FastAPI(
+        title=settings.APP_NAME,
+        version=settings.APP_VERSION,
+        docs_url="/docs" if not settings.is_production else None,
+        redoc_url="/redoc" if not settings.is_production else None,
+        lifespan=lifespan,
+    )
+
+    # ── Middleware ────────────────────────────────────────────────────────────
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.ALLOWED_HOSTS,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    # ── Exception handlers ────────────────────────────────────────────────────
+    app.add_exception_handler(ChatToSalesError, chattosales_error_handler)  # type: ignore[arg-type]
+    app.add_exception_handler(Exception, unhandled_error_handler)  # type: ignore[arg-type]
+
+    # ── Routers ───────────────────────────────────────────────────────────────
+    prefix = settings.API_PREFIX
+    app.include_router(ingestion_router, prefix=prefix)
+    app.include_router(conversation_router, prefix=prefix)
+    app.include_router(orders_router, prefix=prefix)
+    app.include_router(payments_router, prefix=prefix)
+    app.include_router(notifications_router, prefix=prefix)
+    app.include_router(realtime_router)  # no API prefix — /ws/{tenant_id}
+
+    # ── Health check ──────────────────────────────────────────────────────────
+    @app.get("/health", tags=["Health"], summary="Health check")
+    async def health() -> dict[str, Any]:
+        return {
+            "status": "ok",
+            "app": settings.APP_NAME,
+            "version": settings.APP_VERSION,
+            "environment": settings.ENVIRONMENT,
+        }
+
+    return app
+
+
+app = create_app()
