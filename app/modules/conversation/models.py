@@ -23,11 +23,13 @@ class Conversation(TenantModel):
     __table_args__ = (
         # Composite index speeds up get_or_create_conversation lookups
         Index(
-            "ix_conversations_tenant_phone_channel",
+            "ix_conversations_tenant_identifier_channel",
             "tenant_id",
-            "phone_number",
+            "customer_identifier",
             "channel",
         ),
+        # Covers the list endpoint: WHERE tenant_id = ? ORDER BY updated_at DESC
+        Index("ix_conversations_tenant_updated", "tenant_id", "updated_at"),
     )
 
     # Channel this conversation originated from (whatsapp / sms / web)
@@ -36,8 +38,10 @@ class Conversation(TenantModel):
     customer_id: Mapped[str | None] = mapped_column(
         String(36), nullable=True, index=True
     )
-    # Sender identifier: E.164 phone number or web-session ID
-    phone_number: Mapped[str] = mapped_column(String(40), nullable=False)
+    # Canonical sender identity: E.164 phone number or web-session ID
+    customer_identifier: Mapped[str] = mapped_column(String(40), nullable=False)
+    # Optional human-readable name for the customer
+    customer_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default=ConversationStatus.ACTIVE
     )
@@ -67,7 +71,9 @@ class Message(TenantModel):
         index=True,
     )
     # "user" for inbound, "assistant" for AI replies, "system" for internal
-    sender: Mapped[str] = mapped_column(String(20), nullable=False)
+    sender_role: Mapped[str] = mapped_column(String(20), nullable=False)
+    # Customer identity — populated for user messages; NULL for assistant/system
+    sender_identifier: Mapped[str | None] = mapped_column(String(40), nullable=True)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     # Channel-assigned message ID used for idempotency (e.g. WhatsApp wamid)
     external_id: Mapped[str | None] = mapped_column(String(255), nullable=True)

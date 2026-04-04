@@ -105,7 +105,7 @@ async def receive_whatsapp_message(
             tenant_id=tenant_id,
             payload={
                 "channel": "whatsapp",
-                "sender": sender_id,
+                "sender_identifier": sender_id,
                 "message": content,
                 "message_id": external_id,
             },

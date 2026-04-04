@@ -219,3 +219,40 @@ class PaymentService:
 
         await self._db.commit()
         return payment
+
+    async def list_payments(
+        self,
+        *,
+        tenant_id: str,
+        status: str | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ):
+        from app.modules.payments.schemas import PaymentListItem, PaymentListResponse
+
+        rows, total = await self._repo.list_payments(
+            tenant_id=tenant_id,
+            status=status,
+            limit=limit,
+            offset=offset,
+        )
+        return PaymentListResponse(
+            items=[
+                PaymentListItem(
+                    id=payment.id,
+                    order_id=payment.order_id,
+                    reference=payment.reference,
+                    amount=payment.amount,
+                    currency=payment.currency,
+                    status=payment.status,
+                    provider=payment.provider,
+                    created_at=payment.created_at,
+                    order_state=order_state,
+                    order_amount=order_amount,
+                )
+                for payment, order_state, order_amount in rows
+            ],
+            total=total,
+            limit=limit,
+            offset=offset,
+        )

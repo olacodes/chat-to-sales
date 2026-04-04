@@ -101,7 +101,7 @@ async def _phone_from_conversation(
             "Notification handler: conversation not found id=%s", conversation_id
         )
         return None
-    return conv.phone_number
+    return conv.customer_identifier
 
 
 async def _phone_from_order(

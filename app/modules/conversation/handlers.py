@@ -57,7 +57,8 @@ async def handle_message_received(event: Event) -> None:
     payload = event.payload
     tenant_id: str = event.tenant_id
     channel: str = payload.get("channel", "")
-    sender_id: str = payload.get("sender", "")
+    # Accept both new and legacy key names for rollback safety
+    sender_id: str = payload.get("sender_identifier") or payload.get("sender", "")
     content: str = payload.get("message", "")
     # Try both field names — ingestion service may populate either
     external_id: str | None = payload.get("message_id") or payload.get("external_id")
@@ -108,7 +109,8 @@ async def handle_message_received(event: Event) -> None:
                     "conversation_id": str(conv.id),
                     "tenant_id": tenant_id,
                     "channel": channel,
-                    "sender": sender_id,
+                    "customer_identifier": sender_id,
+                    "sender_identifier": sender_id,
                     "message": content,
                     "message_lower": content.lower(),
                 },

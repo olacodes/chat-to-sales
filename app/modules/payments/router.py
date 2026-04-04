@@ -22,13 +22,18 @@ import hmac
 import json
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 
 from app.core.config import Settings, get_settings
 from app.core.dependencies import DBSessionDep
 from app.core.exceptions import InvalidWebhookSignatureError
 from app.core.logging import get_logger
-from app.modules.payments.schemas import PaymentInitiateRequest, PaymentOut
+from app.modules.payments.models import PaymentStatus
+from app.modules.payments.schemas import (
+    PaymentInitiateRequest,
+    PaymentListResponse,
+    PaymentOut,
+)
 from app.modules.payments.service import PaymentService
 
 logger = get_logger(__name__)
@@ -60,6 +65,22 @@ def _verify_paystack_signature(raw_body: bytes, signature: str, secret: str) -> 
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
+
+
+@router.get("/")
+async def list_payments(
+    tenant_id: str,
+    svc: ServiceDep,
+    status: PaymentStatus | None = Query(default=None),
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+) -> PaymentListResponse:
+    return await svc.list_payments(
+        tenant_id=tenant_id,
+        status=status,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @router.post("/", status_code=201)

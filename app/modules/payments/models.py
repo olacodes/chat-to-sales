@@ -26,6 +26,8 @@ class Payment(TenantModel):
     __table_args__ = (
         # Composite index for looking up payments by order within a tenant
         Index("ix_payments_tenant_order", "tenant_id", "order_id"),
+        # Covers the list endpoint filtered by status: WHERE tenant_id = ? AND status = ?
+        Index("ix_payments_tenant_status", "tenant_id", "status"),
     )
 
     order_id: Mapped[str] = mapped_column(
