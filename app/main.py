@@ -25,6 +25,7 @@ from app.modules.realtime.router import manager as ws_manager
 from app.modules.realtime.router import router as realtime_router
 from app.modules.realtime.service import register_realtime_listener
 from app.modules.conversation.router import router as conversation_router
+from app.modules.dashboard.router import router as dashboard_router
 from app.modules.ingestion.router import router as ingestion_router
 from app.modules.notifications.router import router as notifications_router
 from app.modules.orders.router import router as orders_router
@@ -103,6 +104,7 @@ def create_app() -> FastAPI:
     prefix = settings.API_PREFIX
     app.include_router(ingestion_router, prefix=prefix)
     app.include_router(conversation_router, prefix=prefix)
+    app.include_router(dashboard_router, prefix=prefix)
     app.include_router(orders_router, prefix=prefix)
     app.include_router(payments_router, prefix=prefix)
     app.include_router(notifications_router, prefix=prefix)

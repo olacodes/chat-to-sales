@@ -14,6 +14,7 @@ The caller (HTTP handler or event handler) is free to wrap the call in an
 explicit try/except to surface InvalidTransitionError as HTTP 409.
 """
 
+from datetime import date
 from decimal import Decimal
 
 from sqlalchemy import select
@@ -25,7 +26,7 @@ from app.core.logging import get_logger
 from app.infra.event_bus import Event, publish_event
 from app.modules.orders.models import Order, OrderState
 from app.modules.orders.repository import OrderRepository
-from app.modules.orders.schemas import OrderCreate, OrderItemCreate
+from app.modules.orders.schemas import OrderCreate, OrderItemCreate, OrderListResponse
 from app.modules.orders.state_machine import InvalidTransitionError, validate_transition
 
 logger = get_logger(__name__)
@@ -338,3 +339,44 @@ class OrderService:
         await self._db.flush()
         await self._db.commit()
         return await self._reload(order.id)
+
+    # ── List query ────────────────────────────────────────────────────────────
+
+    async def list_orders(
+        self,
+        *,
+        tenant_id: str,
+        state: str | None = None,
+        from_date: date | None = None,
+        to_date: date | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> OrderListResponse:
+        from app.modules.orders.schemas import OrderListItem
+
+        rows, total = await self._repo.list_orders(
+            tenant_id=tenant_id,
+            state=state,
+            from_date=from_date,
+            to_date=to_date,
+            limit=limit,
+            offset=offset,
+        )
+        items = [
+            OrderListItem(
+                id=order.id,
+                state=order.state,
+                amount=order.amount,
+                currency=order.currency,
+                created_at=order.created_at,
+                updated_at=order.updated_at,
+                item_count=count,
+            )
+            for order, count in rows
+        ]
+        return OrderListResponse(
+            items=items,
+            total=total,
+            limit=limit,
+            offset=offset,
+        )

@@ -2,7 +2,7 @@ import re
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 # ── Channel-agnostic inbound schema ──────────────────────────────────────────
@@ -27,12 +27,25 @@ class InboundMessageRequest(BaseModel):
     """
 
     channel: Channel = Field(..., description="Source channel: whatsapp | sms | web")
-    sender: str = Field(
+    sender_identifier: str = Field(
         ...,
         description="Sender identifier — E.164 phone number or opaque web session ID",
         min_length=3,
         max_length=40,
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_legacy_sender(cls, data: dict) -> dict:
+        """Accept 'sender' as a backward-compatible alias for 'sender_identifier'."""
+        if (
+            isinstance(data, dict)
+            and "sender_identifier" not in data
+            and "sender" in data
+        ):
+            data = {**data, "sender_identifier": data["sender"]}
+        return data
+
     message: str = Field(
         ...,
         description="Raw message text from the sender",
@@ -49,7 +62,7 @@ class InboundMessageRequest(BaseModel):
         description="Channel-assigned message ID (e.g. WhatsApp wamid). Used for deduplication.",
     )
 
-    @field_validator("sender")
+    @field_validator("sender_identifier")
     @classmethod
     def validate_sender(cls, v: str) -> str:
         v = v.strip()
@@ -75,7 +88,7 @@ class NormalizedMessage(BaseModel):
     """
 
     channel: Channel
-    sender: str  # normalised (stripped, lowercased for non-phone)
+    sender_identifier: str  # normalised (stripped)
     message: str  # stripped
     message_lower: str  # lowercase — useful for keyword matching
     word_count: int
@@ -87,7 +100,10 @@ class MessageReceivedPayload(BaseModel):
     """Payload embedded inside the MessageReceived event."""
 
     channel: str
-    sender: str
+    sender_identifier: str
+    # customer_identifier mirrors sender_identifier; kept explicit so downstream
+    # handlers never need to know which field holds the identity.
+    customer_identifier: str
     message: str
     message_lower: str
     word_count: int

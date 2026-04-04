@@ -41,7 +41,7 @@ class IngestionService:
 
         return NormalizedMessage(
             channel=request.channel,
-            sender=request.sender.strip(),
+            sender_identifier=request.sender_identifier.strip(),
             message=stripped,
             message_lower=stripped.lower(),
             word_count=len(words),
@@ -61,7 +61,8 @@ class IngestionService:
 
         event_payload = MessageReceivedPayload(
             channel=normalized.channel,
-            sender=normalized.sender,
+            sender_identifier=normalized.sender_identifier,
+            customer_identifier=normalized.sender_identifier,
             message=normalized.message,
             message_lower=normalized.message_lower,
             word_count=normalized.word_count,
@@ -80,7 +81,7 @@ class IngestionService:
             "MessageReceived published | tenant=%s sender=%s channel=%s "
             "words=%d event_id=%s receivers=%d",
             normalized.tenant_id,
-            normalized.sender,
+            normalized.sender_identifier,
             normalized.channel,
             normalized.word_count,
             event.event_id,

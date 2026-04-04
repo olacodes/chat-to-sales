@@ -20,6 +20,10 @@ class Order(TenantModel):
     __table_args__ = (
         Index("ix_orders_tenant_state", "tenant_id", "state"),
         Index("ix_orders_conversation_state", "conversation_id", "state"),
+        # Covers dashboard list: WHERE tenant_id = ? ORDER BY created_at DESC
+        Index("ix_orders_tenant_created", "tenant_id", "created_at"),
+        # Covers filtered list: WHERE tenant_id = ? AND state = ? ORDER BY created_at DESC
+        Index("ix_orders_tenant_state_created", "tenant_id", "state", "created_at"),
     )
 
     conversation_id: Mapped[str] = mapped_column(

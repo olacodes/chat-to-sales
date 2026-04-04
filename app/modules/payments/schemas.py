@@ -7,6 +7,7 @@ from decimal import Decimal
 
 from pydantic import BaseModel
 
+from app.modules.orders.models import OrderState
 from app.modules.payments.models import PaymentStatus
 
 
@@ -31,6 +32,26 @@ class PaymentOut(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class PaymentListItem(BaseModel):
+    id: str
+    order_id: str
+    reference: str
+    amount: Decimal
+    currency: str
+    status: PaymentStatus
+    provider: str
+    created_at: datetime
+    order_state: OrderState
+    order_amount: Decimal | None
+
+
+class PaymentListResponse(BaseModel):
+    items: list[PaymentListItem]
+    total: int
+    limit: int
+    offset: int
 
 
 class PaystackWebhookPayload(BaseModel):

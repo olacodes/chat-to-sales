@@ -6,10 +6,12 @@ All methods are keyword-argument only (after self) to prevent
 positional ordering bugs at call sites.
 """
 
+from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import noload
 
 from app.core.logging import get_logger
 from app.modules.orders.models import Order, OrderItem, OrderState
@@ -128,3 +130,63 @@ class OrderRepository:
         self._session.add(item)
         await self._session.flush()
         return item
+
+    # ── List query ────────────────────────────────────────────────────────────
+
+    async def list_orders(
+        self,
+        *,
+        tenant_id: str,
+        state: str | None = None,
+        from_date: date | None = None,
+        to_date: date | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> tuple[list[tuple[Order, int]], int]:
+        """
+        Return a page of (Order, item_count) tuples and a total count.
+
+        item_count is computed via a correlated SQL subquery — no Python-level
+        iteration and no selectin on Order.items.  The caller gets the count
+        for free in the same round-trip.
+
+        A separate COUNT(*) query returns the total matching rows for
+        pagination metadata (dashboard page-count display).
+        """
+        item_count_sq = (
+            select(func.count(OrderItem.id))
+            .where(OrderItem.order_id == Order.id)
+            .correlate(Order)
+            .scalar_subquery()
+        )
+
+        filters = [Order.tenant_id == tenant_id]
+        if state is not None:
+            filters.append(Order.state == state)
+        if from_date is not None:
+            filters.append(
+                Order.created_at
+                >= datetime(from_date.year, from_date.month, from_date.day)
+            )
+        if to_date is not None:
+            # inclusive end-of-day
+            filters.append(
+                Order.created_at
+                < datetime(to_date.year, to_date.month, to_date.day + 1)
+            )
+
+        data_stmt = (
+            select(Order, item_count_sq.label("item_count"))
+            .options(noload(Order.items))
+            .where(*filters)
+            .order_by(Order.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        rows = (await self._session.execute(data_stmt)).all()
+        results = [(row[0], row[1]) for row in rows]
+
+        count_stmt = select(func.count()).select_from(Order).where(*filters)
+        total: int = (await self._session.execute(count_stmt)).scalar_one()
+
+        return results, total
