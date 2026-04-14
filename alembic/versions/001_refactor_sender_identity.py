@@ -23,7 +23,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision = "001_refactor_sender_identity"
-down_revision = None
+down_revision = "000_initial_schema"
 branch_labels = None
 depends_on = None
 
