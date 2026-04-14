@@ -23,7 +23,7 @@ def _service(db: DBSessionDep) -> OrderService:
 ServiceDep = Annotated[OrderService, Depends(_service)]
 
 
-@router.get("/")
+@router.get("")
 async def list_orders(
     tenant_id: str,
     svc: ServiceDep,

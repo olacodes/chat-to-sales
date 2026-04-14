@@ -23,7 +23,7 @@ def _service(db: DBSessionDep) -> ConversationService:
 ServiceDep = Annotated[ConversationService, Depends(_service)]
 
 
-@router.get("/")
+@router.get("")
 async def list_conversations(
     tenant_id: str,
     svc: ServiceDep,
@@ -37,7 +37,7 @@ async def list_conversations(
     )
 
 
-@router.post("/", status_code=201)
+@router.post("", status_code=201)
 async def start_conversation(
     body: ConversationCreate,
     svc: ServiceDep,

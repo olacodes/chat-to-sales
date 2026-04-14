@@ -67,7 +67,7 @@ def _verify_paystack_signature(raw_body: bytes, signature: str, secret: str) -> 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 
-@router.get("/")
+@router.get("")
 async def list_payments(
     tenant_id: str,
     svc: ServiceDep,
