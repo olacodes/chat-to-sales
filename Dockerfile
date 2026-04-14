@@ -3,10 +3,13 @@ FROM python:3.11-slim AS builder
 
 WORKDIR /app
 
-# Install build tools required by some C-extension packages (asyncpg, hiredis)
+# Install build tools required by some C-extension packages (asyncpg, hiredis,
+# cryptography/bcrypt via python-jose and passlib)
 RUN apt-get update && apt-get install -y --no-install-recommends \
         gcc \
         libpq-dev \
+        libffi-dev \
+        libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first — leverage Docker layer cache
