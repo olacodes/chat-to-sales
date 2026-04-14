@@ -1,0 +1,68 @@
+# HTTPS config — activate this AFTER running Certbot successfully.
+#
+# Steps:
+#   1. Make sure app.conf (HTTP) is active and the server is reachable on port 80.
+#   2. Run Certbot (see DEPLOYMENT.md step 7).
+#   3. Copy this file over app.conf:
+#        cp nginx/conf.d/app-ssl.conf.example nginx/conf.d/app.conf
+#   4. Reload nginx: docker compose -f docker-compose.prod.yml restart nginx
+
+server {
+    listen 80;
+    server_name chattosales.duckdns.org;
+
+    # Redirect all HTTP → HTTPS
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    http2  on;
+    server_name chattosales.duckdns.org;
+
+    # ── TLS certificates (managed by Certbot) ─────────────────────────────
+    ssl_certificate     /etc/letsencrypt/live/chattosales.duckdns.org/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/chattosales.duckdns.org/privkey.pem;
+
+    # Modern TLS settings
+    ssl_protocols             TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache         shared:SSL:10m;
+    ssl_session_timeout       1d;
+    ssl_stapling              on;
+    ssl_stapling_verify       on;
+
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
+
+    # ── Let's Encrypt renewal challenges ──────────────────────────────────
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    # ── Proxy to FastAPI ──────────────────────────────────────────────────
+    location / {
+        limit_req zone=api burst=60 nodelay;
+
+        proxy_pass         http://app:8000;
+        proxy_http_version 1.1;
+
+        proxy_set_header   Upgrade           $http_upgrade;
+        proxy_set_header   Connection        "upgrade";
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+
+        proxy_connect_timeout  60s;
+        proxy_send_timeout     60s;
+        proxy_read_timeout     120s;
+
+        client_max_body_size 10m;
+    }
+}

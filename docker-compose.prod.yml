@@ -1,0 +1,110 @@
+services:
+  # ── Nginx reverse proxy ───────────────────────────────────────────────────
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: chattosales_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - certbot_webroot:/var/www/certbot:ro
+      - certbot_certs:/etc/letsencrypt:ro
+    depends_on:
+      - app
+    networks:
+      - chattosales_net
+
+  # ── FastAPI application ───────────────────────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: chattosales_app:latest
+    container_name: chattosales_app
+    restart: unless-stopped
+    # Port is NOT exposed to host — traffic flows through Nginx only
+    expose:
+      - "8000"
+    env_file:
+      - .env.prod
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - chattosales_net
+
+  # ── Alembic migrations (run-once job) ─────────────────────────────────────
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: chattosales_app:latest
+    container_name: chattosales_migrate
+    restart: "no"
+    env_file:
+      - .env.prod
+    command: alembic upgrade head
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - chattosales_net
+
+  # ── PostgreSQL ────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: chattosales_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: chattosales
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+    # NOT exposed to host in production
+    expose:
+      - "5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - chattosales_net
+    healthcheck:
+      test:
+        ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d chattosales"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis ─────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: chattosales_redis
+    restart: unless-stopped
+    # NOT exposed to host in production
+    expose:
+      - "6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - chattosales_net
+    command: redis-server --save 60 1 --loglevel warning --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+  redis_data:
+  certbot_webroot:
+  certbot_certs:
+
+networks:
+  chattosales_net:
+    driver: bridge
