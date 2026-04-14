@@ -10,7 +10,9 @@
 set -euo pipefail
 
 APP_DIR="/opt/chattosales"
-COMPOSE="docker compose -f docker-compose.prod.yml"
+# --env-file makes Compose use .env.prod for ${VAR} interpolation in the YAML
+# (distinct from env_file: which injects vars into container environments)
+COMPOSE="docker compose -f docker-compose.prod.yml --env-file .env.prod"
 
 NO_BUILD=false
 if [[ "${1:-}" == "--no-build" ]]; then

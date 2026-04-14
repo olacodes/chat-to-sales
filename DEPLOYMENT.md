@@ -256,32 +256,32 @@ bash deploy/deploy.sh
 
 ```bash
 # All services
-docker compose -f docker-compose.prod.yml logs -f
+docker compose -f docker-compose.prod.yml --env-file .env.prod logs -f
 
 # App only
-docker compose -f docker-compose.prod.yml logs -f app
+docker compose -f docker-compose.prod.yml --env-file .env.prod logs -f app
 
 # Nginx
-docker compose -f docker-compose.prod.yml logs -f nginx
+docker compose -f docker-compose.prod.yml --env-file .env.prod logs -f nginx
 ```
 
 ### Connect to the database
 
 ```bash
-docker compose -f docker-compose.prod.yml exec postgres \
+docker compose -f docker-compose.prod.yml --env-file .env.prod exec postgres \
     psql -U chattosales -d chattosales
 ```
 
 ### Run an Alembic migration manually
 
 ```bash
-docker compose -f docker-compose.prod.yml run --rm migrate alembic upgrade head
+docker compose -f docker-compose.prod.yml --env-file .env.prod run --rm migrate alembic upgrade head
 ```
 
 ### Restart a single service
 
 ```bash
-docker compose -f docker-compose.prod.yml restart app
+docker compose -f docker-compose.prod.yml --env-file .env.prod restart app
 ```
 
 ---
