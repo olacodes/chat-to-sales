@@ -47,24 +47,18 @@ async def lifespan(app: FastAPI):
     await create_all_tables()
     logger.info("Database tables verified/created")
 
-    # Start Redis event consumer for the default dev tenant.
-    # In production, fetch active tenant IDs from DB and register one task each.
+    # Start Redis event consumers for the default tenant.
+    # TODO: fetch active tenant IDs from DB and register one task each.
     _listener_tasks = []
-    if settings.is_development:
-        _listener_tasks.append(register_message_received_handler("tenant-abc-123"))
-        _listener_tasks.append(register_order_intent_handler("tenant-abc-123"))
-        _listener_tasks.append(register_payment_confirmed_handler("tenant-abc-123"))
-        _listener_tasks.append(register_realtime_listener("tenant-abc-123", ws_manager))
-        _listener_tasks.append(
-            register_order_created_notification_handler("tenant-abc-123")
-        )
-        _listener_tasks.append(
-            register_order_state_changed_notification_handler("tenant-abc-123")
-        )
-        _listener_tasks.append(
-            register_payment_confirmed_notification_handler("tenant-abc-123")
-        )
-        logger.info("Event listeners started for dev tenant")
+    _tenant_id = "tenant-abc-123"
+    _listener_tasks.append(register_message_received_handler(_tenant_id))
+    _listener_tasks.append(register_order_intent_handler(_tenant_id))
+    _listener_tasks.append(register_payment_confirmed_handler(_tenant_id))
+    _listener_tasks.append(register_realtime_listener(_tenant_id, ws_manager))
+    _listener_tasks.append(register_order_created_notification_handler(_tenant_id))
+    _listener_tasks.append(register_order_state_changed_notification_handler(_tenant_id))
+    _listener_tasks.append(register_payment_confirmed_notification_handler(_tenant_id))
+    logger.info("Event listeners started for tenant=%s", _tenant_id)
 
     yield
 
