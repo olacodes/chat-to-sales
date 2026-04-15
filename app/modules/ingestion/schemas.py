@@ -122,19 +122,13 @@ class WhatsAppContact(BaseModel):
 
 
 class WhatsAppMessage(BaseModel):
-    from_: str
+    from_: str = Field(alias="from")
     id: str
     timestamp: str
     type: str
     text: dict[str, str] | None = None
 
     model_config = {"populate_by_name": True}
-
-    @classmethod
-    def model_validate(cls, obj: Any, **kwargs: Any) -> "WhatsAppMessage":
-        if isinstance(obj, dict) and "from" in obj:
-            obj = {**obj, "from_": obj.pop("from")}
-        return super().model_validate(obj, **kwargs)
 
 
 class WhatsAppValue(BaseModel):
