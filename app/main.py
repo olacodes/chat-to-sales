@@ -26,7 +26,17 @@ from app.modules.realtime.router import router as realtime_router
 from app.modules.realtime.service import register_realtime_listener
 from app.modules.conversation.router import router as conversation_router
 from app.modules.dashboard.router import router as dashboard_router
+from app.modules.channels.router import router as channels_router
+from app.modules.channels.models import (
+    TenantChannel,
+)  # noqa: F401 — registers model with Base
 from app.modules.ingestion.router import router as ingestion_router
+from app.modules.auth.router import router as auth_router
+from app.core.models.user import (
+    User,
+    Tenant,
+    UserTenant,
+)  # noqa: F401 — registers models with Base
 from app.modules.notifications.router import router as notifications_router
 from app.modules.orders.router import router as orders_router
 from app.modules.payments.router import router as payments_router
@@ -50,13 +60,15 @@ async def lifespan(app: FastAPI):
     # Start Redis event consumers for the default tenant.
     # TODO: fetch active tenant IDs from DB and register one task each.
     _listener_tasks = []
-    _tenant_id = "tenant-abc-123"
+    _tenant_id = settings.TENANT_ID
     _listener_tasks.append(register_message_received_handler(_tenant_id))
     _listener_tasks.append(register_order_intent_handler(_tenant_id))
     _listener_tasks.append(register_payment_confirmed_handler(_tenant_id))
     _listener_tasks.append(register_realtime_listener(_tenant_id, ws_manager))
     _listener_tasks.append(register_order_created_notification_handler(_tenant_id))
-    _listener_tasks.append(register_order_state_changed_notification_handler(_tenant_id))
+    _listener_tasks.append(
+        register_order_state_changed_notification_handler(_tenant_id)
+    )
     _listener_tasks.append(register_payment_confirmed_notification_handler(_tenant_id))
     logger.info("Event listeners started for tenant=%s", _tenant_id)
 
@@ -96,7 +108,9 @@ def create_app() -> FastAPI:
 
     # ── Routers ───────────────────────────────────────────────────────────────
     prefix = settings.API_PREFIX
+    app.include_router(auth_router, prefix=prefix)
     app.include_router(ingestion_router, prefix=prefix)
+    app.include_router(channels_router, prefix=prefix)
     app.include_router(conversation_router, prefix=prefix)
     app.include_router(dashboard_router, prefix=prefix)
     app.include_router(orders_router, prefix=prefix)

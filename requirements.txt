@@ -2,6 +2,7 @@
 fastapi==0.115.6
 uvicorn[standard]==0.32.1
 pydantic==2.10.4
+pydantic[email]==2.10.4
 pydantic-settings==2.7.0
 
 # ── Database ──────────────────────────────────────────────────────────────────
@@ -18,6 +19,9 @@ httpx==0.28.1
 # ── Security ──────────────────────────────────────────────────────────────────
 python-jose[cryptography]==3.4.0
 passlib[bcrypt]==1.7.4
+# bcrypt 4.x breaks passlib 1.7.4's internal detect_wrap_bug self-test;
+# pin to the last compatible 3.x release.
+bcrypt==3.2.2
 
 # ── Testing ───────────────────────────────────────────────────────────────────
 pytest==8.3.4

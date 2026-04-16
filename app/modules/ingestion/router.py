@@ -107,12 +107,14 @@ async def receive_whatsapp_message(
             content = (first_msg.get("text") or {}).get("body", "")
         else:
             # Non-text types (image, audio, reaction, interactive, …) — no body to relay.
-            logger.debug("WhatsApp webhook — ignoring non-text message type=%s", msg_type)
+            logger.debug(
+                "WhatsApp webhook — ignoring non-text message type=%s", msg_type
+            )
     except (KeyError, IndexError, TypeError):
         pass  # status/delivery notification — nothing to process
 
     if sender_id and content:
-        tenant_id = settings.WHATSAPP_PHONE_NUMBER_ID or "default"
+        tenant_id = settings.TENANT_ID
         inbound = InboundMessageRequest(
             channel="whatsapp",
             sender_identifier=sender_id,
@@ -138,10 +140,21 @@ def _verify_signature_bytes(
         return  # Signature checking disabled when no secret is configured
 
     if not signature_header or not signature_header.startswith("sha256="):
+        logger.warning(
+            "WhatsApp webhook — missing or malformed X-Hub-Signature-256 header "
+            "(got: %r). Check that WHATSAPP_APP_SECRET is set and Meta has the "
+            "correct webhook URL.",
+            signature_header,
+        )
         raise InvalidWebhookSignatureError()
 
     expected = hmac.new(app_secret.encode(), body, hashlib.sha256).hexdigest()
     provided = signature_header.removeprefix("sha256=")
 
     if not hmac.compare_digest(expected, provided):
+        logger.warning(
+            "WhatsApp webhook — HMAC-SHA256 digest mismatch. "
+            "Verify that WHATSAPP_APP_SECRET in your .env matches the "
+            "'App Secret' on the Meta App Dashboard (not the Access Token)."
+        )
         raise InvalidWebhookSignatureError()

@@ -52,10 +52,30 @@ class Settings(BaseSettings):
     WHATSAPP_PHONE_NUMBER_ID: str = ""
     WHATSAPP_ACCESS_TOKEN: str = ""
 
+    # ── Tenant ────────────────────────────────────────────────────────────────
+    # The default tenant ID used for event routing and listener registration.
+    # Must match across the ingestion router and the event listener startup.
+    TENANT_ID: str = "tenant-abc-123"
+
     # ── Paystack ───────────────────────────────────────────────────────────────
     # Set this to your Paystack secret key in production.
     # Leave empty in development to skip webhook signature verification.
     PAYSTACK_SECRET_KEY: str = ""
+
+    # ── Encryption ─────────────────────────────────────────────────────────────
+    # Fernet key for encrypting sensitive credentials (e.g. access tokens).
+    # Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    ENCRYPTION_KEY: str = ""
+
+    # ── Google OAuth ───────────────────────────────────────────────────────────
+    # Your Google OAuth 2.0 Client ID from console.cloud.google.com.
+    # When set, Google ID tokens are validated against this audience (aud claim).
+    # Leave empty to skip audience validation (development only).
+    GOOGLE_CLIENT_ID: str = ""
+
+    # ── App public URL (used for webhook registration) ────────────────────────
+    # Set to your public HTTPS URL, e.g. https://chattosales.duckdns.org
+    APP_BASE_URL: str = "http://localhost:8000"
 
     # ── Security ──────────────────────────────────────────────────────────────
     SECRET_KEY: str = "change-this-secret-key-in-production"
@@ -76,6 +96,12 @@ class Settings(BaseSettings):
         if self.ENVIRONMENT == "production":
             if self.SECRET_KEY == "change-this-secret-key-in-production":
                 raise ValueError("SECRET_KEY must be overridden in production.")
+            if not self.ENCRYPTION_KEY:
+                raise ValueError("ENCRYPTION_KEY must be set in production.")
+            if self.APP_BASE_URL == "http://localhost:8000":
+                raise ValueError(
+                    "APP_BASE_URL must be set to the public HTTPS URL in production."
+                )
             if self.DEBUG:
                 raise ValueError("DEBUG must be False in production.")
         return self
