@@ -55,6 +55,23 @@ def _pattern(tenant_id: str) -> str:
     return f"{_CHANNEL_PREFIX}.{tenant_id}.*"
 
 
+def _global_pattern(event_name: str) -> str:
+    """
+    Return a PSUBSCRIBE pattern that matches a specific event across ALL tenants.
+
+    Example: _global_pattern("message.received")
+             → "chattosales.events.*.message.received"
+
+    The '*' matches any tenant-id segment. UUID-style tenant IDs never contain
+    dots, so this pattern will not over-match.
+    """
+    return f"{_CHANNEL_PREFIX}.*.{event_name}"
+
+
+# All events, all tenants — used by the realtime broadcaster
+_ALL_EVENTS_PATTERN = f"{_CHANNEL_PREFIX}.*"
+
+
 # ── Event schema ──────────────────────────────────────────────────────────────
 
 
@@ -209,7 +226,87 @@ async def subscribe_tenant_events(
         await client.aclose()
 
 
-# ── Background listener helper ────────────────────────────────────────────────
+async def subscribe_all_tenants_event(
+    event_name: str,
+) -> AsyncGenerator[Event, None]:
+    """
+    Async generator that yields events with a specific name from ALL tenants.
+
+    Uses Redis PSUBSCRIBE on 'chattosales.events.*.{event_name}' so a single
+    background task handles every tenant — including tenants created after
+    startup — without any per-tenant registration.
+
+    Usage (inside a background task)
+    ---------------------------------
+        async for event in subscribe_all_tenants_event("message.received"):
+            await handle_message_received(event)
+            # event.tenant_id tells you which tenant triggered it
+    """
+    pattern = _global_pattern(event_name)
+    client: aioredis.Redis = aioredis.from_url(
+        _settings.redis_url_str,
+        encoding="utf-8",
+        decode_responses=True,
+    )
+    pubsub = client.pubsub()
+
+    try:
+        await pubsub.psubscribe(pattern)
+        logger.info("Global pattern-subscribed to: %s", pattern)
+
+        async for message in pubsub.listen():
+            if message["type"] != "pmessage":
+                continue
+            try:
+                yield Event.from_json(message["data"])
+            except (json.JSONDecodeError, TypeError) as exc:
+                logger.warning("Malformed event on pattern %s: %s", pattern, exc)
+
+    except asyncio.CancelledError:
+        logger.info("Global pattern subscription cancelled: %s", pattern)
+        raise
+    finally:
+        await pubsub.punsubscribe(pattern)
+        await pubsub.aclose()
+        await client.aclose()
+
+
+async def subscribe_all_events() -> AsyncGenerator[Event, None]:
+    """
+    Async generator that yields ALL events across ALL tenants.
+
+    Subscribes to 'chattosales.events.*' — used by the realtime broadcaster
+    which needs to forward every event to connected WebSocket clients regardless
+    of which tenant produced it.
+    """
+    pattern = _ALL_EVENTS_PATTERN
+    client: aioredis.Redis = aioredis.from_url(
+        _settings.redis_url_str,
+        encoding="utf-8",
+        decode_responses=True,
+    )
+    pubsub = client.pubsub()
+
+    try:
+        await pubsub.psubscribe(pattern)
+        logger.info("All-events pattern-subscribed to: %s", pattern)
+
+        async for message in pubsub.listen():
+            if message["type"] != "pmessage":
+                continue
+            try:
+                yield Event.from_json(message["data"])
+            except (json.JSONDecodeError, TypeError) as exc:
+                logger.warning("Malformed event on pattern %s: %s", pattern, exc)
+
+    except asyncio.CancelledError:
+        logger.info("All-events pattern subscription cancelled: %s", pattern)
+        raise
+    finally:
+        await pubsub.punsubscribe(pattern)
+        await pubsub.aclose()
+        await client.aclose()
+
 
 Handler = Callable[[Event], Coroutine[Any, Any, None]]
 
@@ -248,6 +345,36 @@ def create_listener_task(
 
     task = asyncio.ensure_future(_loop())
     logger.info("Listener task created for tenant=%s event=%s", tenant_id, event_name)
+    return task
+
+
+def create_global_listener_task(
+    event_name: str,
+    handler: Handler,
+) -> asyncio.Task:
+    """
+    Spawn a single long-running Task that consumes a specific event from
+    ALL tenants via PSUBSCRIBE.
+
+    Prefer this over create_listener_task() in production so that events from
+    any tenant — including tenants registered after app startup — are handled
+    automatically without restarting the application.
+    """
+
+    async def _loop() -> None:
+        async for event in subscribe_all_tenants_event(event_name):
+            try:
+                await handler(event)
+            except Exception as exc:
+                logger.exception(
+                    "Handler error for event=%s tenant=%s: %s",
+                    event.event_name,
+                    event.tenant_id,
+                    exc,
+                )
+
+    task = asyncio.ensure_future(_loop())
+    logger.info("Global listener task created for event=%s (all tenants)", event_name)
     return task
 
 

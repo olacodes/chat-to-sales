@@ -37,7 +37,7 @@ import asyncio
 
 from app.core.logging import get_logger
 from app.infra.database import async_session_factory
-from app.infra.event_bus import Event, create_listener_task, publish_event
+from app.infra.event_bus import Event, create_global_listener_task, publish_event
 from app.modules.conversation.service import ConversationService
 
 logger = get_logger(__name__)
@@ -118,18 +118,16 @@ async def handle_message_received(event: Event) -> None:
         )
 
 
-def register_message_received_handler(tenant_id: str) -> asyncio.Task:
+def register_message_received_handler() -> asyncio.Task:
     """
-    Start a background asyncio Task that consumes `message.received` events
-    for the given tenant and persists them to the database.
+    Start a single background Task that consumes `message.received` events
+    from ALL tenants and persists conversations to the database.
 
-    Returns the task so the caller can cancel it on shutdown.  The task
-    restarts automatically on transient errors (the listener loop in
-    create_listener_task swallows per-event exceptions and continues).
+    Uses Redis PSUBSCRIBE so events from any tenant — including tenants
+    created after app startup — are handled without restarting.
     """
-    logger.info("Registering message.received handler for tenant=%s", tenant_id)
-    return create_listener_task(
-        tenant_id=tenant_id,
+    logger.info("Registering message.received handler (all tenants)")
+    return create_global_listener_task(
         event_name=_MESSAGE_RECEIVED_EVENT,
         handler=handle_message_received,
     )

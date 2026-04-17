@@ -5,13 +5,12 @@ Bridges the Redis event bus to the WebSocket connection manager.
 
 How it works
 ------------
-For each tenant registered at startup, a background asyncio Task is created
-that pattern-subscribes to ALL events for that tenant:
+A single background asyncio Task subscribes to ALL events across ALL tenants
+via the pattern 'chattosales.events.*'. When an event arrives, the tenant_id
+is read directly from the Event envelope and the message is broadcast to every
+WebSocket connection registered for that tenant.
 
-    chattosales.events.<tenant_id>.*
-
-When an event arrives it is translated into a client-facing WebSocket message
-and broadcast to every connected WebSocket for that tenant via ConnectionManager.
+This means new tenants are handled automatically — no restart required.
 
 Event → WebSocket message shape
 --------------------------------
@@ -30,18 +29,17 @@ client-facing envelope to match common frontend conventions.
 
 Wiring
 ------
-Call register_realtime_listener(tenant_id) in main.py's lifespan for each
-tenant that should receive real-time pushes:
+Call register_realtime_listener(manager) once in main.py's lifespan:
 
     from app.modules.realtime.service import register_realtime_listener
 
-    _listener_tasks.append(register_realtime_listener("tenant-abc-123"))
+    _listener_tasks.append(register_realtime_listener(ws_manager))
 """
 
 import asyncio
 
 from app.core.logging import get_logger
-from app.infra.event_bus import Event, subscribe_tenant_events
+from app.infra.event_bus import Event, subscribe_all_events
 from app.modules.realtime.manager import ConnectionManager
 
 logger = get_logger(__name__)
@@ -64,24 +62,23 @@ def _to_pascal(event_name: str) -> str:
 
 
 async def _listen_and_broadcast(
-    tenant_id: str,
     manager: ConnectionManager,
 ) -> None:
     """
-    Long-running coroutine: consume all Redis events for a tenant and
+    Long-running coroutine: consume all Redis events across all tenants and
     push them to connected WebSocket clients.
 
-    Exits cleanly on asyncio.CancelledError (app shutdown).
-    All other exceptions are logged and the loop continues so one bad
-    event never kills the listener.
+    tenant_id is read from the Event envelope — no per-tenant startup wiring
+    needed. Exits cleanly on asyncio.CancelledError (app shutdown).
     """
-    logger.info("Realtime listener started for tenant=%s", tenant_id)
+    logger.info("Realtime listener started (all tenants)")
 
-    async for event in subscribe_tenant_events(tenant_id):
+    async for event in subscribe_all_events():
+        tenant_id = event.tenant_id
         try:
             message = {
                 "event": _to_pascal(event.event_name),
-                "tenant_id": event.tenant_id,
+                "tenant_id": tenant_id,
                 "event_id": event.event_id,
                 "timestamp": event.timestamp,
                 "data": event.payload,
@@ -107,15 +104,14 @@ async def _listen_and_broadcast(
 
 
 def register_realtime_listener(
-    tenant_id: str,
     manager: ConnectionManager,
 ) -> asyncio.Task:
     """
-    Spawn a background task that forwards all Redis events for tenant_id
-    to connected WebSocket clients via the given ConnectionManager.
+    Spawn a single background task that forwards all Redis events for all
+    tenants to connected WebSocket clients via the given ConnectionManager.
 
     Returns the task so the caller can cancel it on shutdown.
     """
-    task = asyncio.ensure_future(_listen_and_broadcast(tenant_id, manager))
-    logger.info("Realtime listener task created for tenant=%s", tenant_id)
+    task = asyncio.ensure_future(_listen_and_broadcast(manager))
+    logger.info("Realtime listener task created (all tenants)")
     return task

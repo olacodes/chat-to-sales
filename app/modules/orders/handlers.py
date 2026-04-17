@@ -39,7 +39,7 @@ import asyncio
 
 from app.core.logging import get_logger
 from app.infra.database import async_session_factory
-from app.infra.event_bus import Event, create_listener_task
+from app.infra.event_bus import Event, create_global_listener_task
 from app.modules.orders.service import OrderService
 
 logger = get_logger(__name__)
@@ -119,16 +119,13 @@ async def handle_order_intent(event: Event) -> None:
         )
 
 
-def register_order_intent_handler(tenant_id: str) -> asyncio.Task:
+def register_order_intent_handler() -> asyncio.Task:
     """
-    Start a background asyncio Task that consumes `conversation.message_saved`
-    events for the given tenant and creates INQUIRY orders on purchase intent.
-
-    Returns the task so the caller can cancel it on shutdown.
+    Start a single background Task that consumes `conversation.message_saved`
+    events from ALL tenants and creates INQUIRY orders on purchase intent.
     """
-    logger.info("Registering order-intent handler for tenant=%s", tenant_id)
-    return create_listener_task(
-        tenant_id=tenant_id,
+    logger.info("Registering order-intent handler (all tenants)")
+    return create_global_listener_task(
         event_name=_CONVERSATION_MESSAGE_SAVED_EVENT,
         handler=handle_order_intent,
     )

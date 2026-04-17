@@ -43,7 +43,7 @@ import asyncio
 
 from app.core.logging import get_logger
 from app.infra.database import async_session_factory
-from app.infra.event_bus import Event, create_listener_task
+from app.infra.event_bus import Event, create_global_listener_task
 from app.modules.conversation.repository import ConversationRepository
 from app.modules.notifications.service import NotificationService
 from app.modules.orders.models import OrderState
@@ -235,34 +235,25 @@ async def handle_payment_confirmed_notification(event: Event) -> None:
 # ── Registration helpers ──────────────────────────────────────────────────────
 
 
-def register_order_created_notification_handler(tenant_id: str) -> asyncio.Task:
-    logger.info(
-        "Registering order.created notification handler for tenant=%s", tenant_id
-    )
-    return create_listener_task(
-        tenant_id=tenant_id,
+def register_order_created_notification_handler() -> asyncio.Task:
+    logger.info("Registering order.created notification handler (all tenants)")
+    return create_global_listener_task(
         event_name=_EVT_ORDER_CREATED,
         handler=handle_order_created_notification,
     )
 
 
-def register_order_state_changed_notification_handler(tenant_id: str) -> asyncio.Task:
-    logger.info(
-        "Registering order.state_changed notification handler for tenant=%s", tenant_id
-    )
-    return create_listener_task(
-        tenant_id=tenant_id,
+def register_order_state_changed_notification_handler() -> asyncio.Task:
+    logger.info("Registering order.state_changed notification handler (all tenants)")
+    return create_global_listener_task(
         event_name=_EVT_ORDER_STATE_CHANGED,
         handler=handle_order_state_changed_notification,
     )
 
 
-def register_payment_confirmed_notification_handler(tenant_id: str) -> asyncio.Task:
-    logger.info(
-        "Registering payment.confirmed notification handler for tenant=%s", tenant_id
-    )
-    return create_listener_task(
-        tenant_id=tenant_id,
+def register_payment_confirmed_notification_handler() -> asyncio.Task:
+    logger.info("Registering payment.confirmed notification handler (all tenants)")
+    return create_global_listener_task(
         event_name=_EVT_PAYMENT_CONFIRMED,
         handler=handle_payment_confirmed_notification,
     )

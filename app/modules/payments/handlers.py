@@ -29,7 +29,7 @@ import asyncio
 
 from app.core.logging import get_logger
 from app.infra.database import async_session_factory
-from app.infra.event_bus import Event, create_listener_task
+from app.infra.event_bus import Event, create_global_listener_task
 from app.modules.orders.service import OrderService
 
 logger = get_logger(__name__)
@@ -90,16 +90,13 @@ async def handle_payment_confirmed(event: Event) -> None:
         )
 
 
-def register_payment_confirmed_handler(tenant_id: str) -> asyncio.Task:
+def register_payment_confirmed_handler() -> asyncio.Task:
     """
-    Start a background task that consumes `payment.confirmed` events for the
-    given tenant and transitions affected orders to PAID state.
-
-    Returns the task so the caller can cancel it on shutdown.
+    Start a single background Task that consumes `payment.confirmed` events
+    from ALL tenants and transitions affected orders to PAID state.
     """
-    logger.info("Registering payment.confirmed handler for tenant=%s", tenant_id)
-    return create_listener_task(
-        tenant_id=tenant_id,
+    logger.info("Registering payment.confirmed handler (all tenants)")
+    return create_global_listener_task(
         event_name=_PAYMENT_CONFIRMED_EVENT,
         handler=handle_payment_confirmed,
     )

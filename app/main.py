@@ -57,20 +57,18 @@ async def lifespan(app: FastAPI):
     await create_all_tables()
     logger.info("Database tables verified/created")
 
-    # Start Redis event consumers for the default tenant.
-    # TODO: fetch active tenant IDs from DB and register one task each.
+    # Start Redis event consumers — one task per event type, all tenants.
+    # Using PSUBSCRIBE pattern matching, each task automatically handles
+    # events from every tenant including those created after startup.
     _listener_tasks = []
-    _tenant_id = settings.TENANT_ID
-    _listener_tasks.append(register_message_received_handler(_tenant_id))
-    _listener_tasks.append(register_order_intent_handler(_tenant_id))
-    _listener_tasks.append(register_payment_confirmed_handler(_tenant_id))
-    _listener_tasks.append(register_realtime_listener(_tenant_id, ws_manager))
-    _listener_tasks.append(register_order_created_notification_handler(_tenant_id))
-    _listener_tasks.append(
-        register_order_state_changed_notification_handler(_tenant_id)
-    )
-    _listener_tasks.append(register_payment_confirmed_notification_handler(_tenant_id))
-    logger.info("Event listeners started for tenant=%s", _tenant_id)
+    _listener_tasks.append(register_message_received_handler())
+    _listener_tasks.append(register_order_intent_handler())
+    _listener_tasks.append(register_payment_confirmed_handler())
+    _listener_tasks.append(register_realtime_listener(ws_manager))
+    _listener_tasks.append(register_order_created_notification_handler())
+    _listener_tasks.append(register_order_state_changed_notification_handler())
+    _listener_tasks.append(register_payment_confirmed_notification_handler())
+    logger.info("Event listeners started (all tenants via pattern subscription)")
 
     yield
 
