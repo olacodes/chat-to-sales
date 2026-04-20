@@ -10,6 +10,7 @@ class NotificationChannel(StrEnum):
 
 
 class NotificationPayload(BaseModel):
+    tenant_id: str
     recipient: str  # phone number or email
     channel: NotificationChannel
     template_name: str

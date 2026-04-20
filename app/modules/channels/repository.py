@@ -37,6 +37,26 @@ class ChannelRepository:
         )
         return result.scalar_one_or_none()
 
+    async def get_by_phone_number_id(
+        self,
+        *,
+        phone_number_id: str,
+        channel: str = "whatsapp",
+    ) -> TenantChannel | None:
+        """
+        Look up a channel record by Meta phone_number_id.
+
+        Used by the inbound webhook to resolve which tenant owns the
+        receiving phone number, enabling multi-tenant routing.
+        """
+        result = await self._session.execute(
+            select(TenantChannel).where(
+                TenantChannel.phone_number_id == phone_number_id,
+                TenantChannel.channel == channel,
+            )
+        )
+        return result.scalar_one_or_none()
+
     async def upsert(
         self,
         *,

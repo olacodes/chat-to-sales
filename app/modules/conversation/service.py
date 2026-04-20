@@ -144,7 +144,12 @@ class ConversationService:
         conversation_id: str,
         data: MessageCreate,
     ) -> Message:
-        """Add a message to an existing conversation (REST API path)."""
+        """Add a message to an existing conversation (REST API path).
+
+        When sender_role is ASSISTANT the message is also dispatched to the
+        customer's WhatsApp number via NotificationService so replies typed
+        in the dashboard reach the customer in real time.
+        """
         conv = await self.get_by_id(conversation_id)
         # Derive sender identity from the conversation — callers never supply it.
         # user    → sender_identifier = conversation's customer_identifier
@@ -168,8 +173,60 @@ class ConversationService:
                 external_id=data.external_id,  # type: ignore[arg-type]
             )
             return existing  # type: ignore[return-value]
+
         await self._db.commit()
+
+        # After committing, dispatch outbound delivery for assistant/agent replies.
+        # This is done post-commit so a Meta API failure never rolls back the
+        # message that was already persisted.
+        if data.sender_role == MessageSender.ASSISTANT and conv.channel == "whatsapp":
+            await self._dispatch_reply(
+                tenant_id=conv.tenant_id,
+                recipient=conv.customer_identifier,
+                message_text=data.content,
+                message_id=str(msg.id),
+            )
+
         return msg
+
+    async def _dispatch_reply(
+        self,
+        *,
+        tenant_id: str,
+        recipient: str,
+        message_text: str,
+        message_id: str,
+    ) -> None:
+        """
+        Dispatch an outbound reply to the customer's WhatsApp number.
+
+        Uses NotificationService so the send is idempotent (message_id is the
+        event_id key) and the result is persisted to notifications.
+        Failures are logged but never surface to the HTTP caller — the message
+        is already saved in the DB.
+        """
+        # Import here to avoid a circular import between conversation and notifications.
+        from app.modules.notifications.service import (
+            NotificationService,
+        )  # noqa: PLC0415
+
+        try:
+            svc = NotificationService(self._db)
+            await svc.send_message(
+                tenant_id=tenant_id,
+                event_id=f"reply.{message_id}",
+                recipient=recipient,
+                message_text=message_text,
+                channel="whatsapp",
+            )
+            await self._db.commit()
+        except Exception as exc:
+            logger.error(
+                "Outbound WhatsApp dispatch failed conversation=%s recipient=%s: %s",
+                message_id,
+                recipient,
+                exc,
+            )
 
     # ── List methods ──────────────────────────────────────────────────────────
 
