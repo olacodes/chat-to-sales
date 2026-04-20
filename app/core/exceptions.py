@@ -1,5 +1,9 @@
+import logging
+
 from fastapi import HTTPException, Request, status
 from fastapi.responses import JSONResponse
+
+_logger = logging.getLogger(__name__)
 
 
 class ChatToSalesError(Exception):
@@ -57,6 +61,7 @@ async def chattosales_error_handler(
 
 
 async def unhandled_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    _logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={"error": "An unexpected error occurred."},

@@ -200,29 +200,35 @@ class ConversationService:
         """
         Dispatch an outbound reply to the customer's WhatsApp number.
 
+        Uses an independent DB session so any failure (Meta API error, missing
+        channel config, etc.) never affects the already-committed message row
+        and never puts the caller's session in a bad state.
+
         Uses NotificationService so the send is idempotent (message_id is the
         event_id key) and the result is persisted to notifications.
-        Failures are logged but never surface to the HTTP caller — the message
-        is already saved in the DB.
+        Failures are logged but never surface to the HTTP caller.
         """
         # Import here to avoid a circular import between conversation and notifications.
-        from app.modules.notifications.service import (
+        from app.modules.notifications.service import (  # noqa: PLC0415
             NotificationService,
-        )  # noqa: PLC0415
+        )
+
+        # Import inside to avoid module-level circular dependency.
+        from app.infra.database import async_session_factory  # noqa: PLC0415
 
         try:
-            svc = NotificationService(self._db)
-            await svc.send_message(
-                tenant_id=tenant_id,
-                event_id=f"reply.{message_id}",
-                recipient=recipient,
-                message_text=message_text,
-                channel="whatsapp",
-            )
-            await self._db.commit()
+            async with async_session_factory.begin() as session:
+                svc = NotificationService(session)
+                await svc.send_message(
+                    tenant_id=tenant_id,
+                    event_id=f"reply.{message_id}",
+                    recipient=recipient,
+                    message_text=message_text,
+                    channel="whatsapp",
+                )
         except Exception as exc:
             logger.error(
-                "Outbound WhatsApp dispatch failed conversation=%s recipient=%s: %s",
+                "Outbound WhatsApp dispatch failed message_id=%s recipient=%s: %s",
                 message_id,
                 recipient,
                 exc,
