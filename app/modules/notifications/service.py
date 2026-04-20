@@ -33,6 +33,7 @@ Meta Cloud API call:
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.exceptions import NotFoundError
 from app.core.logging import get_logger
 from app.infra.crypto import decrypt_token
 from app.modules.channels.repository import ChannelRepository
@@ -160,9 +161,9 @@ class NotificationService:
             channel="whatsapp",
         )
         if channel_record is None:
-            raise ValueError(
-                f"No WhatsApp channel configured for tenant={tenant_id}. "
-                "Connect a channel via POST /api/v1/channels/whatsapp/connect first."
+            raise NotFoundError(
+                "WhatsApp channel",
+                f"tenant={tenant_id} — connect one via POST /api/v1/channels/whatsapp/connect",
             )
 
         phone_number_id = channel_record.phone_number_id
