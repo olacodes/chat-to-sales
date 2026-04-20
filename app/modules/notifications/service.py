@@ -33,7 +33,7 @@ Meta Cloud API call:
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import ChatToSalesError, NotFoundError
 from app.core.logging import get_logger
 from app.infra.crypto import decrypt_token
 from app.modules.channels.repository import ChannelRepository
@@ -195,4 +195,13 @@ class NotificationService:
                 response.text,
                 recipient,
             )
-            response.raise_for_status()
+            if response.status_code == 401:
+                raise ChatToSalesError(
+                    message="WhatsApp access token is invalid or expired. "
+                            "Reconnect the channel via POST /api/v1/channels/whatsapp/connect.",
+                    status_code=502,
+                )
+            raise ChatToSalesError(
+                message=f"WhatsApp API error {response.status_code}: {response.text[:200]}",
+                status_code=502,
+            )
