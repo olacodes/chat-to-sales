@@ -41,6 +41,11 @@ from app.modules.notifications.router import router as notifications_router
 from app.modules.orders.router import router as orders_router
 from app.modules.payments.router import router as payments_router
 from app.modules.staff.router import router as staff_router
+from app.modules.reports.router import router as reports_router
+from app.modules.reports.models import (  # noqa: F401 — registers models with Base
+    TenantReportConfig,
+    WeeklyReport,
+)
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -116,6 +121,7 @@ def create_app() -> FastAPI:
     app.include_router(payments_router, prefix=prefix)
     app.include_router(notifications_router, prefix=prefix)
     app.include_router(staff_router, prefix=prefix)
+    app.include_router(reports_router, prefix=prefix)
     app.include_router(realtime_router)  # no API prefix — /ws/{tenant_id}
 
     # ── Health check ──────────────────────────────────────────────────────────

@@ -81,6 +81,11 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "change-this-secret-key-in-production"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
 
+    # ── Weekly report ──────────────────────────────────────────────────────────
+    # Shared secret for the POST /reports/trigger-weekly endpoint.
+    # Set a strong random value in production (e.g. openssl rand -hex 32).
+    REPORT_SECRET: str = "change-this-report-secret"
+
     # ── Validators ────────────────────────────────────────────────────────────
 
     @field_validator("ENVIRONMENT", mode="before")
