@@ -40,10 +40,10 @@ class Notification(TenantModel):
     # Idempotency key — set to the triggering Event.event_id so the same
     # event can never produce more than one notification row.
     event_id: Mapped[str] = mapped_column(
-        String(36),
+        String(100),
         nullable=False,
         unique=True,
-        comment="Triggering event UUID — unique constraint prevents duplicates",
+        comment="Triggering event UUID or compound key — unique constraint prevents duplicates",
     )
 
     # Where the message was sent
