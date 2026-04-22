@@ -198,7 +198,7 @@ class NotificationService:
             if response.status_code == 401:
                 raise ChatToSalesError(
                     message="WhatsApp access token is invalid or expired. "
-                            "Reconnect the channel via POST /api/v1/channels/whatsapp/connect.",
+                    "Reconnect the channel via POST /api/v1/channels/whatsapp/connect.",
                     status_code=502,
                 )
             raise ChatToSalesError(

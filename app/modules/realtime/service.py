@@ -17,15 +17,15 @@ Event → WebSocket message shape
 Every message sent to clients follows this envelope:
 
     {
-        "event": "<EventName in PascalCase>",
+        "type": "<event_name>",
+        "payload": { ...event-specific payload... },
         "tenant_id": "<tenant_id>",
         "event_id": "<uuid>",
-        "timestamp": "<iso8601>",
-        "data": { ...event-specific payload... }
+        "timestamp": "<iso8601>"
     }
 
-Internal event names (dot-notation) are converted to PascalCase for the
-client-facing envelope to match common frontend conventions.
+Event names are kept in canonical dot-notation (e.g. "message.received")
+so frontend listeners can match them directly without any name mapping.
 
 Wiring
 ------
@@ -45,22 +45,6 @@ from app.modules.realtime.manager import ConnectionManager
 logger = get_logger(__name__)
 
 
-def _to_pascal(event_name: str) -> str:
-    """
-    Convert dot-separated event name to PascalCase for the client envelope.
-
-    Examples:
-        "order.state_changed"  → "OrderStateChanged"
-        "payment.confirmed"    → "PaymentConfirmed"
-        "message.received"     → "MessageReceived"
-    """
-    return "".join(
-        part.capitalize()
-        for segment in event_name.split(".")
-        for part in segment.split("_")
-    )
-
-
 async def _listen_and_broadcast(
     manager: ConnectionManager,
 ) -> None:
@@ -70,6 +54,13 @@ async def _listen_and_broadcast(
 
     tenant_id is read from the Event envelope — no per-tenant startup wiring
     needed. Exits cleanly on asyncio.CancelledError (app shutdown).
+
+    Envelope shape sent to clients:
+        { "type": "<event_name>", "payload": {...}, "tenant_id": "...",
+          "event_id": "...", "timestamp": "..." }
+
+    Event names are kept in their canonical dot-notation form (e.g.
+    "message.received") so frontend listeners can match them directly.
     """
     logger.info("Realtime listener started (all tenants)")
 
@@ -77,11 +68,11 @@ async def _listen_and_broadcast(
         tenant_id = event.tenant_id
         try:
             message = {
-                "event": _to_pascal(event.event_name),
+                "type": event.event_name,
+                "payload": event.payload,
                 "tenant_id": tenant_id,
                 "event_id": event.event_id,
                 "timestamp": event.timestamp,
-                "data": event.payload,
             }
             active = manager.count(tenant_id)
             if active:

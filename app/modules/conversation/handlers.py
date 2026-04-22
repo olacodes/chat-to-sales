@@ -106,13 +106,18 @@ async def handle_message_received(event: Event) -> None:
                 event_name=_CONVERSATION_MESSAGE_SAVED_EVENT,
                 tenant_id=tenant_id,
                 payload={
+                    # Full message fields — lets the frontend update its cache
+                    # directly without an extra API round-trip.
+                    "id": str(msg.id),
                     "conversation_id": str(conv.id),
+                    "sender_role": msg.sender_role,
+                    "sender_identifier": sender_id,
+                    "content": content,
+                    "created_at": msg.created_at.isoformat() if msg.created_at else None,
+                    # Conversation / routing context
                     "tenant_id": tenant_id,
                     "channel": channel,
                     "customer_identifier": sender_id,
-                    "sender_identifier": sender_id,
-                    "message": content,
-                    "message_lower": content.lower(),
                 },
             )
         )
