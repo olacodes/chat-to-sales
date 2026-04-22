@@ -29,10 +29,15 @@ from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
+from app.modules.channels.repository import ChannelRepository
 from app.modules.conversation.models import Conversation, ConversationStatus, Message
 from app.modules.notifications.service import NotificationService
 from app.modules.orders.models import Order, OrderState
-from app.modules.reports.models import TenantReportConfig, WeeklyReport, WeeklyReportStatus
+from app.modules.reports.models import (
+    TenantReportConfig,
+    WeeklyReport,
+    WeeklyReportStatus,
+)
 from app.modules.reports.schemas import ReportConfigUpdate
 
 logger = get_logger(__name__)
@@ -409,6 +414,19 @@ class WeeklyReportService:
         if not config.recipient_phone:
             raise ValueError(
                 "No recipient_phone configured. Set one via PUT /reports/config."
+            )
+
+        # Fail fast with a clear 400 if the WhatsApp channel is not yet connected.
+        # Without this check, NotificationService raises NotFoundError which the
+        # router cannot catch and the caller receives a confusing 404.
+        channel_record = await ChannelRepository(self._db).get_by_tenant_and_channel(
+            tenant_id=tenant_id,
+            channel="whatsapp",
+        )
+        if channel_record is None:
+            raise ValueError(
+                "WhatsApp channel not connected for this tenant. "
+                "Connect it first via POST /api/v1/channels/whatsapp/connect."
             )
 
         tz = _safe_tz(config.timezone)
