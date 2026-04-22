@@ -22,14 +22,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundError
 from app.core.logging import get_logger
+from app.core.models.user import User, UserTenant
+from app.infra.event_bus import Event, publish_event
 from app.modules.conversation.models import Conversation, Message, MessageSender
 from app.modules.conversation.repository import ConversationRepository
 from app.modules.conversation.schemas import (
+    AssignmentOut,
     ConversationListItem,
     ConversationListResponse,
     LastMessage,
     MessageCreate,
     MessageListResponse,
+    StaffMemberOut,
 )
 
 logger = get_logger(__name__)
@@ -138,6 +142,87 @@ class ConversationService:
         if conv is None:
             raise NotFoundError("Conversation", conversation_id)
         return conv
+
+    async def assign_conversation(
+        self,
+        conversation_id: str,
+        *,
+        tenant_id: str,
+        user_id: str | None,
+        assigned_by_user_id: str | None = None,
+    ) -> AssignmentOut:
+        """
+        Assign or unassign a conversation.
+
+        When user_id is None the conversation becomes unassigned.
+        Validates that the target user belongs to the same tenant before
+        persisting. Publishes a conversation.assigned event after commit.
+        """
+        if user_id is not None:
+            # Verify the target user is a member of this tenant
+            result = await self._db.execute(
+                select(UserTenant).where(
+                    UserTenant.user_id == user_id,
+                    UserTenant.tenant_id == tenant_id,
+                )
+            )
+            membership = result.scalar_one_or_none()
+            if membership is None:
+                raise NotFoundError("StaffMember", user_id)
+
+        conv = await self._repo.assign_conversation(
+            conversation_id=conversation_id,
+            tenant_id=tenant_id,
+            user_id=user_id,
+        )
+        if conv is None:
+            raise NotFoundError("Conversation", conversation_id)
+
+        await self._db.commit()
+
+        # Re-fetch the assigned user for the response and event payload
+        assigned_user: User | None = None
+        if user_id is not None:
+            user_result = await self._db.execute(
+                select(User).where(User.id == user_id)
+            )
+            assigned_user = user_result.scalar_one_or_none()
+
+        assigned_to_out = (
+            StaffMemberOut(
+                id=assigned_user.id,
+                display_name=assigned_user.display_name,
+                email=assigned_user.email,
+            )
+            if assigned_user
+            else None
+        )
+
+        # Publish real-time event — the realtime broadcaster forwards it to
+        # all WebSocket clients connected for this tenant automatically.
+        await publish_event(
+            Event(
+                event_name="conversation.assigned",
+                tenant_id=tenant_id,
+                payload={
+                    "conversation_id": conversation_id,
+                    "assigned_to": assigned_to_out.model_dump() if assigned_to_out else None,
+                    "assigned_by_user_id": assigned_by_user_id,
+                },
+            )
+        )
+
+        logger.info(
+            "Conversation assigned conversation_id=%s user_id=%s by=%s",
+            conversation_id,
+            user_id,
+            assigned_by_user_id,
+        )
+
+        return AssignmentOut(
+            conversation_id=conversation_id,
+            assigned_to=assigned_to_out,
+        )
 
     async def add_message(
         self,
@@ -270,12 +355,22 @@ class ConversationService:
                 if msg
                 else None
             )
+            assigned_to = (
+                StaffMemberOut(
+                    id=conv.assigned_to.id,
+                    display_name=conv.assigned_to.display_name,
+                    email=conv.assigned_to.email,
+                )
+                if conv.assigned_to is not None
+                else None
+            )
             items.append(
                 ConversationListItem(
                     id=conv.id,
                     customer_identifier=conv.customer_identifier,
                     customer_name=conv.customer_name,
                     status=conv.status,
+                    assigned_to=assigned_to,
                     last_message=last_message,
                     updated_at=conv.updated_at,
                 )

@@ -208,6 +208,29 @@ class ConversationRepository:
         )
         return msg
 
+    async def assign_conversation(
+        self,
+        *,
+        conversation_id: str,
+        tenant_id: str,
+        user_id: str | None,
+    ) -> Conversation | None:
+        """
+        Set or clear the assigned_to_user_id on a conversation.
+
+        Returns the updated Conversation, or None if not found.
+        The caller owns the transaction boundary (commit/rollback).
+        """
+        conv = await self.get_conversation_by_id(
+            conversation_id=conversation_id,
+            tenant_id=tenant_id,
+        )
+        if conv is None:
+            return None
+        conv.assigned_to_user_id = user_id
+        await self._session.flush()
+        return conv
+
     # ── List queries ──────────────────────────────────────────────────────────
 
     async def list_conversations(

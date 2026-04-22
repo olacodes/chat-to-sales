@@ -4,6 +4,8 @@ from fastapi import APIRouter, Depends, Query
 
 from app.core.dependencies import DBSessionDep
 from app.modules.conversation.schemas import (
+    AssignConversationRequest,
+    AssignmentOut,
     ConversationCreate,
     ConversationListResponse,
     ConversationOut,
@@ -65,6 +67,21 @@ async def add_message(
     svc: ServiceDep,
 ) -> MessageOut:
     return await svc.add_message(conversation_id, body)
+
+
+@router.patch("/{conversation_id}/assign")
+async def assign_conversation(
+    conversation_id: str,
+    tenant_id: str,
+    body: AssignConversationRequest,
+    svc: ServiceDep,
+) -> AssignmentOut:
+    return await svc.assign_conversation(
+        conversation_id,
+        tenant_id=tenant_id,
+        user_id=body.user_id,
+        assigned_by_user_id=body.assigned_by_user_id,
+    )
 
 
 @router.get("/{conversation_id}/messages")

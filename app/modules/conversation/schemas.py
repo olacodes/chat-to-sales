@@ -5,6 +5,34 @@ from pydantic import BaseModel
 from app.modules.conversation.models import ConversationStatus, MessageSender
 
 
+# ── Shared sub-schemas ────────────────────────────────────────────────────────
+
+
+class StaffMemberOut(BaseModel):
+    """Slim staff member representation embedded in conversation responses."""
+
+    id: str
+    display_name: str | None
+    email: str
+
+    model_config = {"from_attributes": True}
+
+
+class AssignConversationRequest(BaseModel):
+    """Body for PATCH /conversations/{id}/assign."""
+
+    user_id: str | None = None  # None → unassign
+    assigned_by_user_id: str | None = None
+
+
+class AssignmentOut(BaseModel):
+    conversation_id: str
+    assigned_to: StaffMemberOut | None
+
+
+# ── Message schemas ───────────────────────────────────────────────────────────
+
+
 class MessageCreate(BaseModel):
     sender_role: MessageSender
     content: str
@@ -37,6 +65,7 @@ class ConversationOut(BaseModel):
     channel: str
     customer_id: str | None
     status: ConversationStatus
+    assigned_to: StaffMemberOut | None = None
     created_at: datetime
     updated_at: datetime
     messages: list[MessageOut] = []
@@ -54,6 +83,7 @@ class ConversationListItem(BaseModel):
     customer_identifier: str
     customer_name: str | None
     status: ConversationStatus
+    assigned_to: StaffMemberOut | None = None
     last_message: LastMessage | None
     updated_at: datetime
 

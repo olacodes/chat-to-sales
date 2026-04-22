@@ -40,6 +40,7 @@ from app.core.models.user import (
 from app.modules.notifications.router import router as notifications_router
 from app.modules.orders.router import router as orders_router
 from app.modules.payments.router import router as payments_router
+from app.modules.staff.router import router as staff_router
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -114,6 +115,7 @@ def create_app() -> FastAPI:
     app.include_router(orders_router, prefix=prefix)
     app.include_router(payments_router, prefix=prefix)
     app.include_router(notifications_router, prefix=prefix)
+    app.include_router(staff_router, prefix=prefix)
     app.include_router(realtime_router)  # no API prefix — /ws/{tenant_id}
 
     # ── Health check ──────────────────────────────────────────────────────────

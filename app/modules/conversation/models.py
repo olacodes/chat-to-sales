@@ -1,9 +1,13 @@
 from enum import StrEnum
+from typing import TYPE_CHECKING
 
 from sqlalchemy import ForeignKey, Index, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.models.base import BaseModel, TenantModel
+
+if TYPE_CHECKING:
+    from app.core.models.user import User
 
 
 class ConversationStatus(StrEnum):
@@ -45,9 +49,21 @@ class Conversation(TenantModel):
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default=ConversationStatus.ACTIVE
     )
+    # Nullable FK to the staff member currently handling this conversation.
+    # SET NULL on delete so removing a user never orphans conversations.
+    assigned_to_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     messages: Mapped[list["Message"]] = relationship(
         "Message", back_populates="conversation", lazy="selectin"
+    )
+    assigned_to: Mapped["User | None"] = relationship(
+        "User",
+        foreign_keys=[assigned_to_user_id],
+        lazy="selectin",
     )
 
 
