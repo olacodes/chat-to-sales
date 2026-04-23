@@ -17,7 +17,6 @@ from app.modules.conversation.schemas import (
     ScheduledMessageListResponse,
     ScheduledMessageOut,
     ScheduleMessageRequest,
-    SnoozeRequest,
 )
 from app.modules.conversation.service import ConversationService
 
@@ -113,24 +112,6 @@ async def list_messages(
         tenant_id=tenant_id,
         limit=limit,
         cursor=cursor,
-    )
-
-
-# ── Snooze ────────────────────────────────────────────────────────────────────
-
-
-@router.patch("/{conversation_id}/snooze")
-async def snooze_conversation(
-    conversation_id: str,
-    tenant_id: str,
-    body: SnoozeRequest,
-    svc: ServiceDep,
-) -> ConversationListItem:
-    """Set or clear the snooze on a conversation. Pass null snoozed_until to unsnooze."""
-    return await svc.snooze_conversation(
-        conversation_id,
-        tenant_id=tenant_id,
-        snoozed_until=body.snoozed_until,
     )
 
 

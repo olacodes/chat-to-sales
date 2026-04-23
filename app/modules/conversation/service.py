@@ -401,66 +401,6 @@ class ConversationService:
 
         return msg
 
-    # ── Snooze ────────────────────────────────────────────────────────────────
-
-    async def snooze_conversation(
-        self,
-        conversation_id: str,
-        *,
-        tenant_id: str,
-        snoozed_until: "datetime | None",
-    ) -> ConversationListItem:
-        """
-        Set or clear the snooze on a conversation.
-
-        When snoozed_until is None, the snooze is cleared.
-        Returns a ConversationListItem representing the updated conversation.
-        """
-        conv = await self._repo.snooze_conversation(
-            conversation_id=conversation_id,
-            tenant_id=tenant_id,
-            snoozed_until=snoozed_until,
-        )
-        if conv is None:
-            raise NotFoundError("Conversation", conversation_id)
-
-        await self._db.commit()
-
-        # Reload to get fresh relationship data (assigned_to)
-        result = await self._db.execute(
-            select(Conversation)
-            .where(Conversation.id == conversation_id)
-            .execution_options(populate_existing=True)
-        )
-        conv = result.scalar_one()
-
-        assigned_to = (
-            StaffMemberOut(
-                id=conv.assigned_to.id,
-                display_name=conv.assigned_to.display_name,
-                email=conv.assigned_to.email,
-            )
-            if conv.assigned_to is not None
-            else None
-        )
-
-        logger.info(
-            "Conversation snoozed conversation_id=%s snoozed_until=%s",
-            conversation_id,
-            snoozed_until,
-        )
-
-        return ConversationListItem(
-            id=conv.id,
-            customer_identifier=conv.customer_identifier,
-            customer_name=conv.customer_name,
-            status=conv.status,
-            assigned_to=assigned_to,
-            last_message=None,
-            updated_at=conv.updated_at,
-            snoozed_until=conv.snoozed_until,
-        )
-
     # ── Scheduled messages ────────────────────────────────────────────────────
 
     async def create_scheduled_message(
@@ -594,7 +534,6 @@ class ConversationService:
                     assigned_to=assigned_to,
                     last_message=last_message,
                     updated_at=conv.updated_at,
-                    snoozed_until=conv.snoozed_until,
                 )
             )
 

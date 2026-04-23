@@ -1,4 +1,4 @@
-"""add snooze and scheduled_messages
+"""add scheduled_messages
 
 Revision ID: 009_add_snooze_and_scheduled_messages
 Revises: 008_add_invite_tokens
@@ -23,18 +23,7 @@ def upgrade() -> None:
         "ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(64)"
     )
 
-    # ── Feature 1: Snooze ─────────────────────────────────────────────────────
-    op.add_column(
-        "conversations",
-        sa.Column("snoozed_until", sa.DateTime(timezone=True), nullable=True),
-    )
-    op.create_index(
-        "ix_conversations_tenant_snoozed",
-        "conversations",
-        ["tenant_id", "snoozed_until"],
-    )
-
-    # ── Feature 2: Scheduled Messages ─────────────────────────────────────────
+    # ── Scheduled Messages ────────────────────────────────────────────────────
     op.create_table(
         "scheduled_messages",
         sa.Column("id", sa.String(36), primary_key=True),
@@ -91,6 +80,3 @@ def downgrade() -> None:
     )
     op.drop_index("ix_scheduled_messages_tenant_id", table_name="scheduled_messages")
     op.drop_table("scheduled_messages")
-
-    op.drop_index("ix_conversations_tenant_snoozed", table_name="conversations")
-    op.drop_column("conversations", "snoozed_until")

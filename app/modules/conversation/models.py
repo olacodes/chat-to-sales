@@ -58,12 +58,6 @@ class Conversation(TenantModel):
         index=True,
     )
 
-    # Nullable: set to a future datetime to hide this conversation until then.
-    # When snoozed_until <= NOW() the conversation resurfaces at the top of the list.
-    snoozed_until: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-
     messages: Mapped[list["Message"]] = relationship(
         "Message", back_populates="conversation", lazy="selectin"
     )

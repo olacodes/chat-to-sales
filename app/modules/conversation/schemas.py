@@ -106,8 +106,6 @@ class ConversationListItem(BaseModel):
     assigned_to: StaffMemberOut | None = None
     last_message: LastMessage | None
     updated_at: datetime
-    snoozed_until: datetime | None = None
-
     model_config = {"from_attributes": True}
 
 
@@ -119,15 +117,6 @@ class ConversationListResponse(BaseModel):
 class MessageListResponse(BaseModel):
     items: list[MessageOut]
     next_cursor: str | None
-
-
-# ── Snooze schemas ────────────────────────────────────────────────────────────
-
-
-class SnoozeRequest(BaseModel):
-    """Body for PATCH /conversations/{id}/snooze. Pass null to unsnooze."""
-
-    snoozed_until: datetime | None = None
 
 
 # ── Scheduled message schemas ─────────────────────────────────────────────────

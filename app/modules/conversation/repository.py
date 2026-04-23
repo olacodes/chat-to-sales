@@ -17,7 +17,7 @@ Design notes
 
 from datetime import datetime, timezone
 
-from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import noload
 
@@ -314,37 +314,18 @@ class ConversationRepository:
         cursor_id: str | None = None,
     ) -> tuple[list[Conversation], dict[str, "Message"]]:
         """
-        Return a page of conversations with snooze-aware ordering.
-
-        Order:
-        1. Active conversations (snoozed_until IS NULL or <= NOW()) — updated_at DESC
-        2. Snoozed conversations (snoozed_until > NOW()) — snoozed_until ASC (resurfaces soonest first)
+        Return a cursor-paginated page of conversations ordered by recency.
 
         Uses noload() to skip the selectin relationship load — we fetch the
         last message separately in a single batched query.
 
         Returns (conversations, last_message_by_conv_id).
         """
-        now = datetime.now(timezone.utc)
-
-        # 0 = active/due (shown at top), 1 = actively snoozed (shown at bottom)
-        snooze_group = case(
-            (
-                and_(
-                    Conversation.snoozed_until.is_not(None),
-                    Conversation.snoozed_until > now,
-                ),
-                1,
-            ),
-            else_=0,
-        )
-
         stmt = (
             select(Conversation)
             .options(noload(Conversation.messages))
             .where(Conversation.tenant_id == tenant_id)
             .order_by(
-                snooze_group,
                 Conversation.updated_at.desc(),
                 Conversation.id.desc(),
             )
@@ -381,29 +362,6 @@ class ConversationRepository:
         return convs, last_msgs
 
     # ── Snooze ────────────────────────────────────────────────────────────────
-
-    async def snooze_conversation(
-        self,
-        *,
-        conversation_id: str,
-        tenant_id: str,
-        snoozed_until: datetime | None,
-    ) -> Conversation | None:
-        """
-        Set or clear the snoozed_until timestamp on a conversation.
-
-        Returns the updated Conversation, or None if not found.
-        The caller owns the transaction boundary.
-        """
-        conv = await self.get_conversation_by_id(
-            conversation_id=conversation_id,
-            tenant_id=tenant_id,
-        )
-        if conv is None:
-            return None
-        conv.snoozed_until = snoozed_until
-        await self._session.flush()
-        return conv
 
     # ── Scheduled messages ────────────────────────────────────────────────────
 
