@@ -1,7 +1,8 @@
+from datetime import datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, Index, String, Text, UniqueConstraint
+from sqlalchemy import DateTime, ForeignKey, Index, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.models.base import BaseModel, TenantModel
@@ -57,6 +58,12 @@ class Conversation(TenantModel):
         index=True,
     )
 
+    # Nullable: set to a future datetime to hide this conversation until then.
+    # When snoozed_until <= NOW() the conversation resurfaces at the top of the list.
+    snoozed_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     messages: Mapped[list["Message"]] = relationship(
         "Message", back_populates="conversation", lazy="selectin"
     )
@@ -64,6 +71,9 @@ class Conversation(TenantModel):
         "User",
         foreign_keys=[assigned_to_user_id],
         lazy="selectin",
+    )
+    scheduled_messages: Mapped[list["ScheduledMessage"]] = relationship(
+        "ScheduledMessage", back_populates="conversation", lazy="noload"
     )
 
 
@@ -129,3 +139,28 @@ class MessageReaction(BaseModel):
     emoji: Mapped[str] = mapped_column(String(10), nullable=False)
 
     message: Mapped["Message"] = relationship("Message", back_populates="reactions")
+
+
+class ScheduledMessage(TenantModel):
+    """A message queued for future delivery to a conversation."""
+
+    __tablename__ = "scheduled_messages"
+    __table_args__ = (
+        Index("ix_scheduled_messages_status_scheduled_for", "status", "scheduled_for"),
+        Index("ix_scheduled_messages_conversation_id", "conversation_id"),
+    )
+
+    conversation_id: Mapped[str] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    scheduled_for: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    # "pending" → "sent" | "cancelled"
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+
+    conversation: Mapped["Conversation"] = relationship(
+        "Conversation", back_populates="scheduled_messages"
+    )

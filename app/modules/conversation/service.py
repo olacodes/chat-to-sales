@@ -24,7 +24,7 @@ from app.core.exceptions import NotFoundError
 from app.core.logging import get_logger
 from app.core.models.user import User, UserTenant
 from app.infra.event_bus import Event, publish_event
-from app.modules.conversation.models import Conversation, Message, MessageSender
+from app.modules.conversation.models import Conversation, Message, MessageSender, ScheduledMessage
 from app.modules.conversation.repository import ConversationRepository
 from app.modules.conversation.schemas import (
     AssignmentOut,
@@ -34,6 +34,9 @@ from app.modules.conversation.schemas import (
     MessageCreate,
     MessageListResponse,
     ReactionCreate,
+    ScheduledMessageListResponse,
+    ScheduledMessageOut,
+    ScheduleMessageRequest,
     StaffMemberOut,
 )
 
@@ -398,6 +401,145 @@ class ConversationService:
 
         return msg
 
+    # ── Snooze ────────────────────────────────────────────────────────────────
+
+    async def snooze_conversation(
+        self,
+        conversation_id: str,
+        *,
+        tenant_id: str,
+        snoozed_until: "datetime | None",
+    ) -> ConversationListItem:
+        """
+        Set or clear the snooze on a conversation.
+
+        When snoozed_until is None, the snooze is cleared.
+        Returns a ConversationListItem representing the updated conversation.
+        """
+        conv = await self._repo.snooze_conversation(
+            conversation_id=conversation_id,
+            tenant_id=tenant_id,
+            snoozed_until=snoozed_until,
+        )
+        if conv is None:
+            raise NotFoundError("Conversation", conversation_id)
+
+        await self._db.commit()
+
+        # Reload to get fresh relationship data (assigned_to)
+        result = await self._db.execute(
+            select(Conversation)
+            .where(Conversation.id == conversation_id)
+            .execution_options(populate_existing=True)
+        )
+        conv = result.scalar_one()
+
+        assigned_to = (
+            StaffMemberOut(
+                id=conv.assigned_to.id,
+                display_name=conv.assigned_to.display_name,
+                email=conv.assigned_to.email,
+            )
+            if conv.assigned_to is not None
+            else None
+        )
+
+        logger.info(
+            "Conversation snoozed conversation_id=%s snoozed_until=%s",
+            conversation_id,
+            snoozed_until,
+        )
+
+        return ConversationListItem(
+            id=conv.id,
+            customer_identifier=conv.customer_identifier,
+            customer_name=conv.customer_name,
+            status=conv.status,
+            assigned_to=assigned_to,
+            last_message=None,
+            updated_at=conv.updated_at,
+            snoozed_until=conv.snoozed_until,
+        )
+
+    # ── Scheduled messages ────────────────────────────────────────────────────
+
+    async def create_scheduled_message(
+        self,
+        conversation_id: str,
+        *,
+        tenant_id: str,
+        data: ScheduleMessageRequest,
+    ) -> ScheduledMessageOut:
+        """Create a pending scheduled message for a conversation."""
+        # Verify the conversation exists and belongs to this tenant
+        await self.get_by_id(conversation_id, tenant_id=tenant_id)
+
+        sm = await self._repo.create_scheduled_message(
+            tenant_id=tenant_id,
+            conversation_id=conversation_id,
+            content=data.content,
+            scheduled_for=data.scheduled_for,
+        )
+        await self._db.commit()
+
+        logger.info(
+            "ScheduledMessage created id=%s conversation=%s scheduled_for=%s",
+            sm.id,
+            conversation_id,
+            data.scheduled_for,
+        )
+
+        return ScheduledMessageOut.model_validate(sm)
+
+    async def list_scheduled_messages(
+        self,
+        conversation_id: str,
+        *,
+        tenant_id: str,
+    ) -> ScheduledMessageListResponse:
+        """Return all scheduled messages for a conversation."""
+        # Verify the conversation exists and belongs to this tenant
+        await self.get_by_id(conversation_id, tenant_id=tenant_id)
+
+        items = await self._repo.list_scheduled_messages(
+            conversation_id=conversation_id,
+            tenant_id=tenant_id,
+        )
+        return ScheduledMessageListResponse(
+            items=[ScheduledMessageOut.model_validate(sm) for sm in items]
+        )
+
+    async def cancel_scheduled_message(
+        self,
+        conversation_id: str,
+        scheduled_message_id: str,
+        *,
+        tenant_id: str,
+    ) -> None:
+        """
+        Delete a pending scheduled message.
+
+        Raises NotFoundError when the message doesn't exist, has already been
+        sent, or has already been cancelled.
+        """
+        # Verify the conversation exists and belongs to this tenant
+        await self.get_by_id(conversation_id, tenant_id=tenant_id)
+
+        deleted = await self._repo.cancel_scheduled_message(
+            scheduled_message_id=scheduled_message_id,
+            conversation_id=conversation_id,
+            tenant_id=tenant_id,
+        )
+        if not deleted:
+            raise NotFoundError("ScheduledMessage", scheduled_message_id)
+
+        await self._db.commit()
+        logger.info(
+            "ScheduledMessage cancelled id=%s conversation=%s",
+            scheduled_message_id,
+            conversation_id,
+        )
+
     # ── List methods ──────────────────────────────────────────────────────────
 
     async def list_conversations(
@@ -452,6 +594,7 @@ class ConversationService:
                     assigned_to=assigned_to,
                     last_message=last_message,
                     updated_at=conv.updated_at,
+                    snoozed_until=conv.snoozed_until,
                 )
             )
 

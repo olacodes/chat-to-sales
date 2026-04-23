@@ -1,18 +1,23 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, status
 
 from app.core.dependencies import DBSessionDep
 from app.modules.conversation.schemas import (
     AssignConversationRequest,
     AssignmentOut,
     ConversationCreate,
+    ConversationListItem,
     ConversationListResponse,
     ConversationOut,
     MessageCreate,
     MessageListResponse,
     MessageOut,
     ReactionCreate,
+    ScheduledMessageListResponse,
+    ScheduledMessageOut,
+    ScheduleMessageRequest,
+    SnoozeRequest,
 )
 from app.modules.conversation.service import ConversationService
 
@@ -108,4 +113,74 @@ async def list_messages(
         tenant_id=tenant_id,
         limit=limit,
         cursor=cursor,
+    )
+
+
+# ── Snooze ────────────────────────────────────────────────────────────────────
+
+
+@router.patch("/{conversation_id}/snooze")
+async def snooze_conversation(
+    conversation_id: str,
+    tenant_id: str,
+    body: SnoozeRequest,
+    svc: ServiceDep,
+) -> ConversationListItem:
+    """Set or clear the snooze on a conversation. Pass null snoozed_until to unsnooze."""
+    return await svc.snooze_conversation(
+        conversation_id,
+        tenant_id=tenant_id,
+        snoozed_until=body.snoozed_until,
+    )
+
+
+# ── Scheduled messages ────────────────────────────────────────────────────────
+
+
+@router.post(
+    "/{conversation_id}/scheduled-messages",
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_scheduled_message(
+    conversation_id: str,
+    tenant_id: str,
+    body: ScheduleMessageRequest,
+    svc: ServiceDep,
+) -> ScheduledMessageOut:
+    """Schedule a message to be sent at a future time."""
+    return await svc.create_scheduled_message(
+        conversation_id,
+        tenant_id=tenant_id,
+        data=body,
+    )
+
+
+@router.get("/{conversation_id}/scheduled-messages")
+async def list_scheduled_messages(
+    conversation_id: str,
+    tenant_id: str,
+    svc: ServiceDep,
+) -> ScheduledMessageListResponse:
+    """List all scheduled messages for a conversation."""
+    return await svc.list_scheduled_messages(
+        conversation_id,
+        tenant_id=tenant_id,
+    )
+
+
+@router.delete(
+    "/{conversation_id}/scheduled-messages/{scheduled_message_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def cancel_scheduled_message(
+    conversation_id: str,
+    scheduled_message_id: str,
+    tenant_id: str,
+    svc: ServiceDep,
+) -> None:
+    """Cancel (delete) a pending scheduled message."""
+    await svc.cancel_scheduled_message(
+        conversation_id,
+        scheduled_message_id,
+        tenant_id=tenant_id,
     )

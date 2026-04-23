@@ -13,6 +13,7 @@ from app.core.exceptions import (
 from app.core.logging import get_logger
 from app.infra.cache import close_redis, init_redis
 from app.infra.database import create_all_tables, dispose_engine
+from app.infra.scheduler import start_scheduler, stop_scheduler
 from app.modules.conversation.handlers import register_message_received_handler
 from app.modules.orders.handlers import register_order_intent_handler
 from app.modules.payments.handlers import register_payment_confirmed_handler
@@ -76,9 +77,12 @@ async def lifespan(app: FastAPI):
     _listener_tasks.append(register_payment_confirmed_notification_handler())
     logger.info("Event listeners started (all tenants via pattern subscription)")
 
+    start_scheduler()
+
     yield
 
     logger.info("Shutting down %s", settings.APP_NAME)
+    stop_scheduler()
     for task in _listener_tasks:
         task.cancel()
     await close_redis()

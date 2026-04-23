@@ -15,9 +15,9 @@ Design notes
   UniqueConstraint on (conversation_id, external_id) acts as a safety net.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import noload
 
@@ -28,6 +28,7 @@ from app.modules.conversation.models import (
     Message,
     MessageReaction,
     MessageSender,
+    ScheduledMessage,
 )
 
 logger = get_logger(__name__)
@@ -313,18 +314,40 @@ class ConversationRepository:
         cursor_id: str | None = None,
     ) -> tuple[list[Conversation], dict[str, "Message"]]:
         """
-        Return a page of conversations ordered by updated_at DESC.
+        Return a page of conversations with snooze-aware ordering.
+
+        Order:
+        1. Active conversations (snoozed_until IS NULL or <= NOW()) — updated_at DESC
+        2. Snoozed conversations (snoozed_until > NOW()) — snoozed_until ASC (resurfaces soonest first)
 
         Uses noload() to skip the selectin relationship load — we fetch the
         last message separately in a single batched query.
 
         Returns (conversations, last_message_by_conv_id).
         """
+        now = datetime.now(timezone.utc)
+
+        # 0 = active/due (shown at top), 1 = actively snoozed (shown at bottom)
+        snooze_group = case(
+            (
+                and_(
+                    Conversation.snoozed_until.is_not(None),
+                    Conversation.snoozed_until > now,
+                ),
+                1,
+            ),
+            else_=0,
+        )
+
         stmt = (
             select(Conversation)
             .options(noload(Conversation.messages))
             .where(Conversation.tenant_id == tenant_id)
-            .order_by(Conversation.updated_at.desc(), Conversation.id.desc())
+            .order_by(
+                snooze_group,
+                Conversation.updated_at.desc(),
+                Conversation.id.desc(),
+            )
             .limit(limit)
         )
         if cursor_dt is not None and cursor_id is not None:
@@ -356,6 +379,130 @@ class ConversationRepository:
                 last_msgs[msg.conversation_id] = msg
 
         return convs, last_msgs
+
+    # ── Snooze ────────────────────────────────────────────────────────────────
+
+    async def snooze_conversation(
+        self,
+        *,
+        conversation_id: str,
+        tenant_id: str,
+        snoozed_until: datetime | None,
+    ) -> Conversation | None:
+        """
+        Set or clear the snoozed_until timestamp on a conversation.
+
+        Returns the updated Conversation, or None if not found.
+        The caller owns the transaction boundary.
+        """
+        conv = await self.get_conversation_by_id(
+            conversation_id=conversation_id,
+            tenant_id=tenant_id,
+        )
+        if conv is None:
+            return None
+        conv.snoozed_until = snoozed_until
+        await self._session.flush()
+        return conv
+
+    # ── Scheduled messages ────────────────────────────────────────────────────
+
+    async def create_scheduled_message(
+        self,
+        *,
+        tenant_id: str,
+        conversation_id: str,
+        content: str,
+        scheduled_for: datetime,
+    ) -> ScheduledMessage:
+        """Persist a new pending scheduled message."""
+        sm = ScheduledMessage(
+            tenant_id=tenant_id,
+            conversation_id=conversation_id,
+            content=content,
+            scheduled_for=scheduled_for,
+            status="pending",
+        )
+        self._session.add(sm)
+        await self._session.flush()
+        logger.debug(
+            "ScheduledMessage created id=%s conversation=%s scheduled_for=%s",
+            sm.id,
+            conversation_id,
+            scheduled_for,
+        )
+        return sm
+
+    async def list_scheduled_messages(
+        self,
+        *,
+        conversation_id: str,
+        tenant_id: str,
+    ) -> list[ScheduledMessage]:
+        """Return all scheduled messages for a conversation, ordered by scheduled_for ASC."""
+        result = await self._session.execute(
+            select(ScheduledMessage)
+            .where(
+                ScheduledMessage.conversation_id == conversation_id,
+                ScheduledMessage.tenant_id == tenant_id,
+            )
+            .order_by(ScheduledMessage.scheduled_for.asc())
+        )
+        return list(result.scalars().all())
+
+    async def get_scheduled_message_by_id(
+        self,
+        *,
+        scheduled_message_id: str,
+        conversation_id: str,
+        tenant_id: str,
+    ) -> ScheduledMessage | None:
+        """Fetch a single scheduled message scoped to its conversation and tenant."""
+        result = await self._session.execute(
+            select(ScheduledMessage).where(
+                ScheduledMessage.id == scheduled_message_id,
+                ScheduledMessage.conversation_id == conversation_id,
+                ScheduledMessage.tenant_id == tenant_id,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def cancel_scheduled_message(
+        self,
+        *,
+        scheduled_message_id: str,
+        conversation_id: str,
+        tenant_id: str,
+    ) -> bool:
+        """
+        Delete a pending scheduled message.
+
+        Returns True if deleted, False if not found or already sent/cancelled.
+        """
+        sm = await self.get_scheduled_message_by_id(
+            scheduled_message_id=scheduled_message_id,
+            conversation_id=conversation_id,
+            tenant_id=tenant_id,
+        )
+        if sm is None or sm.status != "pending":
+            return False
+        await self._session.delete(sm)
+        await self._session.flush()
+        return True
+
+    async def get_pending_scheduled_messages(
+        self,
+        *,
+        now: datetime,
+    ) -> list[ScheduledMessage]:
+        """Return all pending scheduled messages whose scheduled_for <= now."""
+        result = await self._session.execute(
+            select(ScheduledMessage).where(
+                ScheduledMessage.status == "pending",
+                ScheduledMessage.scheduled_for <= now,
+            )
+        )
+        return list(result.scalars().all())
 
     async def list_messages(
         self,

@@ -87,7 +87,7 @@ class TimestampMixin:
 async def create_all_tables() -> None:
     """Create all tables directly — dev / test only. Use Alembic in production."""
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(Base.metadata.create_all, checkfirst=True)
 
 
 async def drop_all_tables() -> None:
