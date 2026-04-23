@@ -40,6 +40,20 @@ class WhatsAppConnectRequest(BaseModel):
         return v.strip()
 
 
+class ChannelOut(BaseModel):
+    """A single connected channel returned in the list endpoint."""
+
+    channel: str
+    phone_number_id: str
+    webhook_registered: bool
+
+
+class ChannelListResponse(BaseModel):
+    """Response for GET /api/v1/channels."""
+
+    items: list[ChannelOut]
+
+
 class WhatsAppConnectResponse(BaseModel):
     """Returned after a successful connect or reconnect."""
 

@@ -11,9 +11,10 @@ Design notes:
 - password_hash is nullable to accommodate OAuth-only users.
 """
 
+from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import ForeignKey, String, UniqueConstraint
+from sqlalchemy import DateTime, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.models.base import BaseModel
@@ -139,3 +140,50 @@ class UserTenant(BaseModel):
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="user_tenants")
     tenant: Mapped["Tenant"] = relationship("Tenant", back_populates="user_tenants")
+
+
+# ── InviteToken ───────────────────────────────────────────────────────────────
+
+
+class InviteToken(BaseModel):
+    """
+    A single-use invite link token.
+
+    An owner generates a token; the recipient uses it to create their account
+    and join the tenant as a member.  No email required — the owner shares the
+    URL via WhatsApp/Slack/etc.
+    """
+
+    __tablename__ = "invite_tokens"
+
+    tenant_id: Mapped[str] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    token: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        unique=True,
+        index=True,
+        comment="URL-safe random token — treated as a secret",
+    )
+    role: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default=UserRole.MEMBER,
+        comment="Role to assign when the invite is accepted",
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        comment="Token expires after this timestamp (UTC)",
+    )
+    used_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="Set when the token is consumed — single-use",
+    )
+
+    # Relationships
+    tenant: Mapped["Tenant"] = relationship("Tenant")

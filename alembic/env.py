@@ -26,6 +26,7 @@ from app.infra.database import Base  # noqa: F401 — registers metadata
 
 # -- model imports (add a new line here whenever you add a new module) ---------
 import app.core.models.customer  # noqa: F401
+import app.core.models.user  # noqa: F401
 import app.modules.conversation.models  # noqa: F401
 import app.modules.orders.models  # noqa: F401
 import app.modules.payments.models  # noqa: F401

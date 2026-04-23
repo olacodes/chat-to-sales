@@ -37,6 +37,17 @@ class ChannelRepository:
         )
         return result.scalar_one_or_none()
 
+    async def list_by_tenant(
+        self,
+        *,
+        tenant_id: str,
+    ) -> list[TenantChannel]:
+        """Return all connected channels for a tenant."""
+        result = await self._session.execute(
+            select(TenantChannel).where(TenantChannel.tenant_id == tenant_id)
+        )
+        return list(result.scalars().all())
+
     async def get_by_phone_number_id(
         self,
         *,
