@@ -97,3 +97,35 @@ class Message(TenantModel):
     conversation: Mapped["Conversation"] = relationship(
         "Conversation", back_populates="messages"
     )
+    reactions: Mapped[list["MessageReaction"]] = relationship(
+        "MessageReaction",
+        back_populates="message",
+        lazy="selectin",
+        cascade="all, delete-orphan",
+    )
+
+
+class MessageReaction(BaseModel):
+    """One emoji reaction per user per message (unique on message_id + user_id)."""
+
+    __tablename__ = "message_reactions"
+    __table_args__ = (
+        UniqueConstraint(
+            "message_id",
+            "user_id",
+            name="uq_reactions_message_user",
+        ),
+        Index("ix_reactions_message_id", "message_id"),
+    )
+
+    message_id: Mapped[str] = mapped_column(
+        ForeignKey("messages.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    tenant_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    # user_id is the staff member who reacted
+    user_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    # Single emoji character (stored as-is, e.g. "👍")
+    emoji: Mapped[str] = mapped_column(String(10), nullable=False)
+
+    message: Mapped["Message"] = relationship("Message", back_populates="reactions")

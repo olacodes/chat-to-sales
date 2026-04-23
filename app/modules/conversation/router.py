@@ -12,6 +12,7 @@ from app.modules.conversation.schemas import (
     MessageCreate,
     MessageListResponse,
     MessageOut,
+    ReactionCreate,
 )
 from app.modules.conversation.service import ConversationService
 
@@ -82,6 +83,16 @@ async def assign_conversation(
         user_id=body.user_id,
         assigned_by_user_id=body.assigned_by_user_id,
     )
+
+
+@router.post("/{conversation_id}/messages/{message_id}/reactions")
+async def react_to_message(
+    conversation_id: str,
+    message_id: str,
+    body: ReactionCreate,
+    svc: ServiceDep,
+) -> MessageOut:
+    return await svc.react_to_message(conversation_id, message_id, body)
 
 
 @router.get("/{conversation_id}/messages")

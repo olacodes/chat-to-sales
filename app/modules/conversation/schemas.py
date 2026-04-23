@@ -30,6 +30,25 @@ class AssignmentOut(BaseModel):
     assigned_to: StaffMemberOut | None
 
 
+# ── Reaction schemas ──────────────────────────────────────────────────────────
+
+
+class ReactionOut(BaseModel):
+    id: str
+    user_id: str
+    emoji: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ReactionCreate(BaseModel):
+    """Body for POST /conversations/{id}/messages/{msg_id}/reactions."""
+
+    emoji: str
+    user_id: str
+
+
 # ── Message schemas ───────────────────────────────────────────────────────────
 
 
@@ -46,6 +65,7 @@ class MessageOut(BaseModel):
     content: str
     external_id: str | None
     created_at: datetime
+    reactions: list[ReactionOut] = []
 
     model_config = {"from_attributes": True}
 

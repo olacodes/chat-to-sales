@@ -26,6 +26,7 @@ from app.modules.conversation.models import (
     Conversation,
     ConversationStatus,
     Message,
+    MessageReaction,
     MessageSender,
 )
 
@@ -230,6 +231,76 @@ class ConversationRepository:
         conv.assigned_to_user_id = user_id
         await self._session.flush()
         return conv
+
+    # ── Reactions ─────────────────────────────────────────────────────────────
+
+    async def get_message_by_id(
+        self,
+        *,
+        message_id: str,
+        conversation_id: str,
+    ) -> Message | None:
+        """Return a message by primary key, scoped to its conversation."""
+        result = await self._session.execute(
+            select(Message).where(
+                Message.id == message_id,
+                Message.conversation_id == conversation_id,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def get_reaction(
+        self,
+        *,
+        message_id: str,
+        user_id: str,
+    ) -> MessageReaction | None:
+        """Return the existing reaction from a user on a message, or None."""
+        result = await self._session.execute(
+            select(MessageReaction).where(
+                MessageReaction.message_id == message_id,
+                MessageReaction.user_id == user_id,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def upsert_reaction(
+        self,
+        *,
+        message_id: str,
+        tenant_id: str,
+        user_id: str,
+        emoji: str,
+    ) -> MessageReaction:
+        """Create or replace the user's reaction on a message."""
+        existing = await self.get_reaction(message_id=message_id, user_id=user_id)
+        if existing is not None:
+            existing.emoji = emoji
+            await self._session.flush()
+            return existing
+        reaction = MessageReaction(
+            message_id=message_id,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            emoji=emoji,
+        )
+        self._session.add(reaction)
+        await self._session.flush()
+        return reaction
+
+    async def delete_reaction(
+        self,
+        *,
+        message_id: str,
+        user_id: str,
+    ) -> bool:
+        """Delete a user's reaction. Returns True if deleted, False if not found."""
+        existing = await self.get_reaction(message_id=message_id, user_id=user_id)
+        if existing is None:
+            return False
+        await self._session.delete(existing)
+        await self._session.flush()
+        return True
 
     # ── List queries ──────────────────────────────────────────────────────────
 

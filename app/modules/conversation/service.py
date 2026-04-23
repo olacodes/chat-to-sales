@@ -33,6 +33,7 @@ from app.modules.conversation.schemas import (
     LastMessage,
     MessageCreate,
     MessageListResponse,
+    ReactionCreate,
     StaffMemberOut,
 )
 
@@ -318,6 +319,84 @@ class ConversationService:
                 recipient,
                 exc,
             )
+
+    async def react_to_message(
+        self,
+        conversation_id: str,
+        message_id: str,
+        data: ReactionCreate,
+    ) -> Message:
+        """
+        Toggle an emoji reaction on a message.
+
+        - Same emoji as current reaction → removes it (toggle off).
+        - Different emoji → replaces the existing reaction.
+        - No existing reaction → creates it.
+
+        Publishes a 'message.reaction_updated' event after committing so
+        all WebSocket clients for this tenant update instantly.
+        """
+        conv = await self.get_by_id(conversation_id)
+
+        msg = await self._repo.get_message_by_id(
+            message_id=message_id,
+            conversation_id=conversation_id,
+        )
+        if msg is None:
+            raise NotFoundError("Message", message_id)
+
+        existing = await self._repo.get_reaction(
+            message_id=message_id,
+            user_id=data.user_id,
+        )
+
+        if existing is not None and existing.emoji == data.emoji:
+            # Same emoji — remove the reaction (toggle off)
+            await self._repo.delete_reaction(
+                message_id=message_id,
+                user_id=data.user_id,
+            )
+        else:
+            # Add or replace
+            await self._repo.upsert_reaction(
+                message_id=message_id,
+                tenant_id=conv.tenant_id,
+                user_id=data.user_id,
+                emoji=data.emoji,
+            )
+
+        await self._db.commit()
+
+        # Re-fetch the message so the selectin relationship reflects the new state
+        result = await self._db.execute(
+            select(Message)
+            .where(Message.id == message_id)
+            .execution_options(populate_existing=True)
+        )
+        msg = result.scalar_one()
+
+        # Broadcast to all connected WebSocket clients for this tenant
+        await publish_event(
+            Event(
+                event_name="message.reaction_updated",
+                tenant_id=conv.tenant_id,
+                payload={
+                    "conversation_id": conversation_id,
+                    "message_id": message_id,
+                    "reactions": [
+                        {
+                            "id": r.id,
+                            "user_id": r.user_id,
+                            "emoji": r.emoji,
+                            "created_at": r.created_at.isoformat(),
+                        }
+                        for r in msg.reactions
+                    ],
+                },
+            )
+        )
+
+        return msg
 
     # ── List methods ──────────────────────────────────────────────────────────
 
