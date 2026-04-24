@@ -19,7 +19,7 @@ Four DB round-trips vs. N client-to-API calls: the net frontend benefit is
 eliminating multiple HTTP requests and their associated latency.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from fastapi import APIRouter
@@ -410,6 +410,178 @@ async def _fetch_recent_payments(
 
 
 # ── Endpoint ──────────────────────────────────────────────────────────────────
+
+
+# ── Today's Focus ─────────────────────────────────────────────────────────────
+
+_FOCUS_LIMIT = 5
+_OVERDUE_HOURS = 24
+_WAITING_HOURS = 4
+_FOLLOW_UP_HOURS = 12
+
+
+class TodayFocusItem(BaseModel):
+    id: str
+    kind: str  # "order" | "conversation"
+    urgency: str  # "overdue" | "waiting" | "follow_up"
+    title: str
+    customer_name: str | None
+    conversation_id: str
+    since: datetime
+
+
+class TodayFocusResponse(BaseModel):
+    items: list[TodayFocusItem]
+    total: int
+
+
+async def _fetch_today_focus(
+    db: AsyncSession, tenant_id: str
+) -> list[TodayFocusItem]:
+    now = datetime.now(timezone.utc)
+    cutoff_24h = now - timedelta(hours=_OVERDUE_HOURS)
+    cutoff_4h = now - timedelta(hours=_WAITING_HOURS)
+    cutoff_12h = now - timedelta(hours=_FOLLOW_UP_HOURS)
+
+    items: list[TodayFocusItem] = []
+
+    # ── 1. Overdue inquiries: inquiry orders untouched for > 24h ──────────────
+    overdue_stmt = (
+        select(
+            Order.id,
+            Order.conversation_id,
+            Order.updated_at,
+            Conversation.customer_name,
+            Conversation.customer_identifier,
+        )
+        .join(Conversation, Order.conversation_id == Conversation.id)
+        .where(
+            Order.tenant_id == tenant_id,
+            Order.state == OrderState.INQUIRY,
+            Order.updated_at < cutoff_24h,
+        )
+        .order_by(Order.updated_at.asc())
+        .limit(_FOCUS_LIMIT)
+    )
+    for row in (await db.execute(overdue_stmt)).all():
+        name = row.customer_name or row.customer_identifier
+        items.append(
+            TodayFocusItem(
+                id=row.id,
+                kind="order",
+                urgency="overdue",
+                title=f"Inquiry from {name} — no update in over {_OVERDUE_HOURS}h",
+                customer_name=row.customer_name,
+                conversation_id=row.conversation_id,
+                since=row.updated_at,
+            )
+        )
+
+    # ── 2. Unanswered conversations: last message from customer > 4h ago ──────
+    last_role_sq = (
+        select(Message.sender_role)
+        .where(Message.conversation_id == Conversation.id)
+        .order_by(Message.created_at.desc())
+        .limit(1)
+        .correlate(Conversation)
+        .scalar_subquery()
+    )
+    last_ts_sq = (
+        select(Message.created_at)
+        .where(Message.conversation_id == Conversation.id)
+        .order_by(Message.created_at.desc())
+        .limit(1)
+        .correlate(Conversation)
+        .scalar_subquery()
+    )
+    unanswered_stmt = (
+        select(
+            Conversation.id,
+            Conversation.customer_name,
+            Conversation.customer_identifier,
+            last_ts_sq.label("last_msg_ts"),
+        )
+        .where(
+            Conversation.tenant_id == tenant_id,
+            Conversation.status == ConversationStatus.ACTIVE,
+            last_role_sq == "user",
+            last_ts_sq < cutoff_4h,
+        )
+        .order_by(last_ts_sq.asc())
+        .limit(_FOCUS_LIMIT)
+    )
+    for row in (await db.execute(unanswered_stmt)).all():
+        name = row.customer_name or row.customer_identifier
+        items.append(
+            TodayFocusItem(
+                id=row.id,
+                kind="conversation",
+                urgency="waiting",
+                title=f"{name} is waiting — no reply in over {_WAITING_HOURS}h",
+                customer_name=row.customer_name,
+                conversation_id=row.id,
+                since=row.last_msg_ts,
+            )
+        )
+
+    # ── 3. Confirmed orders with no successful payment for > 12h ──────────────
+    no_paid_payment = ~(
+        select(Payment.id)
+        .where(
+            Payment.order_id == Order.id,
+            Payment.status == PaymentStatus.SUCCESS,
+        )
+        .correlate(Order)
+        .exists()
+    )
+    follow_up_stmt = (
+        select(
+            Order.id,
+            Order.conversation_id,
+            Order.updated_at,
+            Conversation.customer_name,
+            Conversation.customer_identifier,
+        )
+        .join(Conversation, Order.conversation_id == Conversation.id)
+        .where(
+            Order.tenant_id == tenant_id,
+            Order.state == OrderState.CONFIRMED,
+            Order.updated_at < cutoff_12h,
+            no_paid_payment,
+        )
+        .order_by(Order.updated_at.asc())
+        .limit(_FOCUS_LIMIT)
+    )
+    for row in (await db.execute(follow_up_stmt)).all():
+        name = row.customer_name or row.customer_identifier
+        items.append(
+            TodayFocusItem(
+                id=row.id,
+                kind="order",
+                urgency="follow_up",
+                title=f"Order confirmed — {name} hasn't paid yet",
+                customer_name=row.customer_name,
+                conversation_id=row.conversation_id,
+                since=row.updated_at,
+            )
+        )
+
+    # Sort: overdue first → waiting → follow_up; oldest first within each group
+    _priority = {"overdue": 0, "waiting": 1, "follow_up": 2}
+    items.sort(key=lambda x: (_priority[x.urgency], x.since))
+    return items
+
+
+@router.get("/today-focus")
+async def get_today_focus(
+    tenant_id: str,
+    db: DBSessionDep,
+) -> TodayFocusResponse:
+    items = await _fetch_today_focus(db, tenant_id)
+    return TodayFocusResponse(items=items, total=len(items))
+
+
+# ── Overview ──────────────────────────────────────────────────────────────────
 
 
 @router.get("/overview")
