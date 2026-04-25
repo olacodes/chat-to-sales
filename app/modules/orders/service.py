@@ -153,22 +153,38 @@ class OrderService:
         """
         Create an order with line items (used by the REST API).
 
-        Computes the total amount from items and sets it on the order.
+        If an open inquiry order already exists for the conversation it is
+        upserted: existing items are replaced with the new ones and the total
+        is recomputed.  This handles the common case where an auto-created
+        inquiry order exists before the agent fills in the details.
         """
-        existing = await self._repo.get_open_order_for_conversation(
-            conversation_id=data.conversation_id,
-            tenant_id=data.tenant_id,
-        )
-        if existing is not None:
-            raise ConflictError(
-                f"An open order already exists for conversation '{data.conversation_id}'."
-            )
-
         total = (
             sum(item.unit_price * item.quantity for item in data.items)
             if data.items
             else Decimal("0")
         )
+
+        existing = await self._repo.get_open_order_for_conversation(
+            conversation_id=data.conversation_id,
+            tenant_id=data.tenant_id,
+        )
+
+        if existing is not None:
+            # Upsert: replace items and update total/currency
+            await self._repo.delete_items_for_order(order_id=existing.id)
+            existing.amount = total or None
+            existing.currency = data.currency
+            self._db.add(existing)
+            await self._db.flush()
+            for item_data in data.items:
+                await self._repo.add_item(
+                    order_id=existing.id,
+                    product_name=item_data.name,
+                    quantity=item_data.quantity,
+                    unit_price=item_data.unit_price,
+                )
+            await self._db.commit()
+            return await self._reload(existing.id)
 
         order = await self._repo.create_order(
             tenant_id=data.tenant_id,

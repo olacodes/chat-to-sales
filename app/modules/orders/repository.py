@@ -9,7 +9,7 @@ positional ordering bugs at call sites.
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import noload
 
@@ -112,6 +112,13 @@ class OrderRepository:
         self._session.add(order)
         await self._session.flush()
         return order
+
+    async def delete_items_for_order(self, *, order_id: str) -> None:
+        """Remove all line items for an order (used when replacing items on upsert)."""
+        await self._session.execute(
+            delete(OrderItem).where(OrderItem.order_id == order_id)
+        )
+        await self._session.flush()
 
     async def add_item(
         self,
