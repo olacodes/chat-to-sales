@@ -2,15 +2,16 @@ from datetime import datetime
 from decimal import Decimal
 from functools import reduce
 
-from pydantic import BaseModel, computed_field, field_validator
+from pydantic import BaseModel, Field, computed_field, field_validator
 
 from app.modules.orders.models import OrderState
 
 
 class OrderItemCreate(BaseModel):
-    product_name: str
+    name: str
     quantity: int
     unit_price: Decimal
+    product_id: str | None = None  # accepted for frontend compat, not stored
 
     @field_validator("quantity")
     @classmethod
@@ -22,17 +23,19 @@ class OrderItemCreate(BaseModel):
 
 class OrderItemOut(BaseModel):
     id: str
-    product_name: str
+    product_id: str | None = None
+    name: str = Field(validation_alias="product_name")
     quantity: int
     unit_price: Decimal
 
-    model_config = {"from_attributes": True}
+    model_config = {"from_attributes": True, "populate_by_name": True}
 
 
 class OrderCreate(BaseModel):
-    tenant_id: str
+    tenant_id: str | None = None  # injected from query param by the router
     conversation_id: str
     customer_id: str | None = None
+    customer_name: str | None = None  # accepted for frontend compat, not stored
     items: list[OrderItemCreate] = []
     currency: str = "NGN"
 
@@ -48,6 +51,7 @@ class OrderOut(BaseModel):
     tenant_id: str
     conversation_id: str
     customer_id: str | None
+    customer_name: str | None = None
     state: OrderState
     amount: Decimal | None
     currency: str

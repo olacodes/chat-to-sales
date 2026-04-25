@@ -43,8 +43,9 @@ async def list_orders(
     )
 
 
-@router.post("/", status_code=201)
-async def create_order(body: OrderCreate, svc: ServiceDep) -> OrderOut:
+@router.post("", status_code=201)
+async def create_order(body: OrderCreate, tenant_id: str, svc: ServiceDep) -> OrderOut:
+    body.tenant_id = tenant_id
     return await svc.create_order(body)
 
 

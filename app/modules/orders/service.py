@@ -181,7 +181,7 @@ class OrderService:
         for item_data in data.items:
             await self._repo.add_item(
                 order_id=order.id,
-                product_name=item_data.product_name,
+                product_name=item_data.name,
                 quantity=item_data.quantity,
                 unit_price=item_data.unit_price,
             )
@@ -328,7 +328,7 @@ class OrderService:
         for item in items:
             await self._repo.add_item(
                 order_id=order.id,
-                product_name=item.product_name,
+                product_name=item.name,
                 quantity=item.quantity,
                 unit_price=item.unit_price,
             )
