@@ -24,7 +24,7 @@ logger = get_logger(__name__)
 
 _VALID_TRANSITIONS: dict[OrderState, frozenset[OrderState]] = {
     OrderState.INQUIRY: frozenset({OrderState.CONFIRMED, OrderState.FAILED}),
-    OrderState.CONFIRMED: frozenset({OrderState.PAID, OrderState.FAILED}),
+    OrderState.CONFIRMED: frozenset({OrderState.PAID, OrderState.COMPLETED, OrderState.FAILED}),
     OrderState.PAID: frozenset({OrderState.COMPLETED, OrderState.FAILED}),
     OrderState.COMPLETED: frozenset(),  # terminal
     OrderState.FAILED: frozenset(),     # terminal

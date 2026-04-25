@@ -71,6 +71,15 @@ async def dispute_credit_sale(
     return await svc.dispute(credit_sale_id, tenant_id=tenant_id)
 
 
+@router.post("/{credit_sale_id}/write-off")
+async def write_off_credit_sale(
+    credit_sale_id: str,
+    tenant_id: str,
+    svc: ServiceDep,
+) -> CreditSaleOut:
+    return await svc.write_off(credit_sale_id, tenant_id=tenant_id)
+
+
 @router.post("/{credit_sale_id}/remind")
 async def send_reminder(
     credit_sale_id: str,

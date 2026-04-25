@@ -81,12 +81,15 @@ class OrderOut(BaseModel):
 
 class OrderListItem(BaseModel):
     id: str
+    conversation_id: str | None
+    customer_id: str | None
     state: OrderState
     amount: Decimal | None
     currency: str
     created_at: datetime
     updated_at: datetime
     item_count: int
+    items: list[OrderItemOut] = []
 
 
 class OrderListResponse(BaseModel):

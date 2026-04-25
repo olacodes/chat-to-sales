@@ -316,6 +316,46 @@ class OrderService:
         await self._db.commit()
         return await self._reload(order.id)
 
+    async def handle_credit_sale_resolved(
+        self, *, order_id: str, tenant_id: str
+    ) -> Order | None:
+        """
+        Transition an order to COMPLETED when its linked credit sale is settled
+        or written off.
+
+        Accepts orders in CONFIRMED or PAID state (CONFIRMED → COMPLETED is
+        allowed for credit sales that bypass the normal payment step).
+        Returns None if the order is not found, already terminal, or the
+        transition is not applicable.
+        """
+        order = await self._repo.get_by_id(order_id=order_id, tenant_id=tenant_id)
+        if order is None:
+            logger.warning(
+                "handle_credit_sale_resolved: order not found order_id=%s", order_id
+            )
+            return None
+
+        if order.state in (OrderState.COMPLETED, OrderState.FAILED):
+            logger.info(
+                "handle_credit_sale_resolved: order already terminal order_id=%s state=%s",
+                order_id,
+                order.state,
+            )
+            return order
+
+        try:
+            order = await self._transition(order, OrderState.COMPLETED)
+        except ConflictError as exc:
+            logger.warning(
+                "handle_credit_sale_resolved: cannot transition order_id=%s state=%s: %s",
+                order_id,
+                order.state,
+                exc,
+            )
+            return None
+
+        return order
+
     async def fail_order(self, order_id: str, *, tenant_id: str | None = None) -> Order:
         order = await self._get_or_404(order_id, tenant_id)
         order = await self._transition(order, OrderState.FAILED)
@@ -378,15 +418,20 @@ class OrderService:
             limit=limit,
             offset=offset,
         )
+        from app.modules.orders.schemas import OrderItemOut
+
         items = [
             OrderListItem(
                 id=order.id,
+                conversation_id=order.conversation_id,
+                customer_id=order.customer_id,
                 state=order.state,
                 amount=order.amount,
                 currency=order.currency,
                 created_at=order.created_at,
                 updated_at=order.updated_at,
                 item_count=count,
+                items=[OrderItemOut.model_validate(i) for i in order.items],
             )
             for order, count in rows
         ]

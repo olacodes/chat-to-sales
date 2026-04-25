@@ -15,7 +15,7 @@ from app.infra.cache import close_redis, init_redis
 from app.infra.database import create_all_tables, dispose_engine
 from app.infra.scheduler import start_scheduler, stop_scheduler
 from app.modules.conversation.handlers import register_message_received_handler
-from app.modules.orders.handlers import register_order_intent_handler
+from app.modules.orders.handlers import register_order_intent_handler, register_credit_sale_status_handler
 from app.modules.payments.handlers import register_payment_confirmed_handler
 from app.modules.notifications.handlers import (
     register_order_created_notification_handler,
@@ -72,6 +72,7 @@ async def lifespan(app: FastAPI):
     _listener_tasks = []
     _listener_tasks.append(register_message_received_handler())
     _listener_tasks.append(register_order_intent_handler())
+    _listener_tasks.append(register_credit_sale_status_handler())
     _listener_tasks.append(register_payment_confirmed_handler())
     _listener_tasks.append(register_realtime_listener(ws_manager))
     _listener_tasks.append(register_order_created_notification_handler())

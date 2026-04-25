@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundError
 from app.core.logging import get_logger
+from app.infra.event_bus import Event, publish_event
 from app.modules.credit_sales.models import CreditSale, CreditSaleStatus
 from app.modules.credit_sales.repository import CreditSaleRepository
 from app.modules.credit_sales.schemas import (
@@ -74,12 +75,28 @@ class CreditSaleService:
             raise NotFoundError("CreditSale", credit_sale_id)
         return CreditSaleOut.model_validate(credit_sale)
 
+    async def _publish_status_changed(
+        self, credit_sale: CreditSale, new_status: str, tenant_id: str
+    ) -> None:
+        await publish_event(
+            Event(
+                event_name="credit_sale.status_changed",
+                tenant_id=tenant_id,
+                payload={
+                    "credit_sale_id": credit_sale.id,
+                    "order_id": credit_sale.order_id,
+                    "new_status": new_status,
+                },
+            )
+        )
+
     async def settle(self, credit_sale_id: str, *, tenant_id: str) -> CreditSaleOut:
         credit_sale = await self._repo.get_by_id(credit_sale_id, tenant_id=tenant_id)
         if credit_sale is None:
             raise NotFoundError("CreditSale", credit_sale_id)
         await self._repo.update_status(credit_sale, status=CreditSaleStatus.SETTLED)
         await self._db.commit()
+        await self._publish_status_changed(credit_sale, "settled", tenant_id)
         return CreditSaleOut.model_validate(credit_sale)
 
     async def dispute(self, credit_sale_id: str, *, tenant_id: str) -> CreditSaleOut:
@@ -88,6 +105,16 @@ class CreditSaleService:
             raise NotFoundError("CreditSale", credit_sale_id)
         await self._repo.update_status(credit_sale, status=CreditSaleStatus.DISPUTED)
         await self._db.commit()
+        await self._publish_status_changed(credit_sale, "disputed", tenant_id)
+        return CreditSaleOut.model_validate(credit_sale)
+
+    async def write_off(self, credit_sale_id: str, *, tenant_id: str) -> CreditSaleOut:
+        credit_sale = await self._repo.get_by_id(credit_sale_id, tenant_id=tenant_id)
+        if credit_sale is None:
+            raise NotFoundError("CreditSale", credit_sale_id)
+        await self._repo.update_status(credit_sale, status=CreditSaleStatus.WRITTEN_OFF)
+        await self._db.commit()
+        await self._publish_status_changed(credit_sale, "written_off", tenant_id)
         return CreditSaleOut.model_validate(credit_sale)
 
     async def send_reminder(self, credit_sale_id: str, *, tenant_id: str) -> ReminderOut:

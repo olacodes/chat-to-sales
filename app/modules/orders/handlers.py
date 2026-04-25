@@ -75,7 +75,7 @@ async def handle_order_intent(event: Event) -> None:
     payload = event.payload
     tenant_id: str = event.tenant_id
     conversation_id: str = payload.get("conversation_id", "")
-    message: str = payload.get("message", "")
+    message: str = payload.get("content", "")
 
     if not (tenant_id and conversation_id and message):
         logger.debug(
@@ -117,6 +117,64 @@ async def handle_order_intent(event: Event) -> None:
             order.id,
             conversation_id,
         )
+
+
+_CREDIT_SALE_STATUS_CHANGED_EVENT = "credit_sale.status_changed"
+
+# Credit sale statuses that mean the debt is resolved → complete the order
+_RESOLVING_STATUSES = frozenset({"settled", "written_off"})
+
+
+async def handle_credit_sale_status_changed(event: Event) -> None:
+    """
+    Transition an order to COMPLETED when its credit sale is settled or written off.
+    Disputed credit sales do not change the order state.
+    """
+    payload = event.payload
+    tenant_id: str = event.tenant_id
+    order_id: str = payload.get("order_id", "")
+    new_status: str = payload.get("new_status", "")
+
+    if not (order_id and tenant_id and new_status):
+        logger.debug(
+            "CreditSaleStatus handler: skipping event_id=%s — missing fields", event.event_id
+        )
+        return
+
+    if new_status not in _RESOLVING_STATUSES:
+        logger.debug(
+            "CreditSaleStatus handler: status=%s does not resolve order — skipping", new_status
+        )
+        return
+
+    logger.info(
+        "CreditSaleStatus: credit_sale resolved status=%s order_id=%s", new_status, order_id
+    )
+
+    async with async_session_factory.begin() as session:
+        svc = OrderService(session)
+        order = await svc.handle_credit_sale_resolved(order_id=order_id, tenant_id=tenant_id)
+
+    if order is None:
+        logger.warning(
+            "CreditSaleStatus: order transition skipped order_id=%s", order_id
+        )
+    else:
+        logger.info(
+            "CreditSaleStatus: order transitioned to COMPLETED order_id=%s", order.id
+        )
+
+
+def register_credit_sale_status_handler() -> asyncio.Task:
+    """
+    Start a background task that listens for credit_sale.status_changed events
+    and completes the linked order when the credit is resolved.
+    """
+    logger.info("Registering credit_sale.status_changed handler (all tenants)")
+    return create_global_listener_task(
+        event_name=_CREDIT_SALE_STATUS_CHANGED_EVENT,
+        handler=handle_credit_sale_status_changed,
+    )
 
 
 def register_order_intent_handler() -> asyncio.Task:

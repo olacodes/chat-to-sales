@@ -11,7 +11,7 @@ from decimal import Decimal
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import noload
+from sqlalchemy.orm import selectinload
 
 from app.core.logging import get_logger
 from app.modules.orders.models import Order, OrderItem, OrderState
@@ -160,13 +160,6 @@ class OrderRepository:
         A separate COUNT(*) query returns the total matching rows for
         pagination metadata (dashboard page-count display).
         """
-        item_count_sq = (
-            select(func.count(OrderItem.id))
-            .where(OrderItem.order_id == Order.id)
-            .correlate(Order)
-            .scalar_subquery()
-        )
-
         filters = [Order.tenant_id == tenant_id]
         if state is not None:
             filters.append(Order.state == state)
@@ -183,15 +176,15 @@ class OrderRepository:
             )
 
         data_stmt = (
-            select(Order, item_count_sq.label("item_count"))
-            .options(noload(Order.items))
+            select(Order)
+            .options(selectinload(Order.items))
             .where(*filters)
             .order_by(Order.created_at.desc())
             .limit(limit)
             .offset(offset)
         )
-        rows = (await self._session.execute(data_stmt)).all()
-        results = [(row[0], row[1]) for row in rows]
+        orders = (await self._session.execute(data_stmt)).scalars().all()
+        results = [(order, len(order.items)) for order in orders]
 
         count_stmt = select(func.count()).select_from(Order).where(*filters)
         total: int = (await self._session.execute(count_stmt)).scalar_one()
