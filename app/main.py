@@ -16,6 +16,8 @@ from app.infra.database import create_all_tables, dispose_engine
 from app.infra.scheduler import start_scheduler, stop_scheduler
 from app.modules.conversation.handlers import register_message_received_handler
 from app.modules.orders.handlers import register_order_intent_handler, register_credit_sale_status_handler
+from app.modules.onboarding.handlers import register_onboarding_handler
+from app.modules.onboarding.models import Trader  # noqa: F401 — registers model with Base
 from app.modules.payments.handlers import register_payment_confirmed_handler
 from app.modules.notifications.handlers import (
     register_order_created_notification_handler,
@@ -71,6 +73,7 @@ async def lifespan(app: FastAPI):
     # events from every tenant including those created after startup.
     _listener_tasks = []
     _listener_tasks.append(register_message_received_handler())
+    _listener_tasks.append(register_onboarding_handler())
     _listener_tasks.append(register_order_intent_handler())
     _listener_tasks.append(register_credit_sale_status_handler())
     _listener_tasks.append(register_payment_confirmed_handler())

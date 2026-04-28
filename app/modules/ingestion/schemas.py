@@ -61,6 +61,16 @@ class InboundMessageRequest(BaseModel):
         default=None,
         description="Channel-assigned message ID (e.g. WhatsApp wamid). Used for deduplication.",
     )
+    # Set when the inbound message carries media (image, audio, video, document).
+    # The message field will contain a sentinel like "[image]" or "[audio]".
+    media_id: str | None = Field(
+        default=None,
+        description="Meta media object ID — present for image/audio/video messages.",
+    )
+    media_type: str | None = Field(
+        default=None,
+        description="MIME type of the media, e.g. 'image/jpeg' or 'audio/ogg'.",
+    )
 
     @field_validator("sender_identifier")
     @classmethod
@@ -94,6 +104,8 @@ class NormalizedMessage(BaseModel):
     word_count: int
     tenant_id: str
     is_empty: bool  # True only when message was whitespace-only before strip
+    media_id: str | None = None
+    media_type: str | None = None
 
 
 class MessageReceivedPayload(BaseModel):
@@ -109,6 +121,8 @@ class MessageReceivedPayload(BaseModel):
     word_count: int
     tenant_id: str
     message_id: str | None = None  # channel-assigned ID forwarded for deduplication
+    media_id: str | None = None
+    media_type: str | None = None
 
     model_config = {"from_attributes": True}
 

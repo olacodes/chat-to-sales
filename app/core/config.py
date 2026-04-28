@@ -57,6 +57,14 @@ class Settings(BaseSettings):
     # Must match across the ingestion router and the event listener startup.
     TENANT_ID: str = "tenant-abc-123"
 
+    # ── AI / Media processing ──────────────────────────────────────────────────
+    # OpenAI API key — used for Whisper audio transcription (onboarding Path B).
+    OPENAI_API_KEY: str = ""
+    # Anthropic API key — used for Claude product extraction from OCR/transcription.
+    ANTHROPIC_API_KEY: str = ""
+    # Google Vision API key — used for price-list photo OCR (onboarding Path A).
+    GOOGLE_VISION_API_KEY: str = ""
+
     # ── Paystack ───────────────────────────────────────────────────────────────
     # Set this to your Paystack secret key in production.
     # Leave empty in development to skip webhook signature verification.

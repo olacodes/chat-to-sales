@@ -47,6 +47,8 @@ class IngestionService:
             word_count=len(words),
             tenant_id=request.tenant_id,
             is_empty=len(stripped) == 0,
+            media_id=request.media_id,
+            media_type=request.media_type,
         )
 
     # ── Event publishing ──────────────────────────────────────────────────────
@@ -68,6 +70,8 @@ class IngestionService:
             word_count=normalized.word_count,
             tenant_id=normalized.tenant_id,
             message_id=request.message_id,
+            media_id=normalized.media_id,
+            media_type=normalized.media_type,
         )
 
         event = Event(

@@ -62,6 +62,8 @@ async def handle_message_received(event: Event) -> None:
     content: str = payload.get("message", "")
     # Try both field names — ingestion service may populate either
     external_id: str | None = payload.get("message_id") or payload.get("external_id")
+    media_id: str | None = payload.get("media_id")
+    media_type: str | None = payload.get("media_type")
 
     if not (tenant_id and channel and sender_id and content):
         logger.warning(
@@ -118,6 +120,10 @@ async def handle_message_received(event: Event) -> None:
                     "tenant_id": tenant_id,
                     "channel": channel,
                     "customer_identifier": sender_id,
+                    # Media fields — present when the inbound message carried an image or audio.
+                    # Consumed by the onboarding handler for Paths A and B.
+                    "media_id": media_id,
+                    "media_type": media_type,
                 },
             )
         )

@@ -97,6 +97,18 @@ async def receive_whatsapp_message(
     sender_id = ""
     content = ""
     external_id = ""
+    media_id: str | None = None
+    media_type: str | None = None
+
+    # Meta Cloud API MIME types for WhatsApp audio messages
+    _AUDIO_MIME_TYPES: dict[str, str] = {
+        "audio/ogg": "audio/ogg",
+        "audio/mpeg": "audio/mpeg",
+        "audio/mp4": "audio/mp4",
+        "audio/aac": "audio/aac",
+        "audio/amr": "audio/amr",
+    }
+
     try:
         first_msg = raw["entry"][0]["changes"][0]["value"]["messages"][0]
         msg_type = first_msg.get("type", "")
@@ -105,10 +117,22 @@ async def receive_whatsapp_message(
 
         if msg_type == "text":
             content = (first_msg.get("text") or {}).get("body", "")
+        elif msg_type == "image":
+            img = first_msg.get("image") or {}
+            media_id = img.get("id", "")
+            media_type = img.get("mime_type", "image/jpeg")
+            content = "[image]"
+            logger.debug("WhatsApp image received media_id=%s sender=%s", media_id, sender_id)
+        elif msg_type == "audio":
+            aud = first_msg.get("audio") or {}
+            media_id = aud.get("id", "")
+            media_type = aud.get("mime_type", "audio/ogg")
+            content = "[audio]"
+            logger.debug("WhatsApp audio received media_id=%s sender=%s", media_id, sender_id)
         else:
-            # Non-text types (image, audio, reaction, interactive, …) — no body to relay.
+            # reaction, interactive, sticker, document, video — not handled yet
             logger.debug(
-                "WhatsApp webhook — ignoring non-text message type=%s", msg_type
+                "WhatsApp webhook — ignoring message type=%s", msg_type
             )
     except (KeyError, IndexError, TypeError):
         pass  # status/delivery notification — nothing to process
@@ -121,10 +145,12 @@ async def receive_whatsapp_message(
             message=content,
             tenant_id=tenant_id,
             message_id=external_id or None,
+            media_id=media_id or None,
+            media_type=media_type or None,
         )
         svc = IngestionService()
         await svc.process(inbound)
-        logger.info("WhatsApp message processed — sender=%s", sender_id)
+        logger.info("WhatsApp message processed — sender=%s type=%s", sender_id, msg_type)
 
     return {"status": "accepted"}
 
