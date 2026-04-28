@@ -32,6 +32,10 @@ class Order(TenantModel):
         index=True,
     )
     customer_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    # E.164 phone number of the customer who placed this order.
+    # Stored here so trader-command handlers can notify the customer without
+    # an extra join back through conversations.
+    customer_phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
     state: Mapped[str] = mapped_column(
         String(20), nullable=False, default=OrderState.INQUIRY, index=True
     )

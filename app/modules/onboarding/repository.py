@@ -20,6 +20,16 @@ class TraderRepository:
         )
         return result.scalar_one_or_none()
 
+    async def get_by_tenant(self, tenant_id: str) -> Trader | None:
+        """Return the completed trader for a given tenant, or None."""
+        result = await self._db.execute(
+            select(Trader).where(
+                Trader.tenant_id == tenant_id,
+                Trader.onboarding_status == OnboardingStatus.COMPLETE,
+            )
+        )
+        return result.scalar_one_or_none()
+
     async def slug_exists(self, slug: str) -> bool:
         result = await self._db.execute(
             select(Trader.id).where(Trader.store_slug == slug)
@@ -33,6 +43,7 @@ class TraderRepository:
         business_name: str,
         business_category: str,
         store_slug: str,
+        tenant_id: str | None = None,
         onboarding_catalogue: str | None = None,
     ) -> Trader:
         trader = Trader(
@@ -40,6 +51,7 @@ class TraderRepository:
             business_name=business_name,
             business_category=business_category,
             store_slug=store_slug,
+            tenant_id=tenant_id,
             onboarding_status=OnboardingStatus.COMPLETE,
             tier=TraderTier.OFE,
             onboarding_catalogue=onboarding_catalogue,

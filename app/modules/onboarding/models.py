@@ -12,7 +12,7 @@ from enum import StrEnum
 from sqlalchemy import Index, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.core.models.base import BaseModel
+from app.core.models.base import BaseModel, TenantMixin
 
 
 class OnboardingStatus(StrEnum):
@@ -43,7 +43,12 @@ class Trader(BaseModel):
         UniqueConstraint("store_slug", name="uq_traders_store_slug"),
         Index("ix_traders_phone_number", "phone_number"),
         Index("ix_traders_store_slug", "store_slug"),
+        Index("ix_traders_tenant_id", "tenant_id"),
     )
+
+    # The ChatToSales tenant this trader belongs to (set during onboarding).
+    # Nullable for backwards compatibility with traders created before this field.
+    tenant_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
 
     # WhatsApp identity — E.164 phone number, e.g. "2348012345678"
     phone_number: Mapped[str] = mapped_column(String(20), nullable=False)

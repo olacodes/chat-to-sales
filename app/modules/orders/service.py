@@ -3,6 +3,12 @@ app/modules/orders/service.py
 
 OrderService — orchestrates the order lifecycle.
 
+WhatsApp-driven entry points (Feature 2):
+  handle_inbound_customer_message() — parses customer orders and manages the
+      customer confirmation flow via Redis session.
+  handle_trader_command() — interprets CONFIRM/CANCEL/PAID/DELIVERED commands
+      from the trader and transitions the order state machine accordingly.
+
 Every state-changing method:
   1. Loads the order (tenant-scoped for safety)
   2. Delegates to the state machine for validation
@@ -16,6 +22,7 @@ explicit try/except to surface InvalidTransitionError as HTTP 409.
 
 from datetime import date
 from decimal import Decimal
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,11 +30,32 @@ from sqlalchemy.orm import selectinload
 
 from app.core.exceptions import ConflictError, NotFoundError
 from app.core.logging import get_logger
+from app.infra.database import async_session_factory
 from app.infra.event_bus import Event, publish_event
+from app.modules.notifications.service import NotificationService
 from app.modules.orders.models import Order, OrderState
+from app.modules.orders.nlp import (
+    CANCEL,
+    CONFIRM,
+    ORDER,
+    TRADER_CANCEL,
+    TRADER_CONFIRM,
+    TRADER_DELIVERED,
+    TRADER_PAID,
+    UNKNOWN,
+    parse_message,
+)
 from app.modules.orders.repository import OrderRepository
 from app.modules.orders.schemas import OrderCreate, OrderItemCreate, OrderListResponse
+from app.modules.orders.session import (
+    AWAITING_CLARIFICATION,
+    AWAITING_CUSTOMER_CONFIRMATION,
+    clear_order_session,
+    get_order_session,
+    set_order_session,
+)
 from app.modules.orders.state_machine import InvalidTransitionError, validate_transition
+import app.modules.orders.whatsapp as wa
 
 logger = get_logger(__name__)
 
@@ -395,6 +423,438 @@ class OrderService:
         await self._db.flush()
         await self._db.commit()
         return await self._reload(order.id)
+
+    # ── List query ────────────────────────────────────────────────────────────
+
+    # ── WhatsApp-driven order flow ────────────────────────────────────────────
+
+    async def handle_inbound_customer_message(
+        self,
+        *,
+        tenant_id: str,
+        conversation_id: str,
+        customer_phone: str,
+        message: str,
+        message_id: str,
+        trader: dict[str, Any],
+    ) -> None:
+        """
+        Process an inbound customer message and advance the order conversation.
+
+        State machine (stored in Redis, keyed by tenant+customer_phone):
+
+          [no session]
+              Order intent detected
+                  -> show summary to customer, notify trader, create INQUIRY order
+                  -> set session: AWAITING_CUSTOMER_CONFIRMATION
+              Clarification needed
+                  -> ask one specific question
+                  -> set session: AWAITING_CLARIFICATION
+              Unknown / greeting
+                  -> prompt for what they want to order
+
+          AWAITING_CUSTOMER_CONFIRMATION
+              YES -> transition order to CONFIRMED (trader already notified)
+              NO  -> transition order to FAILED, clear session
+
+          AWAITING_CLARIFICATION
+              Re-parse with Claude including prior context
+              -> update session items or show summary
+
+        trader dict keys: business_name, business_category, catalogue (dict[str,int])
+        """
+        trader_name: str = trader.get("business_name", "the trader")
+        category: str = trader.get("business_category", "")
+        catalogue: dict[str, int] = trader.get("catalogue", {})
+
+        session = await get_order_session(tenant_id, customer_phone)
+
+        # ── Existing session: customer is responding to a summary ─────────────
+        if session and session.get("state") == AWAITING_CUSTOMER_CONFIRMATION:
+            result = await parse_message(message, category=category, catalogue=catalogue)
+
+            if result.intent == CONFIRM:
+                order_id: str = session["order_id"]
+                order = await self._repo.get_by_id(order_id=order_id, tenant_id=tenant_id)
+                if order is None or order.state != OrderState.INQUIRY:
+                    await clear_order_session(tenant_id, customer_phone)
+                    await self._reply(
+                        phone=customer_phone,
+                        tenant_id=tenant_id,
+                        event_id=f"order.customer_confirm_missing.{message_id}",
+                        text="Something went wrong with your order. Abeg place it again.",
+                    )
+                    return
+
+                # Notify trader of the confirmed customer intent
+                items: list[dict[str, Any]] = session.get("items", [])
+                total: int = session.get("total", 0)
+                order_ref = order.id[:8]
+                await self._reply(
+                    phone=trader.get("phone_number", ""),
+                    tenant_id=tenant_id,
+                    event_id=f"order.trader_notify.{order.id}",
+                    text=wa.order_received_to_trader(
+                        items=items,
+                        total=total,
+                        customer_phone=customer_phone,
+                        order_ref=order_ref,
+                    ),
+                )
+                await clear_order_session(tenant_id, customer_phone)
+                await self._reply(
+                    phone=customer_phone,
+                    tenant_id=tenant_id,
+                    event_id=f"order.customer_pending.{order.id}",
+                    text=wa.order_pending_to_customer(trader_name),
+                )
+                logger.info(
+                    "Customer confirmed order order_id=%s customer=%s",
+                    order.id,
+                    customer_phone,
+                )
+                return
+
+            if result.intent == CANCEL:
+                order_id = session.get("order_id", "")
+                if order_id:
+                    order = await self._repo.get_by_id(order_id=order_id, tenant_id=tenant_id)
+                    if order and order.state == OrderState.INQUIRY:
+                        try:
+                            await self._transition(order, OrderState.FAILED)
+                            await self._db.commit()
+                        except ConflictError:
+                            pass
+                await clear_order_session(tenant_id, customer_phone)
+                await self._reply(
+                    phone=customer_phone,
+                    tenant_id=tenant_id,
+                    event_id=f"order.customer_cancel.{message_id}",
+                    text=wa.order_cancelled_to_customer(trader_name),
+                )
+                logger.info("Customer cancelled order customer=%s", customer_phone)
+                return
+
+            # Customer sent something else — re-show the summary
+            items = session.get("items", [])
+            total = session.get("total", 0)
+            await self._reply(
+                phone=customer_phone,
+                tenant_id=tenant_id,
+                event_id=f"order.re_summary.{message_id}",
+                text=wa.order_summary_to_customer(items, total, trader_name),
+            )
+            return
+
+        # ── Existing session: waiting for clarification answer ────────────────
+        if session and session.get("state") == AWAITING_CLARIFICATION:
+            # Append the clarification answer to the original message and re-parse
+            original = session.get("original_message", "")
+            combined = f"{original}. {message}"
+            result = await parse_message(combined, category=category, catalogue=catalogue)
+            # Fall through to handle result as a fresh order below
+        else:
+            result = await parse_message(message, category=category, catalogue=catalogue)
+
+        # ── No session (or just resolved clarification): fresh order parse ────
+
+        if result.intent == CONFIRM and not session:
+            await self._reply(
+                phone=customer_phone,
+                tenant_id=tenant_id,
+                event_id=f"order.stale_confirm.{message_id}",
+                text=wa.no_active_session(),
+            )
+            return
+
+        if result.intent == CANCEL and not session:
+            await self._reply(
+                phone=customer_phone,
+                tenant_id=tenant_id,
+                event_id=f"order.stale_cancel.{message_id}",
+                text=wa.no_active_session(),
+            )
+            return
+
+        if result.intent == UNKNOWN or (result.intent == ORDER and not result.items):
+            if result.clarification_needed and result.clarification_question:
+                # Save context and ask the clarification question
+                await set_order_session(
+                    tenant_id,
+                    customer_phone,
+                    {
+                        "state": AWAITING_CLARIFICATION,
+                        "original_message": message,
+                    },
+                )
+                await self._reply(
+                    phone=customer_phone,
+                    tenant_id=tenant_id,
+                    event_id=f"order.clarify.{message_id}",
+                    text=wa.ask_clarification(result.clarification_question),
+                )
+            else:
+                await self._reply(
+                    phone=customer_phone,
+                    tenant_id=tenant_id,
+                    event_id=f"order.unknown.{message_id}",
+                    text=wa.unknown_order_prompt(),
+                )
+            return
+
+        # ── We have an ORDER with items ────────────────────────────────────────
+        items = result.items
+        # Fill in prices from catalogue for items that don't have them
+        missing_price_names: list[str] = []
+        for item in items:
+            if item.get("unit_price") is None:
+                # Case-insensitive catalogue lookup
+                matched_price: int | None = None
+                item_name_lower = item["name"].lower()
+                for cat_name, cat_price in catalogue.items():
+                    if item_name_lower in cat_name.lower() or cat_name.lower() in item_name_lower:
+                        matched_price = cat_price
+                        break
+                if matched_price is not None:
+                    item["unit_price"] = matched_price
+                else:
+                    missing_price_names.append(item["name"])
+
+        if missing_price_names:
+            await self._reply(
+                phone=customer_phone,
+                tenant_id=tenant_id,
+                event_id=f"order.price_missing.{message_id}",
+                text=wa.price_missing_prompt(missing_price_names),
+            )
+            return
+
+        # All prices known — compute total and create the order in DB
+        total = sum(item["qty"] * item["unit_price"] for item in items)
+
+        order = await self._repo.create_order(
+            tenant_id=tenant_id,
+            conversation_id=conversation_id,
+            customer_phone=customer_phone,
+            amount=Decimal(str(total)),
+        )
+        for item in items:
+            await self._repo.add_item(
+                order_id=order.id,
+                product_name=item["name"],
+                quantity=item["qty"],
+                unit_price=Decimal(str(item["unit_price"])),
+            )
+        await self._db.commit()
+
+        order_ref = order.id[:8]
+
+        # Show summary to customer, store session awaiting their YES/NO
+        await set_order_session(
+            tenant_id,
+            customer_phone,
+            {
+                "state": AWAITING_CUSTOMER_CONFIRMATION,
+                "order_id": order.id,
+                "items": items,
+                "total": total,
+            },
+        )
+        await self._reply(
+            phone=customer_phone,
+            tenant_id=tenant_id,
+            event_id=f"order.summary.{order.id}",
+            text=wa.order_summary_to_customer(items, total, trader_name),
+        )
+        logger.info(
+            "Order summary shown to customer order_id=%s customer=%s total=%s",
+            order.id,
+            customer_phone,
+            total,
+        )
+
+    async def handle_trader_command(
+        self,
+        *,
+        tenant_id: str,
+        trader_phone: str,
+        message: str,
+        message_id: str,
+        trader: dict[str, Any],
+    ) -> None:
+        """
+        Process a WhatsApp command from the store owner.
+
+        Recognised commands (case-insensitive):
+            CONFIRM <ref>    INQUIRY -> CONFIRMED, notify customer
+            CANCEL  <ref>    INQUIRY/CONFIRMED -> FAILED, notify customer
+            PAID    <ref>    CONFIRMED -> PAID
+            DELIVERED <ref>  CONFIRMED/PAID -> COMPLETED
+
+        Any other text replies with the command guide.
+
+        trader dict keys: business_name, phone_number
+        """
+        from app.modules.orders.nlp import _layer1  # local import avoids cycle
+
+        trader_name: str = trader.get("business_name", "the trader")
+        result = _layer1(message)
+
+        if result.intent not in (
+            TRADER_CONFIRM, TRADER_CANCEL, TRADER_PAID, TRADER_DELIVERED
+        ):
+            await self._reply(
+                phone=trader_phone,
+                tenant_id=tenant_id,
+                event_id=f"order.cmd_guide.{message_id}",
+                text=wa.trader_command_guide(),
+            )
+            return
+
+        ref = result.order_ref or ""
+        order = await self._repo.get_by_ref_prefix(ref_prefix=ref, tenant_id=tenant_id)
+        if order is None:
+            await self._reply(
+                phone=trader_phone,
+                tenant_id=tenant_id,
+                event_id=f"order.not_found.{message_id}",
+                text=wa.order_not_found_to_trader(ref),
+            )
+            return
+
+        customer_phone: str = order.customer_phone or ""
+
+        if result.intent == TRADER_CONFIRM:
+            try:
+                await self._transition(order, OrderState.CONFIRMED)
+                await self._db.commit()
+            except ConflictError as exc:
+                await self._reply(
+                    phone=trader_phone,
+                    tenant_id=tenant_id,
+                    event_id=f"order.confirm_err.{message_id}",
+                    text=f"Cannot confirm order {ref}: {exc}",
+                )
+                return
+            await self._reply(
+                phone=trader_phone,
+                tenant_id=tenant_id,
+                event_id=f"order.confirmed_trader.{order.id}",
+                text=wa.order_confirmed_to_trader(ref),
+            )
+            if customer_phone:
+                total = int(order.amount or 0)
+                await self._reply(
+                    phone=customer_phone,
+                    tenant_id=tenant_id,
+                    event_id=f"order.confirmed_customer.{order.id}",
+                    text=wa.order_confirmed_to_customer(trader_name, total),
+                )
+            logger.info("Trader confirmed order_id=%s ref=%s", order.id, ref)
+
+        elif result.intent == TRADER_CANCEL:
+            try:
+                await self._transition(order, OrderState.FAILED)
+                await self._db.commit()
+            except ConflictError as exc:
+                await self._reply(
+                    phone=trader_phone,
+                    tenant_id=tenant_id,
+                    event_id=f"order.cancel_err.{message_id}",
+                    text=f"Cannot cancel order {ref}: {exc}",
+                )
+                return
+            await clear_order_session(tenant_id, customer_phone)
+            await self._reply(
+                phone=trader_phone,
+                tenant_id=tenant_id,
+                event_id=f"order.cancelled_trader.{order.id}",
+                text=wa.order_cancelled_to_trader(ref),
+            )
+            if customer_phone:
+                await self._reply(
+                    phone=customer_phone,
+                    tenant_id=tenant_id,
+                    event_id=f"order.cancelled_customer.{order.id}",
+                    text=wa.order_cancelled_to_customer(trader_name),
+                )
+            logger.info("Trader cancelled order_id=%s ref=%s", order.id, ref)
+
+        elif result.intent == TRADER_PAID:
+            try:
+                await self._transition(order, OrderState.PAID)
+                await self._db.commit()
+            except ConflictError as exc:
+                await self._reply(
+                    phone=trader_phone,
+                    tenant_id=tenant_id,
+                    event_id=f"order.paid_err.{message_id}",
+                    text=f"Cannot mark order {ref} as paid: {exc}",
+                )
+                return
+            await self._reply(
+                phone=trader_phone,
+                tenant_id=tenant_id,
+                event_id=f"order.paid_trader.{order.id}",
+                text=wa.order_paid_to_trader(ref),
+            )
+            logger.info("Trader marked order PAID order_id=%s ref=%s", order.id, ref)
+
+        elif result.intent == TRADER_DELIVERED:
+            # Accept CONFIRMED -> COMPLETED or PAID -> COMPLETED
+            try:
+                await self._transition(order, OrderState.COMPLETED)
+                await self._db.commit()
+            except ConflictError as exc:
+                await self._reply(
+                    phone=trader_phone,
+                    tenant_id=tenant_id,
+                    event_id=f"order.deliver_err.{message_id}",
+                    text=f"Cannot mark order {ref} as delivered: {exc}",
+                )
+                return
+            await self._reply(
+                phone=trader_phone,
+                tenant_id=tenant_id,
+                event_id=f"order.delivered_trader.{order.id}",
+                text=wa.order_delivered_to_trader(ref),
+            )
+            logger.info("Trader marked order DELIVERED order_id=%s ref=%s", order.id, ref)
+
+    async def _reply(
+        self,
+        *,
+        phone: str,
+        tenant_id: str,
+        event_id: str,
+        text: str,
+    ) -> None:
+        """
+        Send a WhatsApp message using an independent DB session.
+
+        Failures are logged but never bubble up — a bad send must never corrupt
+        order state or crash the event handler loop.
+        """
+        if not phone:
+            logger.warning("_reply called with empty phone for event_id=%s", event_id)
+            return
+        try:
+            async with async_session_factory.begin() as session:
+                svc = NotificationService(session)
+                await svc.send_message(
+                    tenant_id=tenant_id,
+                    event_id=event_id,
+                    recipient=phone,
+                    message_text=text,
+                    channel="whatsapp",
+                )
+        except Exception as exc:
+            logger.error(
+                "Order reply failed phone=%s event_id=%s: %s",
+                phone,
+                event_id,
+                exc,
+            )
 
     # ── List query ────────────────────────────────────────────────────────────
 

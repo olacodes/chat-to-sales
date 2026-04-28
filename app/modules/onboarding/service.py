@@ -764,6 +764,7 @@ class OnboardingService:
                     business_name=name,
                     business_category=business_category,
                     store_slug=slug,
+                    tenant_id=tenant_id,
                     onboarding_catalogue=onboarding_catalogue,
                 )
             else:

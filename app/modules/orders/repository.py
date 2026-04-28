@@ -73,12 +73,57 @@ class OrderRepository:
 
     # ── Write ─────────────────────────────────────────────────────────────────
 
+    async def get_by_ref_prefix(
+        self,
+        *,
+        ref_prefix: str,
+        tenant_id: str,
+    ) -> Order | None:
+        """
+        Look up an order by its short reference (first 8 hex chars of the UUID).
+
+        Used when a trader types "CONFIRM 3f8a2c1b" — the ref is the UUID prefix.
+        The LIKE query is safe here because UUIDs are never longer than 36 chars
+        and the primary key index is used for the prefix scan.
+        """
+        result = await self._session.execute(
+            select(Order)
+            .options(selectinload(Order.items))
+            .where(
+                Order.id.like(f"{ref_prefix}%"),
+                Order.tenant_id == tenant_id,
+            )
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_open_order_by_customer_phone(
+        self,
+        *,
+        customer_phone: str,
+        tenant_id: str,
+    ) -> Order | None:
+        """Return the most recent open order for a customer's phone number."""
+        result = await self._session.execute(
+            select(Order)
+            .options(selectinload(Order.items))
+            .where(
+                Order.customer_phone == customer_phone,
+                Order.tenant_id == tenant_id,
+                Order.state.in_([s.value for s in _OPEN_STATES]),
+            )
+            .order_by(Order.created_at.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
     async def create_order(
         self,
         *,
         tenant_id: str,
         conversation_id: str,
         customer_id: str | None = None,
+        customer_phone: str | None = None,
         amount: Decimal | None = None,
         currency: str = "NGN",
     ) -> Order:
@@ -87,6 +132,7 @@ class OrderRepository:
             tenant_id=tenant_id,
             conversation_id=conversation_id,
             customer_id=customer_id,
+            customer_phone=customer_phone,
             state=OrderState.INQUIRY,
             amount=amount,
             currency=currency,
