@@ -30,6 +30,12 @@ class TraderRepository:
         )
         return result.scalar_one_or_none()
 
+    async def get_by_slug(self, store_slug: str) -> Trader | None:
+        result = await self._db.execute(
+            select(Trader).where(Trader.store_slug == store_slug)
+        )
+        return result.scalar_one_or_none()
+
     async def slug_exists(self, slug: str) -> bool:
         result = await self._db.execute(
             select(Trader.id).where(Trader.store_slug == slug)

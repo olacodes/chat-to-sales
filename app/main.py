@@ -18,6 +18,7 @@ from app.modules.conversation.handlers import register_message_received_handler
 from app.modules.orders.handlers import register_order_intent_handler, register_credit_sale_status_handler
 from app.modules.onboarding.handlers import register_onboarding_handler
 from app.modules.onboarding.models import Trader  # noqa: F401 — registers model with Base
+from app.modules.onboarding.router import router as store_router
 from app.modules.payments.handlers import register_payment_confirmed_handler
 from app.modules.notifications.handlers import (
     register_order_created_notification_handler,
@@ -133,6 +134,7 @@ def create_app() -> FastAPI:
     app.include_router(staff_router, prefix=prefix)
     app.include_router(reports_router, prefix=prefix)
     app.include_router(credit_sales_router, prefix=prefix)
+    app.include_router(store_router, prefix=prefix)
     app.include_router(realtime_router)  # no API prefix — /ws/{tenant_id}
 
     # ── Health check ──────────────────────────────────────────────────────────

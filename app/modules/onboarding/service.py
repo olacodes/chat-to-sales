@@ -28,6 +28,7 @@ from typing import Any
 
 from app.core.logging import get_logger
 from app.infra.database import async_session_factory
+from app.infra.event_bus import Event, publish_event
 from app.modules.notifications.service import NotificationService
 from app.modules.onboarding import catalogue_templates
 from app.modules.onboarding.repository import TraderRepository
@@ -237,6 +238,23 @@ class OnboardingService:
         await set_state(phone_number, state.step, updated_data)
         state = OnboardingState(step=state.step, data=updated_data)
 
+        # If the previous reply failed to deliver, the step handler stored
+        # _pending_prompt alongside the new state. Resend it now and return
+        # early — the trader's current message was sent without having seen
+        # the prompt, so it should not be interpreted as a reply to it.
+        pending_prompt = state.data.get("_pending_prompt")
+        if pending_prompt:
+            ok = await self._reply(
+                phone_number=phone_number,
+                tenant_id=tenant_id,
+                message_id=f"{message_id}_reprompt",
+                text=pending_prompt,
+            )
+            if ok:
+                clean_data = {k: v for k, v in state.data.items() if k != "_pending_prompt"}
+                await set_state(phone_number, state.step, clean_data)
+            return
+
         match state.step:
             case OnboardingStep.AWAITING_NAME:
                 await self._handle_name(phone_number, msg, tenant_id, message_id, state)
@@ -258,12 +276,13 @@ class OnboardingService:
     # ── Step handlers ─────────────────────────────────────────────────────────
 
     async def _start(self, *, phone_number: str, tenant_id: str, message_id: str) -> None:
-        await set_state(phone_number, OnboardingStep.AWAITING_NAME, {"_last_active": time.time()})
-        await self._reply(
-            phone_number=phone_number,
-            tenant_id=tenant_id,
-            message_id=message_id,
-            text=_WELCOME,
+        await self._advance(
+            phone_number,
+            OnboardingStep.AWAITING_NAME,
+            {"_last_active": time.time()},
+            _WELCOME,
+            tenant_id,
+            message_id,
         )
 
     async def _handle_name(
@@ -288,16 +307,13 @@ class OnboardingService:
         # Truncate silently at 60 chars (per spec)
         name = name[:60]
 
-        await set_state(
+        await self._advance(
             phone_number,
             OnboardingStep.AWAITING_CATEGORY,
             {**state.data, "name": name},
-        )
-        await self._reply(
-            phone_number=phone_number,
-            tenant_id=tenant_id,
-            message_id=message_id,
-            text=_CATEGORY_MENU.format(name=name),
+            _CATEGORY_MENU.format(name=name),
+            tenant_id,
+            message_id,
         )
 
     async def _handle_category(
@@ -312,14 +328,15 @@ class OnboardingService:
         if state.data.get("_awaiting_other_desc"):
             data = {k: v for k, v in state.data.items() if k != "_awaiting_other_desc"}
             data["category_desc"] = msg[:200]
-            await set_state(phone_number, OnboardingStep.AWAITING_CATALOGUE, data)
-            await self._reply(
-                phone_number=phone_number,
-                tenant_id=tenant_id,
-                message_id=message_id,
-                text=_CATALOGUE_MENU.format(
+            await self._advance(
+                phone_number,
+                OnboardingStep.AWAITING_CATALOGUE,
+                data,
+                _CATALOGUE_MENU.format(
                     category_confirmation="Noted! I done set up your store."
                 ),
+                tenant_id,
+                message_id,
             )
             return
 
@@ -336,16 +353,13 @@ class OnboardingService:
         data = {**state.data, "category": category_key}
 
         if category_key == "other":
-            await set_state(
+            await self._advance(
                 phone_number,
                 OnboardingStep.AWAITING_CATEGORY,
                 {**data, "_awaiting_other_desc": True},
-            )
-            await self._reply(
-                phone_number=phone_number,
-                tenant_id=tenant_id,
-                message_id=message_id,
-                text=_CATEGORY_OTHER_PROMPT,
+                _CATEGORY_OTHER_PROMPT,
+                tenant_id,
+                message_id,
             )
             return
 
@@ -360,12 +374,13 @@ class OnboardingService:
         else:
             confirmation = f"{short_name}! Good choice. 👍"
 
-        await set_state(phone_number, OnboardingStep.AWAITING_CATALOGUE, data)
-        await self._reply(
-            phone_number=phone_number,
-            tenant_id=tenant_id,
-            message_id=message_id,
-            text=_CATALOGUE_MENU.format(category_confirmation=confirmation),
+        await self._advance(
+            phone_number,
+            OnboardingStep.AWAITING_CATALOGUE,
+            data,
+            _CATALOGUE_MENU.format(category_confirmation=confirmation),
+            tenant_id,
+            message_id,
         )
 
     async def _handle_catalogue_choice(
@@ -379,21 +394,23 @@ class OnboardingService:
         match msg.strip():
             case "1":
                 # Path A — send photo prompt, wait for image
-                await set_state(phone_number, OnboardingStep.AWAITING_PHOTO, state.data)
-                await self._reply(
-                    phone_number=phone_number,
-                    tenant_id=tenant_id,
-                    message_id=message_id,
-                    text=_AWAIT_PHOTO,
+                await self._advance(
+                    phone_number,
+                    OnboardingStep.AWAITING_PHOTO,
+                    state.data,
+                    _AWAIT_PHOTO,
+                    tenant_id,
+                    message_id,
                 )
             case "2":
                 # Path B — send voice prompt, wait for audio
-                await set_state(phone_number, OnboardingStep.AWAITING_VOICE, state.data)
-                await self._reply(
-                    phone_number=phone_number,
-                    tenant_id=tenant_id,
-                    message_id=message_id,
-                    text=_AWAIT_VOICE,
+                await self._advance(
+                    phone_number,
+                    OnboardingStep.AWAITING_VOICE,
+                    state.data,
+                    _AWAIT_VOICE,
+                    tenant_id,
+                    message_id,
                 )
             case "3":
                 # Path C — Q&A
@@ -442,12 +459,13 @@ class OnboardingService:
         products = await self._process_image(media_id, tenant_id, state.data.get("category", ""))
 
         if not products:
-            await set_state(phone_number, OnboardingStep.AWAITING_CATALOGUE, state.data)
-            await self._reply(
-                phone_number=phone_number,
-                tenant_id=tenant_id,
-                message_id=message_id,
-                text=_MEDIA_NOTHING_FOUND.format(media_label="photo"),
+            await self._advance(
+                phone_number,
+                OnboardingStep.AWAITING_CATALOGUE,
+                state.data,
+                _MEDIA_NOTHING_FOUND.format(media_label="photo"),
+                tenant_id,
+                message_id,
             )
             return
 
@@ -520,12 +538,13 @@ class OnboardingService:
         )
 
         if not products:
-            await set_state(phone_number, OnboardingStep.AWAITING_CATALOGUE, state.data)
-            await self._reply(
-                phone_number=phone_number,
-                tenant_id=tenant_id,
-                message_id=message_id,
-                text=_MEDIA_NOTHING_FOUND.format(media_label="voice note"),
+            await self._advance(
+                phone_number,
+                OnboardingStep.AWAITING_CATALOGUE,
+                state.data,
+                _MEDIA_NOTHING_FOUND.format(media_label="voice note"),
+                tenant_id,
+                message_id,
             )
             return
 
@@ -582,12 +601,13 @@ class OnboardingService:
 
         numbered_list = "\n".join(lines)
         new_data = {**state.data, "extracted_products": products}
-        await set_state(phone_number, next_step, new_data)
-        await self._reply(
-            phone_number=phone_number,
-            tenant_id=tenant_id,
-            message_id=message_id,
-            text=_MEDIA_EXTRACTED.format(numbered_list=numbered_list),
+        await self._advance(
+            phone_number,
+            next_step,
+            new_data,
+            _MEDIA_EXTRACTED.format(numbered_list=numbered_list),
+            tenant_id,
+            message_id,
         )
 
     # ── Media confirmation (shared by Path A and Path B) ─────────────────────
@@ -659,12 +679,13 @@ class OnboardingService:
             return
 
         qa_data = {**data, "qa_index": 0, "qa_prices": {}}
-        await set_state(phone_number, OnboardingStep.QA_IN_PROGRESS, qa_data)
-        await self._reply(
-            phone_number=phone_number,
-            tenant_id=tenant_id,
-            message_id=message_id,
-            text=_QA_QUESTION.format(item=items[0]),
+        await self._advance(
+            phone_number,
+            OnboardingStep.QA_IN_PROGRESS,
+            qa_data,
+            _QA_QUESTION.format(item=items[0]),
+            tenant_id,
+            message_id,
         )
 
     async def _handle_qa(
@@ -707,9 +728,9 @@ class OnboardingService:
             return
 
         updated_data = {**state.data, "qa_index": next_index, "qa_prices": qa_prices}
-        await set_state(phone_number, OnboardingStep.QA_IN_PROGRESS, updated_data)
+        question_text = _QA_QUESTION.format(item=items[next_index])
 
-        # Send progress checkpoint every N items
+        # Send progress checkpoint first (informational — not protected by _pending_prompt)
         if next_index % _QA_CHECKPOINT_EVERY == 0:
             checkpoint = _QA_CHECKPOINT.format(done=next_index, total=len(items))
             await self._reply(
@@ -719,11 +740,13 @@ class OnboardingService:
                 text=checkpoint,
             )
 
-        await self._reply(
-            phone_number=phone_number,
-            tenant_id=tenant_id,
-            message_id=message_id,
-            text=_QA_QUESTION.format(item=items[next_index]),
+        await self._advance(
+            phone_number,
+            OnboardingStep.QA_IN_PROGRESS,
+            updated_data,
+            question_text,
+            tenant_id,
+            message_id,
         )
 
     # ── Completion ────────────────────────────────────────────────────────────
@@ -779,6 +802,16 @@ class OnboardingService:
             business_category,
         )
 
+        await publish_event(Event(
+            event_name="trader.onboarded",
+            tenant_id=tenant_id,
+            payload={
+                "business_name": name,
+                "store_slug": slug,
+                "phone_number": phone_number,
+            },
+        ))
+
         await self._reply(
             phone_number=phone_number,
             tenant_id=tenant_id,
@@ -795,12 +828,13 @@ class OnboardingService:
         tenant_id: str,
         message_id: str,
         text: str,
-    ) -> None:
+    ) -> bool:
         """
         Send a WhatsApp reply to the trader.
 
-        Uses an independent DB session. Failures are logged but never bubble up
-        so a bad send never corrupts onboarding state.
+        Uses an independent DB session. Returns True on success, False on
+        failure. Failures are logged but never bubble up so a bad send never
+        corrupts onboarding state.
         """
         try:
             async with async_session_factory.begin() as session:
@@ -812,6 +846,7 @@ class OnboardingService:
                     message_text=text,
                     channel="whatsapp",
                 )
+            return True
         except Exception as exc:
             logger.error(
                 "Onboarding reply failed phone=%s message_id=%s: %s",
@@ -819,6 +854,37 @@ class OnboardingService:
                 message_id,
                 exc,
             )
+            return False
+
+    async def _advance(
+        self,
+        phone_number: str,
+        new_step: str,
+        new_data: dict[str, Any],
+        prompt: str,
+        tenant_id: str,
+        message_id: str,
+    ) -> None:
+        """
+        Advance the state machine to new_step and send prompt to the trader.
+
+        Stores _pending_prompt in Redis before attempting the send. If the send
+        fails, the flag stays set so that the next inbound message from this
+        trader detects the undelivered prompt, resends it, and returns early
+        without processing the out-of-context message. On a successful send the
+        flag is removed from the persisted state.
+        """
+        clean_data = {k: v for k, v in new_data.items() if k != "_pending_prompt"}
+        await set_state(phone_number, new_step, {**clean_data, "_pending_prompt": prompt})
+
+        ok = await self._reply(
+            phone_number=phone_number,
+            tenant_id=tenant_id,
+            message_id=message_id,
+            text=prompt,
+        )
+        if ok:
+            await set_state(phone_number, new_step, clean_data)
 
 
 # ── Slug generator ────────────────────────────────────────────────────────────
