@@ -51,6 +51,12 @@ class Settings(BaseSettings):
     WHATSAPP_APP_SECRET: str = ""
     WHATSAPP_PHONE_NUMBER_ID: str = ""
     WHATSAPP_ACCESS_TOKEN: str = ""
+    # Meta App ID — required to exchange Embedded Signup codes for access tokens.
+    META_APP_ID: str = ""
+    # The platform's own WhatsApp phone number in E.164 format without the leading +
+    # e.g. "15551410323". Used as the ordering number before a trader connects their
+    # own WhatsApp Business account (Phase 1).
+    PLATFORM_WHATSAPP_NUMBER: str = ""
 
     # ── Tenant ────────────────────────────────────────────────────────────────
     # The default tenant ID used for event routing and listener registration.

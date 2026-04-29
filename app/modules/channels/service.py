@@ -18,7 +18,11 @@ from app.infra.crypto import encrypt_token
 from app.infra.event_bus import Event, publish_event
 from app.modules.channels.models import ChannelName
 from app.modules.channels.repository import ChannelRepository
-from app.modules.channels.schemas import WhatsAppConnectRequest, WhatsAppConnectResponse
+from app.modules.channels.schemas import (
+    WhatsAppConnectRequest,
+    WhatsAppConnectResponse,
+    WhatsAppEmbeddedSignupRequest,
+)
 
 logger = get_logger(__name__)
 
@@ -85,6 +89,59 @@ class WhatsAppChannelService:
             phone_number_id=req.phone_number_id,
             webhook_registered=webhook_ok,
         )
+
+    # ── Embedded Signup entry point ───────────────────────────────────────────
+
+    async def connect_from_embedded_signup(
+        self, req: WhatsAppEmbeddedSignupRequest
+    ) -> WhatsAppConnectResponse:
+        """
+        Exchange a Meta Embedded Signup code for an access token then store
+        the channel credentials.
+
+        Called immediately after the Meta popup completes on the frontend.
+        The code has a 30-second TTL so this must run without delay.
+
+        Raises httpx.HTTPStatusError if Meta rejects the code exchange.
+        """
+        access_token = await self._exchange_code(req.code)
+        connect_req = WhatsAppConnectRequest(
+            tenant_id=req.tenant_id,
+            phone_number_id=req.phone_number_id,
+            access_token=access_token,
+        )
+        return await self.connect(connect_req)
+
+    async def _exchange_code(self, code: str) -> str:
+        """
+        Exchange a short-lived Embedded Signup authorisation code for an
+        access token using the Meta Graph API oauth/access_token endpoint.
+
+        Requires META_APP_ID and WHATSAPP_APP_SECRET to be set in settings.
+        """
+        url = f"{_META_API_BASE}/oauth/access_token"
+        async with httpx.AsyncClient(timeout=_WEBHOOK_TIMEOUT) as client:
+            response = await client.get(
+                url,
+                params={
+                    "client_id": self._settings.META_APP_ID,
+                    "client_secret": self._settings.WHATSAPP_APP_SECRET,
+                    "code": code,
+                },
+            )
+        if not response.is_success:
+            logger.error(
+                "Meta code exchange failed status=%s body=%s",
+                response.status_code,
+                response.text[:200],
+            )
+            response.raise_for_status()
+        data = response.json()
+        token = data.get("access_token")
+        if not token:
+            raise ValueError(f"Meta code exchange returned no access_token: {data}")
+        logger.info("Meta Embedded Signup code exchanged successfully")
+        return str(token)
 
     # ── Webhook registration ──────────────────────────────────────────────────
 

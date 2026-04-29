@@ -19,7 +19,10 @@ class TraderStoreOut(BaseModel):
     business_name: str
     business_category: str
     store_slug: str
-    phone_number: str
+    # Full wa.me URL for the "Order on WhatsApp" CTA.
+    # Points to the platform number (Phase 1) or the trader's own connected
+    # WhatsApp Business number (Phase 2). Computed by the store router.
+    ordering_whatsapp_url: str
     catalogue: list[CatalogueItem]
 
 

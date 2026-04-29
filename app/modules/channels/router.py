@@ -21,6 +21,7 @@ from app.modules.channels.schemas import (
     ChannelOut,
     WhatsAppConnectRequest,
     WhatsAppConnectResponse,
+    WhatsAppEmbeddedSignupRequest,
 )
 from app.modules.channels.service import WhatsAppChannelService
 
@@ -68,3 +69,22 @@ async def connect_whatsapp(
 ) -> WhatsAppConnectResponse:
     svc = WhatsAppChannelService(db)
     return await svc.connect(body)
+
+
+@router.post(
+    "/whatsapp/embedded-signup",
+    status_code=status.HTTP_200_OK,
+    summary="Connect WhatsApp via Meta Embedded Signup",
+    description=(
+        "Exchanges the short-lived code returned by the Meta Embedded Signup popup "
+        "for an access token, then stores the channel credentials and registers the "
+        "webhook. Call this immediately after the Meta popup completes — the code "
+        "expires in 30 seconds."
+    ),
+)
+async def connect_whatsapp_embedded_signup(
+    body: WhatsAppEmbeddedSignupRequest,
+    db: DBSessionDep,
+) -> WhatsAppConnectResponse:
+    svc = WhatsAppChannelService(db)
+    return await svc.connect_from_embedded_signup(body)

@@ -40,6 +40,27 @@ class WhatsAppConnectRequest(BaseModel):
         return v.strip()
 
 
+class WhatsAppEmbeddedSignupRequest(BaseModel):
+    """
+    Payload for POST /api/v1/channels/whatsapp/embedded-signup.
+
+    Sent by the frontend immediately after the Meta Embedded Signup popup
+    completes. The backend exchanges the short-lived code for an access token
+    and then stores the channel credentials.
+    """
+
+    tenant_id: str = Field(..., min_length=1, max_length=36)
+    # Short-lived authorisation code returned by FB.login() — 30 second TTL.
+    code: str = Field(..., min_length=1, description="Meta Embedded Signup auth code")
+    phone_number_id: str = Field(..., min_length=1, max_length=64)
+    waba_id: str = Field(..., min_length=1, max_length=64)
+
+    @field_validator("tenant_id", "phone_number_id", "waba_id", mode="before")
+    @classmethod
+    def strip_fields(cls, v: str) -> str:
+        return v.strip()
+
+
 class ChannelOut(BaseModel):
     """A single connected channel returned in the list endpoint."""
 
