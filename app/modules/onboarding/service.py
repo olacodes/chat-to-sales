@@ -154,7 +154,7 @@ _QA_DONE_EARLY = (
 _COMPLETE = (
     "Your ChatToSales store don ready! 🎉\n\n"
     "*{name}* is now live at:\n"
-    "https://chattosales.ng/{slug}\n\n"
+    "https://chattosales.com/store/{slug}\n\n"
     "Share this link with your customers so them fit browse and order from you.\n\n"
     "*HOW YOUR CUSTOMERS ORDER:*\n"
     "- Them go message this number directly\n"

@@ -58,7 +58,7 @@ class Trader(BaseModel):
     # One of the BusinessCategory values, or a free-text description for "other"
     business_category: Mapped[str | None] = mapped_column(String(60), nullable=True)
 
-    # URL slug, e.g. "mama-caro-provisions" → chattosales.ng/mama-caro-provisions
+    # URL slug, e.g. "mama-caro-provisions" → chattosales.com/store/mama-caro-provisions
     store_slug: Mapped[str | None] = mapped_column(String(120), nullable=True)
 
     onboarding_status: Mapped[str] = mapped_column(

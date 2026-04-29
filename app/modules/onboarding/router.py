@@ -2,7 +2,7 @@
 app/modules/onboarding/router.py
 
 Public store endpoint — no authentication required.
-Customers and traders visit chattosales.ng/store/{slug} which is served
+Customers and traders visit chattosales.com/store/{slug} which is served
 by the Next.js frontend; the frontend fetches trader data from this endpoint.
 """
 
