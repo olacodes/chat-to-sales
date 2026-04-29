@@ -45,6 +45,16 @@ logger = get_logger(__name__)
 # ── How long a gap before we say "welcome back" (seconds) ─────────────────────
 _WELCOME_BACK_GAP = 6 * 3600  # 6 hours
 
+# ── Keywords that trigger a new onboarding session ────────────────────────────
+# Any first message that matches one of these (case-insensitive) will start the
+# onboarding flow.  All other messages from unknown numbers are silently ignored
+# so customers ordering from a trader do not accidentally enter onboarding.
+_ONBOARDING_TRIGGERS: frozenset[str] = frozenset({"start", "register", "join", "hi", "hello", "hey"})
+
+_NOT_TRIGGERED = (
+    "Hi! To get started as a trader on ChatToSales, send *START* and I go guide you. 👋"
+)
+
 # ── Q&A checkpoint interval (send a progress note every N items) ───────────────
 _QA_CHECKPOINT_EVERY = 5
 
@@ -215,6 +225,10 @@ class OnboardingService:
         msg = message.strip()
 
         if state is None:
+            if msg.lower() not in _ONBOARDING_TRIGGERS:
+                # Unknown number, not a trigger keyword — likely a customer messaging
+                # the platform number directly.  Do not start an onboarding flow.
+                return
             await self._start(
                 phone_number=phone_number,
                 tenant_id=tenant_id,
