@@ -161,11 +161,11 @@ _QA_DONE_EARLY = (
     "No problem, we go skip the rest. Your store dey almost ready! 👍"
 )
 
-_COMPLETE = (
+# Message 1: admin confirmation — store link, ordering info, commands
+_COMPLETE_ADMIN = (
     "Your ChatToSales store don ready! 🎉\n\n"
     "*{name}* is now live at:\n"
     "https://chattosales.com/store/{slug}\n\n"
-    "Share this link with your customers so them fit browse and order from you.\n\n"
     "*HOW YOUR CUSTOMERS ORDER:*\n"
     "- Them go message this number directly\n"
     "- Add me to your customer WhatsApp groups — I go collect orders quietly\n"
@@ -177,6 +177,15 @@ _COMPLETE = (
     "ORDERS — see all pending orders\n"
     "HELP — see all commands\n\n"
     "Welcome to ChatToSales, *{name}*! 🚀"
+)
+
+# Message 2: ready-to-forward — trader can long-press → forward to customer groups
+_COMPLETE_SHARE = (
+    "I dey sell on ChatToSales now! 🛒\n\n"
+    "Check out my store and place your order here 👉\n"
+    "https://chattosales.com/store/{slug}\n\n"
+    "Just click the link, pick wetin you want, and order straight to my WhatsApp.\n\n"
+    "— *{name}*"
 )
 
 # ── Category option mapping ───────────────────────────────────────────────────
@@ -826,11 +835,21 @@ class OnboardingService:
             },
         ))
 
+        # Send admin confirmation (commands, store link)
         await self._reply(
             phone_number=phone_number,
             tenant_id=tenant_id,
             message_id=f"{message_id}_complete",
-            text=_COMPLETE.format(name=name, slug=slug),
+            text=_COMPLETE_ADMIN.format(name=name, slug=slug),
+        )
+
+        # Send a ready-to-forward share message the trader can forward
+        # to their customer groups directly from WhatsApp
+        await self._reply(
+            phone_number=phone_number,
+            tenant_id=tenant_id,
+            message_id=f"{message_id}_share",
+            text=_COMPLETE_SHARE.format(name=name, slug=slug),
         )
 
     # ── Helpers ───────────────────────────────────────────────────────────────
