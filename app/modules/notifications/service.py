@@ -145,6 +145,69 @@ class NotificationService:
             )
             raise
 
+    async def send_interactive(
+        self,
+        *,
+        tenant_id: str,
+        event_id: str,
+        recipient: str,
+        body_text: str,
+        buttons: list[dict[str, str]],
+        channel: str = "whatsapp",
+        order_id: str | None = None,
+        channel_tenant_id: str | None = None,
+    ) -> None:
+        """
+        Send a WhatsApp interactive button message.
+
+        buttons: list of {"id": "CONFIRM abc123", "title": "Confirm"} (max 3).
+        The id is sent back as the button_reply.id when the user taps it.
+        """
+        existing = await self._repo.get_by_event_id(event_id)
+        if existing is not None:
+            logger.info(
+                "Notification already sent for event_id=%s — skipping", event_id
+            )
+            return
+
+        notification = await self._repo.create(
+            tenant_id=tenant_id,
+            event_id=event_id,
+            recipient=recipient,
+            message_text=body_text,
+            channel=channel,
+            order_id=order_id,
+        )
+
+        try:
+            if channel == "whatsapp":
+                await self._dispatch_whatsapp_interactive(
+                    tenant_id=channel_tenant_id or tenant_id,
+                    recipient=recipient,
+                    body_text=body_text,
+                    buttons=buttons,
+                )
+            else:
+                logger.info("MOCK SEND interactive [%s] → %s", channel, recipient)
+
+            await self._repo.update_status(notification, NotificationStatus.SENT)
+            logger.info(
+                "Interactive notification sent id=%s recipient=%s event_id=%s",
+                notification.id,
+                recipient,
+                event_id,
+            )
+        except Exception as exc:
+            await self._repo.update_status(notification, NotificationStatus.FAILED)
+            logger.error(
+                "Interactive notification failed id=%s recipient=%s event_id=%s: %s",
+                notification.id,
+                recipient,
+                event_id,
+                exc,
+            )
+            raise
+
     # ── Dispatch adapters ─────────────────────────────────────────────────────
 
     async def _dispatch_whatsapp(
@@ -197,6 +260,85 @@ class NotificationService:
         else:
             logger.error(
                 "WhatsApp API error status=%s body=%s recipient=%s",
+                response.status_code,
+                response.text,
+                recipient,
+            )
+            if response.status_code == 401:
+                raise ChatToSalesError(
+                    message="WhatsApp access token is invalid or expired. "
+                    "Reconnect the channel via POST /api/v1/channels/whatsapp/connect.",
+                    status_code=502,
+                )
+            raise ChatToSalesError(
+                message=f"WhatsApp API error {response.status_code}: {response.text[:200]}",
+                status_code=502,
+            )
+
+    async def _dispatch_whatsapp_interactive(
+        self,
+        tenant_id: str,
+        recipient: str,
+        body_text: str,
+        buttons: list[dict[str, str]],
+    ) -> None:
+        """
+        Send an interactive button message via the Meta Cloud API.
+
+        buttons: [{"id": "CONFIRM abc", "title": "Confirm"}, ...] (max 3).
+        """
+        channel_record = await self._channel_repo.get_by_tenant_and_channel(
+            tenant_id=tenant_id,
+            channel="whatsapp",
+        )
+        if channel_record is None:
+            raise NotFoundError(
+                "WhatsApp channel",
+                f"tenant={tenant_id} — connect one via POST /api/v1/channels/whatsapp/connect",
+            )
+
+        phone_number_id = channel_record.phone_number_id
+        access_token = decrypt_token(channel_record.encrypted_access_token)
+
+        url = f"{_META_API_BASE}/{phone_number_id}/messages"
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+        }
+        body = {
+            "messaging_product": "whatsapp",
+            "to": recipient,
+            "type": "interactive",
+            "interactive": {
+                "type": "button",
+                "body": {"text": body_text},
+                "action": {
+                    "buttons": [
+                        {
+                            "type": "reply",
+                            "reply": {
+                                "id": btn["id"],
+                                "title": btn["title"],
+                            },
+                        }
+                        for btn in buttons[:3]  # Meta allows max 3 buttons
+                    ]
+                },
+            },
+        }
+
+        async with httpx.AsyncClient(timeout=_WHATSAPP_TIMEOUT) as client:
+            response = await client.post(url, headers=headers, json=body)
+
+        if response.is_success:
+            logger.info(
+                "WhatsApp interactive sent → %s via phone_number_id=%s",
+                recipient,
+                phone_number_id,
+            )
+        else:
+            logger.error(
+                "WhatsApp interactive API error status=%s body=%s recipient=%s",
                 response.status_code,
                 response.text,
                 recipient,

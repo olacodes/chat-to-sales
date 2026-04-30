@@ -91,6 +91,9 @@ class Settings(BaseSettings):
     # Set to your public HTTPS URL, e.g. https://chattosales.duckdns.org
     APP_BASE_URL: str = "http://localhost:8000"
 
+    # ── Frontend URL (used for magic login links in WhatsApp messages) ──────
+    FRONTEND_URL: str = "http://localhost:3000"
+
     # ── Security ──────────────────────────────────────────────────────────────
     SECRET_KEY: str = "change-this-secret-key-in-production"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60

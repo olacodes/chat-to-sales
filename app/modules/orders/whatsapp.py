@@ -43,6 +43,25 @@ def order_summary_to_customer(
     )
 
 
+def order_summary_interactive(
+    items: list[dict[str, Any]],
+    total: int,
+    trader_name: str,
+) -> tuple[str, list[dict[str, str]]]:
+    """Return (body_text, buttons) for a customer order confirmation."""
+    lines = "\n".join(_item_line(i) for i in items)
+    body = (
+        f"Here is your order from *{trader_name}*:\n\n"
+        f"{lines}\n\n"
+        f"*Total: {_naira(total)}*"
+    )
+    buttons = [
+        {"id": "YES", "title": "\u2705 Confirm"},
+        {"id": "NO", "title": "\u274c Cancel"},
+    ]
+    return body, buttons
+
+
 def order_pending_to_customer(trader_name: str) -> str:
     return (
         f"Your order has been sent to *{trader_name}*! "
@@ -126,6 +145,27 @@ def order_received_to_trader(
         f"Reply *CONFIRM {order_ref}* to accept\n"
         f"Reply *CANCEL {order_ref}* to decline"
     )
+
+
+def order_received_interactive(
+    items: list[dict[str, Any]],
+    total: int,
+    customer_phone: str,
+    order_ref: str,
+) -> tuple[str, list[dict[str, str]]]:
+    """Return (body_text, buttons) for a trader order notification."""
+    lines = "\n".join(_item_line(i) for i in items)
+    body = (
+        f"\U0001f6d2 New order from +{customer_phone}:\n\n"
+        f"{lines}\n\n"
+        f"*Total: {_naira(total)}*\n"
+        f"Ref: {order_ref}"
+    )
+    buttons = [
+        {"id": f"CONFIRM {order_ref}", "title": "\u2705 Confirm"},
+        {"id": f"CANCEL {order_ref}", "title": "\u274c Decline"},
+    ]
+    return body, buttons
 
 
 def order_confirmed_to_trader(order_ref: str) -> str:

@@ -421,9 +421,14 @@ class AuthService:
             return
 
         # ── Send ───────────────────────────────────────────────────────────────
+        frontend_url = settings.FRONTEND_URL.rstrip("/")
+        login_link = f"{frontend_url}/login?code={otp}&phone={phone_number}"
+
         message_text = (
-            f"Your ChatToSales login code is: *{otp}*\n\n"
-            "This code expires in 10 minutes. Do not share it with anyone."
+            f"Tap to log in to ChatToSales:\n"
+            f"{login_link}\n\n"
+            f"Or enter this code manually: *{otp}*\n\n"
+            "This link expires in 10 minutes. Do not share it."
         )
         url = f"https://graph.facebook.com/v25.0/{wa_phone_id}/messages"
         headers = {

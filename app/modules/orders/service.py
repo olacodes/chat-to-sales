@@ -494,16 +494,18 @@ class OrderService:
                 items: list[dict[str, Any]] = session.get("items", [])
                 total: int = session.get("total", 0)
                 order_ref = order.id[:8]
-                await self._reply(
+                body_text, buttons = wa.order_received_interactive(
+                    items=items,
+                    total=total,
+                    customer_phone=customer_phone,
+                    order_ref=order_ref,
+                )
+                await self._reply_interactive(
                     phone=trader.get("phone_number", ""),
                     tenant_id=tenant_id,
                     event_id=f"order.trader_notify.{order.id}",
-                    text=wa.order_received_to_trader(
-                        items=items,
-                        total=total,
-                        customer_phone=customer_phone,
-                        order_ref=order_ref,
-                    ),
+                    body_text=body_text,
+                    buttons=buttons,
                     channel_tenant_id=channel_tenant_id,
                 )
                 await clear_order_session(tenant_id, customer_phone)
@@ -673,11 +675,13 @@ class OrderService:
                 "total": total,
             },
         )
-        await self._reply(
+        body_text, buttons = wa.order_summary_interactive(items, total, trader_name)
+        await self._reply_interactive(
             phone=customer_phone,
             tenant_id=tenant_id,
             event_id=f"order.summary.{order.id}",
-            text=wa.order_summary_to_customer(items, total, trader_name),
+            body_text=body_text,
+            buttons=buttons,
             channel_tenant_id=channel_tenant_id,
         )
         logger.info(
@@ -766,11 +770,13 @@ class OrderService:
                 "total": total,
             },
         )
-        await self._reply(
+        body_text, buttons = wa.order_summary_interactive(items, total, trader_name)
+        await self._reply_interactive(
             phone=customer_phone,
             tenant_id=tenant_id,
             event_id=f"order.cart_summary.{order.id}",
-            text=wa.order_summary_to_customer(items, total, trader_name),
+            body_text=body_text,
+            buttons=buttons,
             channel_tenant_id=channel_tenant_id,
         )
         logger.info(
@@ -983,6 +989,44 @@ class OrderService:
         except Exception as exc:
             logger.error(
                 "Order reply failed phone=%s event_id=%s: %s",
+                phone,
+                event_id,
+                exc,
+            )
+
+    async def _reply_interactive(
+        self,
+        *,
+        phone: str,
+        tenant_id: str,
+        event_id: str,
+        body_text: str,
+        buttons: list[dict[str, str]],
+        channel_tenant_id: str | None = None,
+    ) -> None:
+        """
+        Send a WhatsApp interactive button message using an independent DB session.
+
+        Same error-swallowing pattern as _reply — failures never crash the handler.
+        """
+        if not phone:
+            logger.warning("_reply_interactive called with empty phone for event_id=%s", event_id)
+            return
+        try:
+            async with async_session_factory.begin() as session:
+                svc = NotificationService(session)
+                await svc.send_interactive(
+                    tenant_id=tenant_id,
+                    event_id=event_id,
+                    recipient=phone,
+                    body_text=body_text,
+                    buttons=buttons,
+                    channel="whatsapp",
+                    channel_tenant_id=channel_tenant_id,
+                )
+        except Exception as exc:
+            logger.error(
+                "Order interactive reply failed phone=%s event_id=%s: %s",
                 phone,
                 event_id,
                 exc,

@@ -129,8 +129,27 @@ async def receive_whatsapp_message(
             media_type = aud.get("mime_type", "audio/ogg")
             content = "[audio]"
             logger.debug("WhatsApp audio received media_id=%s sender=%s", media_id, sender_id)
+        elif msg_type == "interactive":
+            interactive = first_msg.get("interactive") or {}
+            reply_type = interactive.get("type", "")
+            if reply_type == "button_reply":
+                button = interactive.get("button_reply") or {}
+                # Use the button ID as content — it contains the full command
+                # (e.g. "CONFIRM 4ae8109e" or "YES") set when the button was sent.
+                content = button.get("id", "") or button.get("title", "")
+                logger.debug(
+                    "WhatsApp button reply id=%s title=%s sender=%s",
+                    button.get("id"),
+                    button.get("title"),
+                    sender_id,
+                )
+            elif reply_type == "list_reply":
+                list_item = interactive.get("list_reply") or {}
+                content = list_item.get("id", "") or list_item.get("title", "")
+            else:
+                logger.debug("WhatsApp interactive type=%s — ignoring", reply_type)
         else:
-            # reaction, interactive, sticker, document, video — not handled yet
+            # reaction, sticker, document, video — not handled yet
             logger.debug(
                 "WhatsApp webhook — ignoring message type=%s", msg_type
             )
