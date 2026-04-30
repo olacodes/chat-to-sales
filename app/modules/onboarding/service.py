@@ -166,7 +166,7 @@ _QA_DONE_EARLY = (
 _COMPLETE_ADMIN = (
     "Your ChatToSales store don ready! 🎉\n\n"
     "*{name}* is now live at:\n"
-    "https://chattosales.com/store/{slug}\n\n"
+    "https://chattosales.com/stores/{slug}\n\n"
     "*HOW YOUR CUSTOMERS ORDER:*\n"
     "- Them go message this number directly\n"
     "- Add me to your customer WhatsApp groups — I go collect orders quietly\n"
@@ -184,7 +184,7 @@ _COMPLETE_ADMIN = (
 _COMPLETE_SHARE = (
     "I dey sell on ChatToSales now! 🛒\n\n"
     "Check out my store and place your order here 👉\n"
-    "https://chattosales.com/store/{slug}\n\n"
+    "https://chattosales.com/stores/{slug}\n\n"
     "Just click the link, pick wetin you want, and order straight to my WhatsApp.\n\n"
     "— *{name}*"
 )

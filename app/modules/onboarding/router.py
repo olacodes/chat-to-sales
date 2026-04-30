@@ -21,7 +21,7 @@ from app.modules.onboarding.schemas import (
     normalize_catalogue,
 )
 
-router = APIRouter(prefix="/store", tags=["Store"])
+router = APIRouter(prefix="/stores", tags=["Store"])
 
 
 def _build_ordering_url(
