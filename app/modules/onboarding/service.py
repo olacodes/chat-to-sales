@@ -39,6 +39,7 @@ from app.modules.onboarding.session import (
     get_state,
     set_state,
 )
+from app.modules.orders.session import cache_trader_by_phone
 
 logger = get_logger(__name__)
 
@@ -817,6 +818,35 @@ class OnboardingService:
                 slug = existing.store_slug or ""
 
         await clear_state(phone_number)
+
+        # Warm the trader identity cache so the order handler recognises this
+        # phone immediately. Without this, a stale {} sentinel from the race
+        # between the order handler and onboarding handler on the first "hi"
+        # message can persist for up to 1 hour, causing CONFIRM/CANCEL commands
+        # to fall through to the "visit your store link" fallback.
+        catalogue: dict[str, Any] = {}
+        if onboarding_catalogue:
+            try:
+                raw = json.loads(onboarding_catalogue)
+                if isinstance(raw, dict):
+                    catalogue = raw
+                elif isinstance(raw, list):
+                    catalogue = {
+                        item["name"]: item["price"]
+                        for item in raw
+                        if isinstance(item, dict) and item.get("name") and item.get("price")
+                    }
+            except (json.JSONDecodeError, TypeError, ValueError):
+                pass
+
+        await cache_trader_by_phone(phone_number, {
+            "tenant_id": tenant_id,
+            "phone_number": phone_number,
+            "business_name": name,
+            "business_category": business_category,
+            "store_slug": slug,
+            "catalogue": catalogue,
+        })
 
         logger.info(
             "Onboarding complete phone=%s slug=%s category=%s",
