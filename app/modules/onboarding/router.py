@@ -22,7 +22,7 @@ router = APIRouter(prefix="/store", tags=["Store"])
 def _build_ordering_url(
     *,
     trader_phone: str,
-    business_name: str,
+    store_slug: str,
     tenant_id: str | None,
     has_own_channel: bool,
 ) -> str:
@@ -33,9 +33,11 @@ def _build_ordering_url(
         wa.me/{trader_phone}  — customers message the trader directly.
 
     Phase 1 (platform number, no own channel yet):
-        wa.me/{platform_number}?text=I want to order from {business_name}
-        The pre-filled text lets the bot identify which trader's catalogue
-        to use when the message arrives.
+        wa.me/{platform_number}?text=ORDER:{slug}
+        The StoreCatalogue UI extracts the phone number from this URL and
+        builds a structured ORDER:{slug}\nItem x2\n... message when the
+        customer has selected items.  The ORDER:{slug} prefix alone is the
+        fallback for the empty-catalogue button.
 
     Fallback (platform number not configured):
         wa.me/{trader_phone}  — always functional, even in dev.
@@ -45,7 +47,7 @@ def _build_ordering_url(
 
     platform_number = get_settings().PLATFORM_WHATSAPP_NUMBER
     if platform_number:
-        text = quote(f"I want to order from {business_name}")
+        text = quote(f"ORDER:{store_slug}")
         return f"https://wa.me/{platform_number}?text={text}"
 
     # Config not set — safe fallback so the button is never broken
@@ -82,7 +84,7 @@ async def get_store(slug: str, db: DBSessionDep) -> TraderStoreOut:
 
     ordering_whatsapp_url = _build_ordering_url(
         trader_phone=trader.phone_number,
-        business_name=trader.business_name or "",
+        store_slug=trader.store_slug or "",
         tenant_id=trader.tenant_id,
         has_own_channel=has_own_channel,
     )
