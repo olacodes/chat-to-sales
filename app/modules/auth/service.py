@@ -17,9 +17,13 @@ Design rules:
     authenticated without a round-trip login.
 """
 
+import secrets
+
+import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import ConflictError, UnauthorizedError
+from app.core.config import get_settings
+from app.core.exceptions import ConflictError, TooManyRequestsError, UnauthorizedError
 from app.core.logging import get_logger
 from app.core.models.user import AuthProvider, UserRole
 from app.infra.auth_utils import (
@@ -28,6 +32,7 @@ from app.infra.auth_utils import (
     verify_google_token,
     verify_password,
 )
+from app.infra.cache import get_redis
 from app.modules.auth.repository import AuthRepository
 from app.modules.auth.schemas import (
     EmailLoginRequest,
@@ -36,8 +41,12 @@ from app.modules.auth.schemas import (
     GoogleSignupRequest,
     LoginResponse,
     LoginUserInfo,
+    OTPRequestRequest,
+    OTPRequestResponse,
+    OTPVerifyRequest,
     SignupResponse,
 )
+from app.modules.onboarding.repository import TraderRepository
 
 logger = get_logger(__name__)
 
@@ -45,6 +54,7 @@ logger = get_logger(__name__)
 class AuthService:
     def __init__(self, session: AsyncSession) -> None:
         self._repo = AuthRepository(session)
+        self._trader_repo = TraderRepository(session)
 
     # ── Email signup ──────────────────────────────────────────────────────────
 
@@ -246,3 +256,172 @@ class AuthService:
             user=LoginUserInfo(user_id=user.id, email=user.email),
             tenant_id=tenant_id,
         )
+
+    # ── WhatsApp OTP request ──────────────────────────────────────────────────
+
+    async def request_otp(self, req: OTPRequestRequest) -> OTPRequestResponse:
+        """
+        Generate a 6-digit OTP and deliver it to the trader via WhatsApp.
+
+        Rate-limited to 5 requests per 10 minutes per phone number.
+        The OTP is stored in Redis with a 10-minute TTL.
+
+        In development (no WHATSAPP credentials set), the OTP is logged
+        instead of sent so testing does not require a live WhatsApp number.
+        """
+        redis = get_redis()
+        otp_key = f"auth:otp:{req.phone_number}"
+        attempts_key = f"auth:otp:attempts:{req.phone_number}"
+
+        # Rate limit: max 5 OTP requests per 10-minute window
+        attempts = await redis.get(attempts_key)
+        if attempts and int(attempts) >= 5:
+            raise TooManyRequestsError(
+                "Too many OTP requests for this number. Try again in 10 minutes."
+            )
+
+        otp = f"{secrets.randbelow(1_000_000):06d}"
+
+        # Store OTP (10 min TTL) and increment request counter
+        await redis.setex(otp_key, 600, otp)
+        await redis.incr(attempts_key)
+        await redis.expire(attempts_key, 600)
+
+        await self._send_otp_whatsapp(req.phone_number, otp)
+
+        return OTPRequestResponse(message="Login code sent to your WhatsApp number.")
+
+    # ── WhatsApp OTP verify ───────────────────────────────────────────────────
+
+    async def verify_otp(self, req: OTPVerifyRequest) -> LoginResponse:
+        """
+        Validate the OTP and return a JWT session.
+
+        On first login for a phone number:
+          - Checks that a Trader profile exists for that number (must have completed
+            WhatsApp onboarding first).
+          - Creates a User + Tenant for that trader.
+          - Updates the Trader row's tenant_id to their new dedicated tenant.
+
+        On subsequent logins:
+          - Finds the existing User by phone number and returns a fresh JWT.
+
+        Raises UnauthorizedError (401) for an invalid or expired OTP.
+        """
+        redis = get_redis()
+        otp_key = f"auth:otp:{req.phone_number}"
+
+        stored_otp = await redis.get(otp_key)
+        if not stored_otp or stored_otp != req.code:
+            raise UnauthorizedError("Invalid or expired login code.")
+
+        # Single-use: delete immediately after a correct match
+        await redis.delete(otp_key)
+
+        user = await self._repo.get_user_by_phone(req.phone_number)
+
+        if user is not None:
+            # Returning user — find their tenant and issue a fresh token
+            membership = await self._repo.get_owner_tenant_or_first(user_id=user.id)
+            tenant_id = membership.tenant_id if membership else ""
+            logger.info("WhatsApp OTP login — user=%s tenant=%s", user.id, tenant_id)
+        else:
+            # First login — trader must have completed WhatsApp onboarding
+            trader = await self._trader_repo.get_by_phone(req.phone_number)
+            if trader is None:
+                raise UnauthorizedError(
+                    "No trader account found for this number. "
+                    "Please complete onboarding on WhatsApp first."
+                )
+
+            # Create a dedicated User + Tenant for this trader
+            synthetic_email = f"{req.phone_number}@wa.chattosales.ng"
+            user = await self._repo.create_user(
+                email=synthetic_email,
+                password_hash=None,
+                auth_provider=AuthProvider.WHATSAPP,
+                display_name=trader.business_name,
+                phone_number=req.phone_number,
+            )
+            tenant = await self._repo.create_tenant(name=trader.business_name)
+            await self._repo.create_user_tenant(
+                user_id=user.id,
+                tenant_id=tenant.id,
+                role=UserRole.OWNER,
+            )
+            # Point the trader's record at their own dedicated tenant so the
+            # dashboard and channel connection work against the right tenant.
+            await self._trader_repo.update_tenant_id(
+                phone_number=req.phone_number,
+                tenant_id=tenant.id,
+            )
+            tenant_id = tenant.id
+            logger.info(
+                "WhatsApp OTP first login — created user=%s tenant=%s trader_phone=%s",
+                user.id,
+                tenant_id,
+                req.phone_number,
+            )
+
+        token = create_access_token(
+            user_id=user.id,
+            tenant_id=tenant_id,
+            email=user.email,
+        )
+        return LoginResponse(
+            access_token=token,
+            user=LoginUserInfo(user_id=user.id, email=user.email),
+            tenant_id=tenant_id,
+        )
+
+    # ── Internal: OTP WhatsApp delivery ──────────────────────────────────────
+
+    async def _send_otp_whatsapp(self, phone_number: str, otp: str) -> None:
+        """
+        Send the OTP via the platform's WhatsApp number.
+
+        Uses WHATSAPP_PHONE_NUMBER_ID and WHATSAPP_ACCESS_TOKEN from settings
+        directly — this is a system-level auth operation, not a tenant send.
+
+        In development (credentials not set), logs the OTP instead of sending.
+        """
+        settings = get_settings()
+
+        if not settings.WHATSAPP_PHONE_NUMBER_ID or not settings.WHATSAPP_ACCESS_TOKEN:
+            logger.warning(
+                "WhatsApp credentials not configured — OTP not sent (dev mode). "
+                "phone=%s code=%s",
+                phone_number,
+                otp,
+            )
+            return
+
+        message_text = (
+            f"Your ChatToSales login code is: *{otp}*\n\n"
+            "This code expires in 10 minutes. Do not share it with anyone."
+        )
+        url = f"https://graph.facebook.com/v25.0/{settings.WHATSAPP_PHONE_NUMBER_ID}/messages"
+        headers = {
+            "Authorization": f"Bearer {settings.WHATSAPP_ACCESS_TOKEN}",
+            "Content-Type": "application/json",
+        }
+        body = {
+            "messaging_product": "whatsapp",
+            "to": phone_number,
+            "type": "text",
+            "text": {"body": message_text},
+        }
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(url, headers=headers, json=body)
+
+        if not response.is_success:
+            logger.error(
+                "Failed to send OTP WhatsApp to phone=%s status=%s body=%s",
+                phone_number,
+                response.status_code,
+                response.text[:200],
+            )
+            raise UnauthorizedError(
+                "Could not deliver the login code. Check the phone number and try again."
+            )

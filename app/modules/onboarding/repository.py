@@ -4,7 +4,7 @@ app/modules/onboarding/repository.py
 Database operations for the Trader model.
 """
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.onboarding.models import OnboardingStatus, Trader, TraderTier
@@ -41,6 +41,14 @@ class TraderRepository:
             select(Trader.id).where(Trader.store_slug == slug)
         )
         return result.scalar_one_or_none() is not None
+
+    async def update_tenant_id(self, *, phone_number: str, tenant_id: str) -> None:
+        """Assign a trader-specific tenant_id after their first dashboard login."""
+        await self._db.execute(
+            update(Trader)
+            .where(Trader.phone_number == phone_number)
+            .values(tenant_id=tenant_id)
+        )
 
     async def create(
         self,

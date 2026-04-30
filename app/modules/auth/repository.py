@@ -25,6 +25,12 @@ class AuthRepository:
         result = await self._session.execute(select(User).where(User.email == email))
         return result.scalar_one_or_none()
 
+    async def get_user_by_phone(self, phone_number: str) -> User | None:
+        result = await self._session.execute(
+            select(User).where(User.phone_number == phone_number)
+        )
+        return result.scalar_one_or_none()
+
     async def create_user(
         self,
         *,
@@ -32,12 +38,14 @@ class AuthRepository:
         password_hash: str | None,
         auth_provider: AuthProvider,
         display_name: str | None = None,
+        phone_number: str | None = None,
     ) -> User:
         user = User(
             email=email,
             password_hash=password_hash,
             auth_provider=auth_provider,
             display_name=display_name,
+            phone_number=phone_number,
         )
         self._session.add(user)
         await self._session.flush()  # populate user.id before returning

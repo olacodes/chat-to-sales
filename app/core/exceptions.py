@@ -40,6 +40,11 @@ class ForbiddenError(ChatToSalesError):
         super().__init__(message=message, status_code=status.HTTP_403_FORBIDDEN)
 
 
+class TooManyRequestsError(ChatToSalesError):
+    def __init__(self, message: str = "Too many requests. Please try again later."):
+        super().__init__(message=message, status_code=status.HTTP_429_TOO_MANY_REQUESTS)
+
+
 class InvalidWebhookSignatureError(ChatToSalesError):
     def __init__(self):
         super().__init__(

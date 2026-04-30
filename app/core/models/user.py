@@ -26,6 +26,7 @@ from app.core.models.base import BaseModel
 class AuthProvider(StrEnum):
     EMAIL = "email"
     GOOGLE = "google"
+    WHATSAPP = "whatsapp"
 
 
 class UserRole(StrEnum):
@@ -78,6 +79,14 @@ class User(BaseModel):
         nullable=False,
         index=True,
         comment="RFC 5321 email address — unique across all tenants",
+    )
+    # E.164 digits only (no +), e.g. "2348012345678". NULL for email/Google users.
+    phone_number: Mapped[str | None] = mapped_column(
+        String(20),
+        nullable=True,
+        unique=True,
+        index=True,
+        comment="WhatsApp phone number — unique, NULL for non-WhatsApp auth",
     )
     # NULL for Google / OAuth users who have no password.
     password_hash: Mapped[str | None] = mapped_column(

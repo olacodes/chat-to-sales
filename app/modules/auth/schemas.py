@@ -91,3 +91,48 @@ class LoginResponse(BaseModel):
     token_type: str = "bearer"
     user: LoginUserInfo
     tenant_id: str
+
+
+# ── WhatsApp OTP schemas ───────────────────────────────────────────────────────
+
+
+def _normalize_phone(v: str) -> str:
+    """Strip all non-digit characters and validate minimum length."""
+    digits = re.sub(r"\D", "", v)
+    if len(digits) < 7:
+        raise ValueError("Phone number must have at least 7 digits.")
+    return digits
+
+
+class OTPRequestRequest(BaseModel):
+    """POST /api/v1/auth/otp/request"""
+
+    phone_number: str = Field(..., description="Trader WhatsApp number (any format)")
+
+    @field_validator("phone_number", mode="before")
+    @classmethod
+    def normalize_phone(cls, v: str) -> str:
+        return _normalize_phone(v)
+
+
+class OTPRequestResponse(BaseModel):
+    message: str
+
+
+class OTPVerifyRequest(BaseModel):
+    """POST /api/v1/auth/otp/verify"""
+
+    phone_number: str = Field(..., description="Same number used in /otp/request")
+    code: str = Field(..., min_length=6, max_length=6, description="6-digit OTP")
+
+    @field_validator("phone_number", mode="before")
+    @classmethod
+    def normalize_phone(cls, v: str) -> str:
+        return _normalize_phone(v)
+
+    @field_validator("code")
+    @classmethod
+    def validate_code(cls, v: str) -> str:
+        if not v.isdigit():
+            raise ValueError("Code must be 6 digits.")
+        return v

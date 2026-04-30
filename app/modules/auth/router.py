@@ -20,6 +20,9 @@ from app.modules.auth.schemas import (
     GoogleLoginRequest,
     GoogleSignupRequest,
     LoginResponse,
+    OTPRequestRequest,
+    OTPRequestResponse,
+    OTPVerifyRequest,
     SignupResponse,
 )
 from app.modules.auth.service import AuthService
@@ -101,3 +104,41 @@ async def login_google(
 ) -> LoginResponse:
     svc = AuthService(db)
     return await svc.google_login(body)
+
+
+@router.post(
+    "/otp/request",
+    status_code=status.HTTP_200_OK,
+    summary="Request a WhatsApp OTP",
+    description=(
+        "Sends a 6-digit one-time code to the given WhatsApp number. "
+        "The code expires in 10 minutes. "
+        "Rate-limited to 5 requests per 10-minute window per number. "
+        "Returns 429 if the limit is exceeded."
+    ),
+)
+async def otp_request(
+    body: OTPRequestRequest,
+    db: DBSessionDep,
+) -> OTPRequestResponse:
+    svc = AuthService(db)
+    return await svc.request_otp(body)
+
+
+@router.post(
+    "/otp/verify",
+    status_code=status.HTTP_200_OK,
+    summary="Verify a WhatsApp OTP and log in",
+    description=(
+        "Validates the 6-digit OTP sent by /otp/request and returns a JWT session. "
+        "On first login, creates a User and Tenant for the trader. "
+        "The trader must have completed WhatsApp onboarding first. "
+        "Returns 401 for an invalid or expired code."
+    ),
+)
+async def otp_verify(
+    body: OTPVerifyRequest,
+    db: DBSessionDep,
+) -> LoginResponse:
+    svc = AuthService(db)
+    return await svc.verify_otp(body)
