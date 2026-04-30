@@ -23,7 +23,7 @@ import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.core.exceptions import ConflictError, TooManyRequestsError, UnauthorizedError
+from app.core.exceptions import ChatToSalesError, ConflictError, TooManyRequestsError, UnauthorizedError
 from app.core.logging import get_logger
 from app.core.models.user import AuthProvider, UserRole
 from app.infra.auth_utils import (
@@ -46,6 +46,8 @@ from app.modules.auth.schemas import (
     OTPVerifyRequest,
     SignupResponse,
 )
+from app.infra.crypto import decrypt_token
+from app.modules.channels.repository import ChannelRepository
 from app.modules.onboarding.repository import TraderRepository
 
 logger = get_logger(__name__)
@@ -55,6 +57,7 @@ class AuthService:
     def __init__(self, session: AsyncSession) -> None:
         self._repo = AuthRepository(session)
         self._trader_repo = TraderRepository(session)
+        self._channel_repo = ChannelRepository(session)
 
     # ── Email signup ──────────────────────────────────────────────────────────
 
@@ -378,16 +381,37 @@ class AuthService:
 
     async def _send_otp_whatsapp(self, phone_number: str, otp: str) -> None:
         """
-        Send the OTP via the platform's WhatsApp number.
+        Send the OTP via WhatsApp.
 
-        Uses WHATSAPP_PHONE_NUMBER_ID and WHATSAPP_ACCESS_TOKEN from settings
-        directly — this is a system-level auth operation, not a tenant send.
-
-        In development (credentials not set), logs the OTP instead of sending.
+        Credential resolution (in order):
+          1. Platform tenant's channel record in tenant_channels (same live
+             token used by NotificationService — stays fresh automatically).
+          2. WHATSAPP_PHONE_NUMBER_ID + WHATSAPP_ACCESS_TOKEN from env (fallback).
+          3. Neither set → dev mode, OTP is logged instead of sent.
         """
         settings = get_settings()
 
-        if not settings.WHATSAPP_PHONE_NUMBER_ID or not settings.WHATSAPP_ACCESS_TOKEN:
+        # ── Resolve credentials ────────────────────────────────────────────────
+        wa_phone_id: str | None = None
+        wa_token: str | None = None
+
+        # Try the platform tenant's channel record first
+        platform_tenant = settings.TENANT_ID
+        if platform_tenant:
+            channel = await self._channel_repo.get_by_tenant_and_channel(
+                tenant_id=platform_tenant,
+                channel="whatsapp",
+            )
+            if channel and channel.encrypted_access_token:
+                wa_phone_id = channel.phone_number_id
+                wa_token = decrypt_token(channel.encrypted_access_token)
+
+        # Fall back to env vars
+        if not wa_phone_id or not wa_token:
+            wa_phone_id = settings.WHATSAPP_PHONE_NUMBER_ID
+            wa_token = settings.WHATSAPP_ACCESS_TOKEN
+
+        if not wa_phone_id or not wa_token:
             logger.warning(
                 "WhatsApp credentials not configured — OTP not sent (dev mode). "
                 "phone=%s code=%s",
@@ -396,13 +420,14 @@ class AuthService:
             )
             return
 
+        # ── Send ───────────────────────────────────────────────────────────────
         message_text = (
             f"Your ChatToSales login code is: *{otp}*\n\n"
             "This code expires in 10 minutes. Do not share it with anyone."
         )
-        url = f"https://graph.facebook.com/v25.0/{settings.WHATSAPP_PHONE_NUMBER_ID}/messages"
+        url = f"https://graph.facebook.com/v25.0/{wa_phone_id}/messages"
         headers = {
-            "Authorization": f"Bearer {settings.WHATSAPP_ACCESS_TOKEN}",
+            "Authorization": f"Bearer {wa_token}",
             "Content-Type": "application/json",
         }
         body = {
@@ -422,6 +447,7 @@ class AuthService:
                 response.status_code,
                 response.text[:200],
             )
-            raise UnauthorizedError(
-                "Could not deliver the login code. Check the phone number and try again."
+            raise ChatToSalesError(
+                "Could not deliver the login code right now. Please try again shortly.",
+                status_code=502,
             )
