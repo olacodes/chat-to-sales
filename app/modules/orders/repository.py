@@ -77,24 +77,25 @@ class OrderRepository:
         self,
         *,
         ref_prefix: str,
-        tenant_id: str,
+        tenant_id: str | None = None,
     ) -> Order | None:
         """
         Look up an order by its short reference (first 8 hex chars of the UUID).
 
         Used when a trader types "CONFIRM 3f8a2c1b" — the ref is the UUID prefix.
-        The LIKE query is safe here because UUIDs are never longer than 36 chars
-        and the primary key index is used for the prefix scan.
+        The 8-char hex prefix of a UUID v4 is practically unique, so the
+        tenant_id filter is optional.  It is omitted for trader commands because
+        the order may have been created under a different tenant (platform vs
+        dedicated) depending on when the trader first logged into the dashboard.
         """
-        result = await self._session.execute(
+        query = (
             select(Order)
             .options(selectinload(Order.items))
-            .where(
-                Order.id.like(f"{ref_prefix}%"),
-                Order.tenant_id == tenant_id,
-            )
-            .limit(1)
+            .where(Order.id.like(f"{ref_prefix}%"))
         )
+        if tenant_id:
+            query = query.where(Order.tenant_id == tenant_id)
+        result = await self._session.execute(query.limit(1))
         return result.scalar_one_or_none()
 
     async def get_open_order_by_customer_phone(

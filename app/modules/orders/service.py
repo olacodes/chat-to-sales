@@ -822,14 +822,11 @@ class OrderService:
             return
 
         ref = result.order_ref or ""
-        order = await self._repo.get_by_ref_prefix(ref_prefix=ref, tenant_id=tenant_id)
-        # Orders may have been created under the platform tenant before the
-        # trader logged in and got their own dedicated tenant.  Fall back to
-        # searching the platform tenant when channel_tenant_id differs.
-        if order is None and channel_tenant_id and channel_tenant_id != tenant_id:
-            order = await self._repo.get_by_ref_prefix(
-                ref_prefix=ref, tenant_id=channel_tenant_id
-            )
+        # Look up by ref prefix only — no tenant_id filter.  The 8-char UUID
+        # prefix is unique enough, and the tenant_id on the order may differ
+        # from the trader's current tenant (platform vs dedicated tenant after
+        # first dashboard login).
+        order = await self._repo.get_by_ref_prefix(ref_prefix=ref)
         if order is None:
             await self._reply(
                 phone=trader_phone,
