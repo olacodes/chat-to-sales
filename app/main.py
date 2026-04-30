@@ -109,10 +109,15 @@ def create_app() -> FastAPI:
     )
 
     # ── Middleware ────────────────────────────────────────────────────────────
+    # allow_credentials=True is incompatible with allow_origins=["*"] — the
+    # browser requires the server to echo the specific origin when credentials
+    # are enabled.  Only enable credentials when explicit origins are set.
+    origins = settings.ALLOWED_HOSTS
+    use_credentials = origins != ["*"]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.ALLOWED_HOSTS,
-        allow_credentials=True,
+        allow_origins=origins,
+        allow_credentials=use_credentials,
         allow_methods=["*"],
         allow_headers=["*"],
     )
