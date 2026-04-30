@@ -15,6 +15,18 @@ class CatalogueItem(BaseModel):
     price: int
 
 
+class StoreListItem(BaseModel):
+    business_name: str
+    business_category: str
+    store_slug: str
+    item_count: int
+
+
+class StoreListOut(BaseModel):
+    items: list[StoreListItem]
+    total: int
+
+
 class TraderStoreOut(BaseModel):
     business_name: str
     business_category: str

@@ -30,6 +30,19 @@ class TraderRepository:
         )
         return result.scalar_one_or_none()
 
+    async def list_completed(self, limit: int = 100) -> list[Trader]:
+        """Return completed traders with a store slug, ordered by newest first."""
+        result = await self._db.execute(
+            select(Trader)
+            .where(
+                Trader.onboarding_status == OnboardingStatus.COMPLETE,
+                Trader.store_slug.is_not(None),
+            )
+            .order_by(Trader.created_at.desc())
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
     async def get_by_slug(self, store_slug: str) -> Trader | None:
         result = await self._db.execute(
             select(Trader).where(Trader.store_slug == store_slug)

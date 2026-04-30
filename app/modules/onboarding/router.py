@@ -14,7 +14,12 @@ from app.core.config import get_settings
 from app.core.dependencies import DBSessionDep
 from app.modules.channels.repository import ChannelRepository
 from app.modules.onboarding.repository import TraderRepository
-from app.modules.onboarding.schemas import TraderStoreOut, normalize_catalogue
+from app.modules.onboarding.schemas import (
+    StoreListItem,
+    StoreListOut,
+    TraderStoreOut,
+    normalize_catalogue,
+)
 
 router = APIRouter(prefix="/store", tags=["Store"])
 
@@ -52,6 +57,31 @@ def _build_ordering_url(
 
     # Config not set — safe fallback so the button is never broken
     return f"https://wa.me/{trader_phone}"
+
+
+@router.get("", summary="List all public stores")
+async def list_stores(db: DBSessionDep) -> StoreListOut:
+    """
+    Return all completed trader stores for the public directory.
+
+    Unauthenticated — used by the /store listing page.
+    Stores are returned newest-first; the frontend groups them by category.
+    """
+    repo = TraderRepository(db)
+    traders = await repo.list_completed(limit=200)
+
+    items = [
+        StoreListItem(
+            business_name=t.business_name or "",
+            business_category=t.business_category or "",
+            store_slug=t.store_slug or "",
+            item_count=len(normalize_catalogue(t.onboarding_catalogue)),
+        )
+        for t in traders
+        if t.store_slug
+    ]
+
+    return StoreListOut(items=items, total=len(items))
 
 
 @router.get("/{slug}", summary="Get public store by slug")
