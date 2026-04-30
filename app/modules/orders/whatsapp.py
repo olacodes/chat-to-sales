@@ -77,6 +77,14 @@ def unknown_order_prompt() -> str:
     )
 
 
+def store_order_prompt() -> str:
+    return (
+        "To place an order, visit your trader's store link, select your items, "
+        "then tap *Order on WhatsApp*. \U0001f6d2\n\n"
+        "Ask your trader for their store link if you don't have it."
+    )
+
+
 def voice_transcription_failed() -> str:
     return (
         "I no fit hear that voice note well well. \U0001f605\n\n"

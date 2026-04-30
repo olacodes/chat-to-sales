@@ -85,12 +85,18 @@ class NotificationService:
         message_text: str,
         channel: str = "whatsapp",
         order_id: str | None = None,
+        channel_tenant_id: str | None = None,
     ) -> None:
         """
         Persist + dispatch a notification triggered by a system event.
 
         Idempotency: if a notification row with this event_id already exists
         the call is a no-op — the same event can never produce a second send.
+
+        channel_tenant_id: when set, WhatsApp credentials are fetched from this
+        tenant's channel record instead of tenant_id.  Used for platform-routing
+        where orders are stored under the trader's tenant but all outbound
+        messages go through the platform's WhatsApp number.
 
         The caller must own the transaction (async_session_factory.begin()).
         This method does NOT commit.
@@ -114,7 +120,7 @@ class NotificationService:
         try:
             if channel == "whatsapp":
                 await self._dispatch_whatsapp(
-                    tenant_id=tenant_id,
+                    tenant_id=channel_tenant_id or tenant_id,
                     recipient=recipient,
                     message_text=message_text,
                 )

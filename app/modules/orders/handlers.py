@@ -6,17 +6,28 @@ Event-driven handler for `conversation.message_saved` events (Feature 2).
 Routing logic
 -------------
 Every inbound WhatsApp message passes through this handler AFTER the
-conversation has been persisted.  Three possible actors:
+conversation has been persisted.  Four possible actors:
 
 1. Trader (store owner) — personal phone matches a completed Trader record.
    -> Routed to OrderService.handle_trader_command()
    -> Commands: CONFIRM/CANCEL/PAID/DELIVERED <ref>
+   -> Uses trader's own tenant_id for order lookup; platform tenant for sends.
 
 2. Customer in onboarding — sender has an active onboarding session in Redis.
    -> Skipped here; the onboarding handler owns those messages.
 
-3. Customer (everyone else) — routed to OrderService.handle_inbound_customer_message()
-   -> NLP parses the message and manages the order conversation.
+3. Customer sending ORDER:{slug} — message from the store cart (structured).
+   -> Trader identified by slug, routing session stored in Redis.
+   -> Items pre-parsed from the structured cart format (no NLP needed).
+   -> Order created under trader's tenant; replies sent via platform channel.
+
+4. Customer with existing routing session — follow-up to a cart order (YES/NO).
+   -> Routing session fetched to re-identify the trader.
+   -> Passed to OrderService.handle_inbound_customer_message() for confirmation.
+
+5. Customer with no routing and no session — freeform message to platform.
+   -> Prompted to visit their trader's store link.
+   -> (Legacy: direct-connect traders still handled via tenant lookup.)
 
 Audio (voice note) messages
 ---------------------------
@@ -31,6 +42,7 @@ No changes to main.py are needed.
 
 import asyncio
 import json
+import re
 
 from app.core.logging import get_logger
 from app.infra.database import async_session_factory
@@ -42,17 +54,29 @@ from app.modules.onboarding.session import get_state as get_onboarding_state
 from app.modules.orders.service import OrderService
 from app.modules.orders.session import (
     cache_trader_by_phone,
+    cache_trader_by_slug,
     cache_trader_by_tenant,
+    clear_customer_routing,
+    get_customer_routing,
     get_trader_by_phone_cache,
+    get_trader_by_slug_cache,
     get_trader_by_tenant_cache,
+    set_customer_routing,
 )
+import app.modules.orders.whatsapp as wa
 
 logger = get_logger(__name__)
 
 _CONVERSATION_MESSAGE_SAVED_EVENT = "conversation.message_saved"
 
+# Matches the first line of a cart order: ORDER:{slug}
+_ORDER_PREFIX_RE = re.compile(r"^ORDER:([A-Za-z0-9_-]+)", re.IGNORECASE)
 
-# ── Trader identity lookup ────────────────────────────────────────────────────
+# Matches a single cart item line: "Item Name x3" or "Item Name X3"
+_CART_ITEM_RE = re.compile(r"^(.+?)\s+[xX](\d+)\s*$")
+
+
+# ── Trader identity helpers ───────────────────────────────────────────────────
 
 def _parse_catalogue(onboarding_catalogue: str | None) -> dict[str, int]:
     """Parse the JSON catalogue string stored on the Trader row."""
@@ -62,7 +86,6 @@ def _parse_catalogue(onboarding_catalogue: str | None) -> dict[str, int]:
         raw = json.loads(onboarding_catalogue)
         if isinstance(raw, dict):
             return {str(k): int(v) for k, v in raw.items() if v}
-        # List format: [{name, price}, ...]
         if isinstance(raw, list):
             return {
                 str(item.get("name", "")): int(item.get("price", 0))
@@ -77,6 +100,7 @@ def _parse_catalogue(onboarding_catalogue: str | None) -> dict[str, int]:
 def _trader_dict(trader) -> dict:
     """Convert a Trader ORM row to the plain dict used by the service."""
     return {
+        "tenant_id": trader.tenant_id or "",
         "phone_number": trader.phone_number,
         "business_name": trader.business_name or "",
         "business_category": trader.business_category or "",
@@ -90,18 +114,16 @@ async def _get_trader_by_phone(phone_number: str) -> dict | None:
     Return trader data for a phone number, or None if not an onboarded trader.
 
     Checks Redis first (TTL 1 h), falls back to the database.
-    Caches the result on a DB hit.
     """
     cached = await get_trader_by_phone_cache(phone_number)
     if cached is not None:
-        return cached  # may be {} sentinel meaning "not a trader"
+        return cached or None  # {} sentinel means "not a trader"
 
     async with async_session_factory() as session:
         repo = TraderRepository(session)
         trader = await repo.get_by_phone(phone_number)
 
     if trader is None or trader.onboarding_status != OnboardingStatus.COMPLETE:
-        # Cache a sentinel so we don't hit the DB again for 1 h
         await cache_trader_by_phone(phone_number, {})
         return None
 
@@ -114,12 +136,11 @@ async def _get_trader_by_tenant(tenant_id: str) -> dict | None:
     """
     Return the store owner's data for a given tenant, or None if not found.
 
-    Used when a customer messages — we need the trader's name and catalogue
-    to show prices and send the trader a notification.
+    Used for direct-connect traders who have their own WhatsApp channel.
     """
     cached = await get_trader_by_tenant_cache(tenant_id)
     if cached is not None:
-        return cached or None  # {} sentinel means no trader found
+        return cached or None
 
     async with async_session_factory() as session:
         repo = TraderRepository(session)
@@ -134,6 +155,65 @@ async def _get_trader_by_tenant(tenant_id: str) -> dict | None:
     return data
 
 
+async def _get_trader_by_slug(store_slug: str) -> dict | None:
+    """
+    Return trader data for a store slug, or None if not found / not complete.
+
+    Checks Redis first (TTL 1 h), falls back to the database.
+    """
+    cached = await get_trader_by_slug_cache(store_slug)
+    if cached is not None:
+        return cached or None  # {} sentinel means "not found"
+
+    async with async_session_factory() as session:
+        repo = TraderRepository(session)
+        trader = await repo.get_by_slug(store_slug)
+
+    if trader is None or trader.onboarding_status != OnboardingStatus.COMPLETE:
+        await cache_trader_by_slug(store_slug, {})
+        return None
+
+    data = _trader_dict(trader)
+    await cache_trader_by_slug(store_slug, data)
+    return data
+
+
+# ── Cart message parsing ──────────────────────────────────────────────────────
+
+def _parse_cart_message(message: str) -> tuple[str | None, list[dict]]:
+    """
+    Parse an ORDER:{slug} cart message into (slug, cart_items).
+
+    Expected format (generated by StoreCatalogue):
+        ORDER:mama-caro-provisions
+        Garri x2
+        Rice x1
+
+    Returns (slug, [{name, qty}, ...]) on success, or (None, []) if the
+    message does not match the ORDER: prefix.
+    """
+    lines = [line.strip() for line in message.strip().splitlines() if line.strip()]
+    if not lines:
+        return None, []
+
+    m = _ORDER_PREFIX_RE.match(lines[0])
+    if not m:
+        return None, []
+
+    slug = m.group(1).lower()
+    items: list[dict] = []
+
+    for line in lines[1:]:
+        item_match = _CART_ITEM_RE.match(line)
+        if item_match:
+            name = item_match.group(1).strip()
+            qty = int(item_match.group(2))
+            if name and qty > 0:
+                items.append({"name": name, "qty": qty})
+
+    return slug, items
+
+
 # ── Audio transcription ───────────────────────────────────────────────────────
 
 async def _transcribe_audio(
@@ -145,7 +225,6 @@ async def _transcribe_audio(
     Download and transcribe a WhatsApp voice note.
 
     Returns the transcription text, or an empty string on failure.
-    Imports media helpers lazily to keep startup fast.
     """
     try:
         from app.modules.onboarding.media import (
@@ -177,13 +256,18 @@ async def handle_order_intent(event: Event) -> None:
     Steps:
     1. Validate required fields; drop malformed events.
     2. Skip non-WhatsApp channels.
-    3. Skip senders in an active onboarding session (handled by onboarding module).
-    4. If sender is an onboarded trader -> handle_trader_command().
-    5. If sender is a customer -> load the tenant's trader, then handle_inbound_customer_message().
-    6. If the tenant has no completed trader -> skip silently (store not yet set up).
+    3. Skip senders in an active onboarding session.
+    4. If sender is an onboarded trader -> handle_trader_command() using the
+       trader's own tenant_id; platform tenant for outbound channel.
+    5. If message starts with ORDER:{slug} -> identify trader by slug, store
+       routing session, parse cart items, create order via handle_cart_order().
+    6. If customer has an active routing session -> load routing context,
+       pass to handle_inbound_customer_message() for YES/NO handling.
+    7. If tenant has a direct-connect trader -> legacy single-trader path.
+    8. Otherwise -> prompt customer to use the store link.
     """
     payload = event.payload
-    tenant_id: str = event.tenant_id
+    platform_tenant_id: str = event.tenant_id
     channel: str = payload.get("channel", "")
 
     if channel != "whatsapp":
@@ -196,7 +280,7 @@ async def handle_order_intent(event: Event) -> None:
     media_id: str | None = payload.get("media_id")
     media_type: str | None = payload.get("media_type")
 
-    if not (tenant_id and sender_phone and message_id and conversation_id):
+    if not (platform_tenant_id and sender_phone and message_id and conversation_id):
         logger.debug(
             "Order handler: skipping event_id=%s — missing fields", event.event_id
         )
@@ -215,7 +299,7 @@ async def handle_order_intent(event: Event) -> None:
     # ── Handle audio (voice note orders) ─────────────────────────────────────
     message = content
     if media_id and media_type and media_type.startswith("audio/"):
-        transcribed = await _transcribe_audio(media_id, media_type, tenant_id)
+        transcribed = await _transcribe_audio(media_id, media_type, platform_tenant_id)
         if transcribed:
             message = transcribed
             logger.info(
@@ -223,56 +307,160 @@ async def handle_order_intent(event: Event) -> None:
                 len(transcribed),
                 sender_phone,
             )
-        else:
-            # Could not transcribe — still try with the "[audio]" sentinel
-            # so the NLP can return an appropriate prompt to the customer.
-            pass
 
-    # ── Route: trader vs customer ─────────────────────────────────────────────
+    # ── Route: trader command? ────────────────────────────────────────────────
     trader_data = await _get_trader_by_phone(sender_phone)
 
     if trader_data:
-        # Sender is the store owner — handle as a trader command
+        # Sender is a store owner — handle as a trader command.
+        # Use trader's own tenant_id for order DB lookups; platform tenant for sends.
+        trader_tenant_id = trader_data.get("tenant_id") or platform_tenant_id
         logger.info(
-            "Order handler: trader command sender=%s event_id=%s",
+            "Order handler: trader command sender=%s tenant=%s event_id=%s",
             sender_phone,
+            trader_tenant_id,
             event.event_id,
         )
         async with async_session_factory.begin() as session:
             svc = OrderService(session)
             await svc.handle_trader_command(
-                tenant_id=tenant_id,
+                tenant_id=trader_tenant_id,
                 trader_phone=sender_phone,
                 message=message,
                 message_id=message_id,
                 trader=trader_data,
+                channel_tenant_id=platform_tenant_id,
             )
         return
 
-    # Sender is a customer — load the tenant's trader for context
-    store_trader = await _get_trader_by_tenant(tenant_id)
-    if store_trader is None:
-        logger.debug(
-            "Order handler: no completed trader for tenant=%s — skipping event_id=%s",
-            tenant_id,
+    # ── Route: ORDER:{slug} cart message ─────────────────────────────────────
+    slug, cart_items = _parse_cart_message(message)
+
+    if slug is not None:
+        store_trader = await _get_trader_by_slug(slug)
+
+        if store_trader is None or not store_trader.get("tenant_id"):
+            logger.warning(
+                "Order handler: ORDER:%s — no completed trader found, event_id=%s",
+                slug,
+                event.event_id,
+            )
+            # Silently drop — store may be misconfigured
+            return
+
+        trader_tenant_id = store_trader["tenant_id"]
+
+        # Store a routing session so subsequent YES/NO replies reach this trader
+        await set_customer_routing(
+            sender_phone,
+            {
+                "slug": slug,
+                "tenant_id": trader_tenant_id,
+                "trader_phone": store_trader.get("phone_number", ""),
+                "trader_name": store_trader.get("business_name", ""),
+                "catalogue": store_trader.get("catalogue", {}),
+            },
+        )
+
+        logger.info(
+            "Order handler: cart order sender=%s slug=%s tenant=%s event_id=%s",
+            sender_phone,
+            slug,
+            trader_tenant_id,
             event.event_id,
         )
+
+        if not cart_items:
+            # ORDER: prefix but no parseable items — show the unknown prompt
+            async with async_session_factory.begin() as session:
+                svc = OrderService(session)
+                await svc._reply(  # noqa: SLF001  (internal helper)
+                    phone=sender_phone,
+                    tenant_id=trader_tenant_id,
+                    event_id=f"order.cart_empty.{message_id}",
+                    text=wa.unknown_order_prompt(),
+                    channel_tenant_id=platform_tenant_id,
+                )
+            return
+
+        async with async_session_factory.begin() as session:
+            svc = OrderService(session)
+            await svc.handle_cart_order(
+                tenant_id=trader_tenant_id,
+                conversation_id=conversation_id,
+                customer_phone=sender_phone,
+                message_id=message_id,
+                trader=store_trader,
+                cart_items=cart_items,
+                channel_tenant_id=platform_tenant_id,
+            )
         return
 
-    logger.info(
-        "Order handler: customer message sender=%s event_id=%s",
+    # ── Route: customer with existing routing session ─────────────────────────
+    routing = await get_customer_routing(sender_phone)
+
+    if routing:
+        trader_tenant_id = routing["tenant_id"]
+        store_trader = {
+            "tenant_id": trader_tenant_id,
+            "phone_number": routing.get("trader_phone", ""),
+            "business_name": routing.get("trader_name", ""),
+            "business_category": "",
+            "catalogue": routing.get("catalogue", {}),
+        }
+        logger.info(
+            "Order handler: routed customer=%s to slug=%s event_id=%s",
+            sender_phone,
+            routing.get("slug"),
+            event.event_id,
+        )
+        async with async_session_factory.begin() as session:
+            svc = OrderService(session)
+            await svc.handle_inbound_customer_message(
+                tenant_id=trader_tenant_id,
+                conversation_id=conversation_id,
+                customer_phone=sender_phone,
+                message=message,
+                message_id=message_id,
+                trader=store_trader,
+                channel_tenant_id=platform_tenant_id,
+            )
+        return
+
+    # ── Route: direct-connect trader (legacy / single-tenant mode) ───────────
+    store_trader = await _get_trader_by_tenant(platform_tenant_id)
+
+    if store_trader:
+        logger.info(
+            "Order handler: direct customer message sender=%s event_id=%s",
+            sender_phone,
+            event.event_id,
+        )
+        async with async_session_factory.begin() as session:
+            svc = OrderService(session)
+            await svc.handle_inbound_customer_message(
+                tenant_id=platform_tenant_id,
+                conversation_id=conversation_id,
+                customer_phone=sender_phone,
+                message=message,
+                message_id=message_id,
+                trader=store_trader,
+            )
+        return
+
+    # ── No trader context — prompt customer to use store link ─────────────────
+    logger.debug(
+        "Order handler: no trader context for sender=%s event_id=%s — sending store prompt",
         sender_phone,
         event.event_id,
     )
     async with async_session_factory.begin() as session:
         svc = OrderService(session)
-        await svc.handle_inbound_customer_message(
-            tenant_id=tenant_id,
-            conversation_id=conversation_id,
-            customer_phone=sender_phone,
-            message=message,
-            message_id=message_id,
-            trader=store_trader,
+        await svc._reply(  # noqa: SLF001
+            phone=sender_phone,
+            tenant_id=platform_tenant_id,
+            event_id=f"order.no_context.{message_id}",
+            text=wa.store_order_prompt(),
         )
 
 

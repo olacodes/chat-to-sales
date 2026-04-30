@@ -437,6 +437,7 @@ class OrderService:
         message: str,
         message_id: str,
         trader: dict[str, Any],
+        channel_tenant_id: str | None = None,
     ) -> None:
         """
         Process an inbound customer message and advance the order conversation.
@@ -462,6 +463,8 @@ class OrderService:
               -> update session items or show summary
 
         trader dict keys: business_name, business_category, catalogue (dict[str,int])
+        channel_tenant_id: if set, outbound WhatsApp messages use this tenant's
+            channel credentials (platform-routing scenario).
         """
         trader_name: str = trader.get("business_name", "the trader")
         category: str = trader.get("business_category", "")
@@ -483,6 +486,7 @@ class OrderService:
                         tenant_id=tenant_id,
                         event_id=f"order.customer_confirm_missing.{message_id}",
                         text="Something went wrong with your order. Abeg place it again.",
+                        channel_tenant_id=channel_tenant_id,
                     )
                     return
 
@@ -500,6 +504,7 @@ class OrderService:
                         customer_phone=customer_phone,
                         order_ref=order_ref,
                     ),
+                    channel_tenant_id=channel_tenant_id,
                 )
                 await clear_order_session(tenant_id, customer_phone)
                 await self._reply(
@@ -507,6 +512,7 @@ class OrderService:
                     tenant_id=tenant_id,
                     event_id=f"order.customer_pending.{order.id}",
                     text=wa.order_pending_to_customer(trader_name),
+                    channel_tenant_id=channel_tenant_id,
                 )
                 logger.info(
                     "Customer confirmed order order_id=%s customer=%s",
@@ -531,6 +537,7 @@ class OrderService:
                     tenant_id=tenant_id,
                     event_id=f"order.customer_cancel.{message_id}",
                     text=wa.order_cancelled_to_customer(trader_name),
+                    channel_tenant_id=channel_tenant_id,
                 )
                 logger.info("Customer cancelled order customer=%s", customer_phone)
                 return
@@ -543,6 +550,7 @@ class OrderService:
                 tenant_id=tenant_id,
                 event_id=f"order.re_summary.{message_id}",
                 text=wa.order_summary_to_customer(items, total, trader_name),
+                channel_tenant_id=channel_tenant_id,
             )
             return
 
@@ -564,6 +572,7 @@ class OrderService:
                 tenant_id=tenant_id,
                 event_id=f"order.stale_confirm.{message_id}",
                 text=wa.no_active_session(),
+                channel_tenant_id=channel_tenant_id,
             )
             return
 
@@ -573,6 +582,7 @@ class OrderService:
                 tenant_id=tenant_id,
                 event_id=f"order.stale_cancel.{message_id}",
                 text=wa.no_active_session(),
+                channel_tenant_id=channel_tenant_id,
             )
             return
 
@@ -592,6 +602,7 @@ class OrderService:
                     tenant_id=tenant_id,
                     event_id=f"order.clarify.{message_id}",
                     text=wa.ask_clarification(result.clarification_question),
+                    channel_tenant_id=channel_tenant_id,
                 )
             else:
                 await self._reply(
@@ -599,6 +610,7 @@ class OrderService:
                     tenant_id=tenant_id,
                     event_id=f"order.unknown.{message_id}",
                     text=wa.unknown_order_prompt(),
+                    channel_tenant_id=channel_tenant_id,
                 )
             return
 
@@ -626,6 +638,7 @@ class OrderService:
                 tenant_id=tenant_id,
                 event_id=f"order.price_missing.{message_id}",
                 text=wa.price_missing_prompt(missing_price_names),
+                channel_tenant_id=channel_tenant_id,
             )
             return
 
@@ -665,9 +678,103 @@ class OrderService:
             tenant_id=tenant_id,
             event_id=f"order.summary.{order.id}",
             text=wa.order_summary_to_customer(items, total, trader_name),
+            channel_tenant_id=channel_tenant_id,
         )
         logger.info(
             "Order summary shown to customer order_id=%s customer=%s total=%s",
+            order.id,
+            customer_phone,
+            total,
+        )
+
+    async def handle_cart_order(
+        self,
+        *,
+        tenant_id: str,
+        conversation_id: str,
+        customer_phone: str,
+        message_id: str,
+        trader: dict[str, Any],
+        cart_items: list[dict[str, Any]],
+        channel_tenant_id: str | None = None,
+    ) -> None:
+        """
+        Process a pre-structured order from the store cart.
+
+        cart_items: list of {name: str, qty: int} — quantities already known,
+        prices are resolved from the trader's catalogue.  If a price is missing
+        for any item the customer is asked to provide it (falls back gracefully).
+
+        This bypasses NLP parsing entirely; it is only called when the customer
+        sent an ORDER:{slug} structured message generated by the StoreCatalogue UI.
+        """
+        trader_name: str = trader.get("business_name", "the trader")
+        catalogue: dict[str, int] = trader.get("catalogue", {})
+
+        items: list[dict[str, Any]] = []
+        missing_price_names: list[str] = []
+
+        for cart_item in cart_items:
+            name: str = cart_item["name"]
+            qty: int = cart_item["qty"]
+            # Case-insensitive catalogue lookup
+            matched_price: int | None = None
+            name_lower = name.lower()
+            for cat_name, cat_price in catalogue.items():
+                if name_lower in cat_name.lower() or cat_name.lower() in name_lower:
+                    matched_price = cat_price
+                    break
+            if matched_price is not None:
+                items.append({"name": name, "qty": qty, "unit_price": matched_price})
+            else:
+                missing_price_names.append(name)
+
+        if missing_price_names:
+            await self._reply(
+                phone=customer_phone,
+                tenant_id=tenant_id,
+                event_id=f"order.cart_price_missing.{message_id}",
+                text=wa.price_missing_prompt(missing_price_names),
+                channel_tenant_id=channel_tenant_id,
+            )
+            return
+
+        total = sum(item["qty"] * item["unit_price"] for item in items)
+
+        order = await self._repo.create_order(
+            tenant_id=tenant_id,
+            conversation_id=conversation_id,
+            customer_phone=customer_phone,
+            amount=Decimal(str(total)),
+        )
+        for item in items:
+            await self._repo.add_item(
+                order_id=order.id,
+                product_name=item["name"],
+                quantity=item["qty"],
+                unit_price=Decimal(str(item["unit_price"])),
+            )
+        await self._db.commit()
+
+        await set_order_session(
+            tenant_id,
+            customer_phone,
+            {
+                "state": AWAITING_CUSTOMER_CONFIRMATION,
+                "order_id": order.id,
+                "items": items,
+                "total": total,
+            },
+        )
+        await self._reply(
+            phone=customer_phone,
+            tenant_id=tenant_id,
+            event_id=f"order.cart_summary.{order.id}",
+            text=wa.order_summary_to_customer(items, total, trader_name),
+            channel_tenant_id=channel_tenant_id,
+        )
+        logger.info(
+            "Cart order created order_id=%s customer=%s total=%s",
             order.id,
             customer_phone,
             total,
@@ -681,6 +788,7 @@ class OrderService:
         message: str,
         message_id: str,
         trader: dict[str, Any],
+        channel_tenant_id: str | None = None,
     ) -> None:
         """
         Process a WhatsApp command from the store owner.
@@ -694,6 +802,7 @@ class OrderService:
         Any other text replies with the command guide.
 
         trader dict keys: business_name, phone_number
+        channel_tenant_id: platform tenant for outbound WhatsApp (multi-trader routing).
         """
         from app.modules.orders.nlp import _layer1  # local import avoids cycle
 
@@ -708,6 +817,7 @@ class OrderService:
                 tenant_id=tenant_id,
                 event_id=f"order.cmd_guide.{message_id}",
                 text=wa.trader_command_guide(),
+                channel_tenant_id=channel_tenant_id,
             )
             return
 
@@ -719,6 +829,7 @@ class OrderService:
                 tenant_id=tenant_id,
                 event_id=f"order.not_found.{message_id}",
                 text=wa.order_not_found_to_trader(ref),
+                channel_tenant_id=channel_tenant_id,
             )
             return
 
@@ -734,6 +845,7 @@ class OrderService:
                     tenant_id=tenant_id,
                     event_id=f"order.confirm_err.{message_id}",
                     text=f"Cannot confirm order {ref}: {exc}",
+                    channel_tenant_id=channel_tenant_id,
                 )
                 return
             await self._reply(
@@ -741,6 +853,7 @@ class OrderService:
                 tenant_id=tenant_id,
                 event_id=f"order.confirmed_trader.{order.id}",
                 text=wa.order_confirmed_to_trader(ref),
+                channel_tenant_id=channel_tenant_id,
             )
             if customer_phone:
                 total = int(order.amount or 0)
@@ -749,6 +862,7 @@ class OrderService:
                     tenant_id=tenant_id,
                     event_id=f"order.confirmed_customer.{order.id}",
                     text=wa.order_confirmed_to_customer(trader_name, total),
+                    channel_tenant_id=channel_tenant_id,
                 )
             logger.info("Trader confirmed order_id=%s ref=%s", order.id, ref)
 
@@ -762,6 +876,7 @@ class OrderService:
                     tenant_id=tenant_id,
                     event_id=f"order.cancel_err.{message_id}",
                     text=f"Cannot cancel order {ref}: {exc}",
+                    channel_tenant_id=channel_tenant_id,
                 )
                 return
             await clear_order_session(tenant_id, customer_phone)
@@ -770,6 +885,7 @@ class OrderService:
                 tenant_id=tenant_id,
                 event_id=f"order.cancelled_trader.{order.id}",
                 text=wa.order_cancelled_to_trader(ref),
+                channel_tenant_id=channel_tenant_id,
             )
             if customer_phone:
                 await self._reply(
@@ -777,6 +893,7 @@ class OrderService:
                     tenant_id=tenant_id,
                     event_id=f"order.cancelled_customer.{order.id}",
                     text=wa.order_cancelled_to_customer(trader_name),
+                    channel_tenant_id=channel_tenant_id,
                 )
             logger.info("Trader cancelled order_id=%s ref=%s", order.id, ref)
 
@@ -790,6 +907,7 @@ class OrderService:
                     tenant_id=tenant_id,
                     event_id=f"order.paid_err.{message_id}",
                     text=f"Cannot mark order {ref} as paid: {exc}",
+                    channel_tenant_id=channel_tenant_id,
                 )
                 return
             await self._reply(
@@ -797,6 +915,7 @@ class OrderService:
                 tenant_id=tenant_id,
                 event_id=f"order.paid_trader.{order.id}",
                 text=wa.order_paid_to_trader(ref),
+                channel_tenant_id=channel_tenant_id,
             )
             logger.info("Trader marked order PAID order_id=%s ref=%s", order.id, ref)
 
@@ -811,6 +930,7 @@ class OrderService:
                     tenant_id=tenant_id,
                     event_id=f"order.deliver_err.{message_id}",
                     text=f"Cannot mark order {ref} as delivered: {exc}",
+                    channel_tenant_id=channel_tenant_id,
                 )
                 return
             await self._reply(
@@ -818,6 +938,7 @@ class OrderService:
                 tenant_id=tenant_id,
                 event_id=f"order.delivered_trader.{order.id}",
                 text=wa.order_delivered_to_trader(ref),
+                channel_tenant_id=channel_tenant_id,
             )
             logger.info("Trader marked order DELIVERED order_id=%s ref=%s", order.id, ref)
 
@@ -828,9 +949,15 @@ class OrderService:
         tenant_id: str,
         event_id: str,
         text: str,
+        channel_tenant_id: str | None = None,
     ) -> None:
         """
         Send a WhatsApp message using an independent DB session.
+
+        channel_tenant_id: when set, outbound WhatsApp credentials are fetched
+        from this tenant (the platform tenant) instead of tenant_id.  Lets
+        multi-trader orders be stored under the trader's tenant while all
+        outbound messages still go through the shared platform number.
 
         Failures are logged but never bubble up — a bad send must never corrupt
         order state or crash the event handler loop.
@@ -847,6 +974,7 @@ class OrderService:
                     recipient=phone,
                     message_text=text,
                     channel="whatsapp",
+                    channel_tenant_id=channel_tenant_id,
                 )
         except Exception as exc:
             logger.error(
