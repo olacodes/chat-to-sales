@@ -296,6 +296,25 @@ async def handle_order_intent(event: Event) -> None:
         )
         return
 
+    # ── Skip onboarding trigger keywords from unknown senders ─────────────
+    # Both handlers receive events simultaneously. For a brand-new user the
+    # onboarding state may not yet exist when this handler checks, but the
+    # onboarding handler will create it. Avoid the duplicate "no context"
+    # reply by recognising trigger keywords here and yielding to onboarding.
+    _ONBOARDING_TRIGGERS = {"start", "register", "join", "hi", "hello", "hey"}
+    if content.strip().lower() in _ONBOARDING_TRIGGERS:
+        async with async_session_factory.begin() as session:
+            trader_repo = TraderRepository(session)
+            existing_trader = await trader_repo.get_by_phone(sender_phone)
+        if existing_trader is None:
+            logger.debug(
+                "Order handler: sender=%s sent onboarding trigger %r — yielding to onboarding, event_id=%s",
+                sender_phone,
+                content.strip(),
+                event.event_id,
+            )
+            return
+
     # ── Handle audio (voice note orders) ─────────────────────────────────────
     message = content
     if media_id and media_type and media_type.startswith("audio/"):
