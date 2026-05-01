@@ -338,7 +338,7 @@ class AuthService:
                 )
 
             # Create a dedicated User + Tenant for this trader
-            synthetic_email = f"{req.phone_number}@wa.chattosales.ng"
+            synthetic_email = f"{req.phone_number}@wa.chattosales.com"
             user = await self._repo.create_user(
                 email=synthetic_email,
                 password_hash=None,
