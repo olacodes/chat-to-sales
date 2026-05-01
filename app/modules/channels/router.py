@@ -13,7 +13,7 @@ Endpoints:
 
 from fastapi import APIRouter, Query, status
 
-from app.core.dependencies import DBSessionDep
+from app.core.dependencies import CurrentUserDep, DBSessionDep
 from app.core.logging import get_logger
 from app.modules.channels.repository import ChannelRepository
 from app.modules.channels.schemas import (
@@ -35,11 +35,11 @@ router = APIRouter(prefix="/channels", tags=["Channels"])
     summary="List connected channels for a tenant",
 )
 async def list_channels(
+    user: CurrentUserDep,
     db: DBSessionDep,
-    tenant_id: str = Query(..., min_length=1, max_length=36),
 ) -> ChannelListResponse:
     repo = ChannelRepository(db)
-    channels = await repo.list_by_tenant(tenant_id=tenant_id)
+    channels = await repo.list_by_tenant(tenant_id=user.tenant_id)
     return ChannelListResponse(
         items=[
             ChannelOut(
@@ -65,6 +65,7 @@ async def list_channels(
 )
 async def connect_whatsapp(
     body: WhatsAppConnectRequest,
+    user: CurrentUserDep,
     db: DBSessionDep,
 ) -> WhatsAppConnectResponse:
     svc = WhatsAppChannelService(db)
@@ -84,6 +85,7 @@ async def connect_whatsapp(
 )
 async def connect_whatsapp_embedded_signup(
     body: WhatsAppEmbeddedSignupRequest,
+    user: CurrentUserDep,
     db: DBSessionDep,
 ) -> WhatsAppConnectResponse:
     svc = WhatsAppChannelService(db)

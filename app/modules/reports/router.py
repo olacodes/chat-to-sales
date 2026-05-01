@@ -14,7 +14,7 @@ match settings.REPORT_SECRET. Set a strong random value in production.
 from fastapi import APIRouter, Header, HTTPException, status
 
 from app.core.config import get_settings
-from app.core.dependencies import DBSessionDep
+from app.core.dependencies import CurrentUserDep, DBSessionDep
 from app.modules.reports.schemas import (
     ReportConfigOut,
     ReportConfigUpdate,
@@ -28,34 +28,34 @@ settings = get_settings()
 
 
 @router.get("/config", response_model=ReportConfigOut)
-async def get_report_config(tenant_id: str, db: DBSessionDep) -> ReportConfigOut:
+async def get_report_config(user: CurrentUserDep, db: DBSessionDep) -> ReportConfigOut:
     """Return the weekly report configuration for the tenant."""
     svc = WeeklyReportService(db)
-    config = await svc.get_config(tenant_id)
+    config = await svc.get_config(user.tenant_id)
     return ReportConfigOut.model_validate(config)
 
 
 @router.put("/config", response_model=ReportConfigOut)
 async def update_report_config(
-    tenant_id: str,
+    user: CurrentUserDep,
     body: ReportConfigUpdate,
     db: DBSessionDep,
 ) -> ReportConfigOut:
     """Update the weekly report settings. Only provided fields are changed."""
     svc = WeeklyReportService(db)
-    config = await svc.upsert_config(tenant_id, body)
+    config = await svc.upsert_config(user.tenant_id, body)
     return ReportConfigOut.model_validate(config)
 
 
 @router.post("/send-preview", response_model=SendPreviewResponse)
-async def send_preview(tenant_id: str, db: DBSessionDep) -> SendPreviewResponse:
+async def send_preview(user: CurrentUserDep, db: DBSessionDep) -> SendPreviewResponse:
     """
     Generate the previous week's report and send it to the configured recipient now.
     Useful for testing the report before enabling the weekly schedule.
     """
     svc = WeeklyReportService(db)
     try:
-        preview_text = await svc.send_preview(tenant_id)
+        preview_text = await svc.send_preview(user.tenant_id)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return SendPreviewResponse(

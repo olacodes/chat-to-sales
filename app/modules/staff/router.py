@@ -19,7 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
-from app.core.dependencies import DBSessionDep
+from app.core.dependencies import CurrentUserDep, DBSessionDep
 from app.core.exceptions import ConflictError, ForbiddenError, NotFoundError
 from app.core.models.user import AuthProvider, InviteToken, User, UserRole, UserTenant
 from app.infra.auth_utils import create_access_token, hash_password
@@ -42,14 +42,14 @@ _INVITE_TTL_HOURS = 72  # tokens expire after 3 days
 
 @router.get("")
 async def list_staff(
-    tenant_id: str,
+    user: CurrentUserDep,
     db: DBSessionDep,
 ) -> StaffListResponse:
     """Return all users who belong to the given tenant."""
     result = await db.execute(
         select(UserTenant)
         .options(joinedload(UserTenant.user))
-        .where(UserTenant.tenant_id == tenant_id)
+        .where(UserTenant.tenant_id == user.tenant_id)
         .order_by(UserTenant.created_at.asc())
     )
     memberships = result.scalars().all()
@@ -72,7 +72,7 @@ async def list_staff(
 
 @router.post("/invite", status_code=status.HTTP_201_CREATED)
 async def create_invite(
-    tenant_id: str,
+    user: CurrentUserDep,
     body: InviteCreateRequest,
     db: DBSessionDep,
 ) -> InviteOut:
@@ -81,7 +81,7 @@ async def create_invite(
     expires_at = datetime.now(UTC) + timedelta(hours=_INVITE_TTL_HOURS)
 
     invite = InviteToken(
-        tenant_id=tenant_id,
+        tenant_id=user.tenant_id,
         token=token_value,
         role=body.role,
         expires_at=expires_at,
@@ -167,14 +167,14 @@ async def accept_invite(
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def remove_member(
     user_id: str,
-    tenant_id: str,
+    user: CurrentUserDep,
     db: DBSessionDep,
 ) -> None:
     """Remove a staff member from the tenant.  Owners cannot be removed."""
     result = await db.execute(
         select(UserTenant).where(
             UserTenant.user_id == user_id,
-            UserTenant.tenant_id == tenant_id,
+            UserTenant.tenant_id == user.tenant_id,
         )
     )
     membership = result.scalar_one_or_none()

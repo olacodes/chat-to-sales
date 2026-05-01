@@ -25,7 +25,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 
 from app.core.config import Settings, get_settings
-from app.core.dependencies import DBSessionDep
+from app.core.dependencies import CurrentUserDep, DBSessionDep
 from app.core.exceptions import InvalidWebhookSignatureError
 from app.core.logging import get_logger
 from app.modules.payments.models import PaymentStatus
@@ -69,14 +69,14 @@ def _verify_paystack_signature(raw_body: bytes, signature: str, secret: str) -> 
 
 @router.get("")
 async def list_payments(
-    tenant_id: str,
+    user: CurrentUserDep,
     svc: ServiceDep,
     status: PaymentStatus | None = Query(default=None),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
 ) -> PaymentListResponse:
     return await svc.list_payments(
-        tenant_id=tenant_id,
+        tenant_id=user.tenant_id,
         status=status,
         limit=limit,
         offset=offset,
@@ -86,6 +86,7 @@ async def list_payments(
 @router.post("/", status_code=201)
 async def initiate_payment(
     body: PaymentInitiateRequest,
+    user: CurrentUserDep,
     svc: ServiceDep,
 ) -> PaymentOut:
     """
@@ -96,12 +97,12 @@ async def initiate_payment(
     """
     return await svc.create_payment_for_order(
         order_id=body.order_id,
-        tenant_id=body.tenant_id,
+        tenant_id=user.tenant_id,
     )
 
 
 @router.get("/{payment_id}")
-async def get_payment(payment_id: str, svc: ServiceDep) -> PaymentOut:
+async def get_payment(payment_id: str, user: CurrentUserDep, svc: ServiceDep) -> PaymentOut:
     return await svc.get_by_id(payment_id)
 
 

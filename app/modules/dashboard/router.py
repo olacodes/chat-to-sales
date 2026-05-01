@@ -27,7 +27,7 @@ from pydantic import BaseModel
 from sqlalchemy import String, case, cast, func, literal, select, text, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.dependencies import DBSessionDep
+from app.core.dependencies import CurrentUserDep, DBSessionDep
 from app.modules.conversation.models import Conversation, ConversationStatus, Message
 from app.modules.orders.models import Order, OrderItem, OrderState
 from app.modules.payments.models import Payment, PaymentStatus
@@ -133,10 +133,10 @@ async def _fetch_metrics(db: AsyncSession, tenant_id: str) -> DashboardMetrics:
 
 @router.get("/metrics")
 async def get_dashboard_metrics(
-    tenant_id: str,
+    user: CurrentUserDep,
     db: DBSessionDep,
 ) -> DashboardMetrics:
-    return await _fetch_metrics(db, tenant_id)
+    return await _fetch_metrics(db, user.tenant_id)
 
 
 # ── Recent activity ───────────────────────────────────────────────────────────
@@ -218,10 +218,10 @@ async def _fetch_recent_activity(
 
 @router.get("/recent-activity")
 async def get_recent_activity(
-    tenant_id: str,
+    user: CurrentUserDep,
     db: DBSessionDep,
 ) -> list[ActivityItem]:
-    return await _fetch_recent_activity(db, tenant_id)
+    return await _fetch_recent_activity(db, user.tenant_id)
 
 
 # ── Overview schemas ──────────────────────────────────────────────────────────
@@ -574,10 +574,10 @@ async def _fetch_today_focus(
 
 @router.get("/today-focus")
 async def get_today_focus(
-    tenant_id: str,
+    user: CurrentUserDep,
     db: DBSessionDep,
 ) -> TodayFocusResponse:
-    items = await _fetch_today_focus(db, tenant_id)
+    items = await _fetch_today_focus(db, user.tenant_id)
     return TodayFocusResponse(items=items, total=len(items))
 
 
@@ -586,13 +586,13 @@ async def get_today_focus(
 
 @router.get("/overview")
 async def get_dashboard_overview(
-    tenant_id: str,
+    user: CurrentUserDep,
     db: DBSessionDep,
 ) -> DashboardOverview:
-    metrics = await _fetch_metrics(db, tenant_id)
-    recent_orders = await _fetch_recent_orders(db, tenant_id)
-    recent_conversations = await _fetch_recent_conversations(db, tenant_id)
-    recent_payments = await _fetch_recent_payments(db, tenant_id)
+    metrics = await _fetch_metrics(db, user.tenant_id)
+    recent_orders = await _fetch_recent_orders(db, user.tenant_id)
+    recent_conversations = await _fetch_recent_conversations(db, user.tenant_id)
+    recent_payments = await _fetch_recent_payments(db, user.tenant_id)
 
     return DashboardOverview(
         metrics=metrics,

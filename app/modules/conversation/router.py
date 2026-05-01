@@ -2,7 +2,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
 
-from app.core.dependencies import DBSessionDep
+from app.core.dependencies import CurrentUserDep, DBSessionDep
 from app.modules.conversation.schemas import (
     AssignConversationRequest,
     AssignmentOut,
@@ -32,13 +32,13 @@ ServiceDep = Annotated[ConversationService, Depends(_service)]
 
 @router.get("")
 async def list_conversations(
-    tenant_id: str,
+    user: CurrentUserDep,
     svc: ServiceDep,
     limit: int = Query(default=20, ge=1, le=100),
     cursor: str | None = Query(default=None),
 ) -> ConversationListResponse:
     return await svc.list_conversations(
-        tenant_id=tenant_id,
+        tenant_id=user.tenant_id,
         limit=limit,
         cursor=cursor,
     )
@@ -47,12 +47,13 @@ async def list_conversations(
 @router.post("", status_code=201)
 async def start_conversation(
     body: ConversationCreate,
+    user: CurrentUserDep,
     svc: ServiceDep,
 ) -> ConversationOut:
     return await svc.get_or_create(
         body.customer_identifier,
         channel=body.channel,
-        tenant_id=body.tenant_id,
+        tenant_id=user.tenant_id,
         customer_name=body.customer_name,
     )
 
@@ -60,6 +61,7 @@ async def start_conversation(
 @router.get("/{conversation_id}")
 async def get_conversation(
     conversation_id: str,
+    user: CurrentUserDep,
     svc: ServiceDep,
 ) -> ConversationOut:
     return await svc.get_by_id(conversation_id)
@@ -69,6 +71,7 @@ async def get_conversation(
 async def add_message(
     conversation_id: str,
     body: MessageCreate,
+    user: CurrentUserDep,
     svc: ServiceDep,
 ) -> MessageOut:
     return await svc.add_message(conversation_id, body)
@@ -77,13 +80,13 @@ async def add_message(
 @router.patch("/{conversation_id}/assign")
 async def assign_conversation(
     conversation_id: str,
-    tenant_id: str,
+    user: CurrentUserDep,
     body: AssignConversationRequest,
     svc: ServiceDep,
 ) -> AssignmentOut:
     return await svc.assign_conversation(
         conversation_id,
-        tenant_id=tenant_id,
+        tenant_id=user.tenant_id,
         user_id=body.user_id,
         assigned_by_user_id=body.assigned_by_user_id,
     )
@@ -94,6 +97,7 @@ async def react_to_message(
     conversation_id: str,
     message_id: str,
     body: ReactionCreate,
+    user: CurrentUserDep,
     svc: ServiceDep,
 ) -> MessageOut:
     return await svc.react_to_message(conversation_id, message_id, body)
@@ -102,14 +106,14 @@ async def react_to_message(
 @router.get("/{conversation_id}/messages")
 async def list_messages(
     conversation_id: str,
-    tenant_id: str,
+    user: CurrentUserDep,
     svc: ServiceDep,
     limit: int = Query(default=50, ge=1, le=200),
     cursor: str | None = Query(default=None),
 ) -> MessageListResponse:
     return await svc.list_messages(
         conversation_id,
-        tenant_id=tenant_id,
+        tenant_id=user.tenant_id,
         limit=limit,
         cursor=cursor,
     )
@@ -124,14 +128,14 @@ async def list_messages(
 )
 async def create_scheduled_message(
     conversation_id: str,
-    tenant_id: str,
+    user: CurrentUserDep,
     body: ScheduleMessageRequest,
     svc: ServiceDep,
 ) -> ScheduledMessageOut:
     """Schedule a message to be sent at a future time."""
     return await svc.create_scheduled_message(
         conversation_id,
-        tenant_id=tenant_id,
+        tenant_id=user.tenant_id,
         data=body,
     )
 
@@ -139,13 +143,13 @@ async def create_scheduled_message(
 @router.get("/{conversation_id}/scheduled-messages")
 async def list_scheduled_messages(
     conversation_id: str,
-    tenant_id: str,
+    user: CurrentUserDep,
     svc: ServiceDep,
 ) -> ScheduledMessageListResponse:
     """List all scheduled messages for a conversation."""
     return await svc.list_scheduled_messages(
         conversation_id,
-        tenant_id=tenant_id,
+        tenant_id=user.tenant_id,
     )
 
 
@@ -156,12 +160,12 @@ async def list_scheduled_messages(
 async def cancel_scheduled_message(
     conversation_id: str,
     scheduled_message_id: str,
-    tenant_id: str,
+    user: CurrentUserDep,
     svc: ServiceDep,
 ) -> None:
     """Cancel (delete) a pending scheduled message."""
     await svc.cancel_scheduled_message(
         conversation_id,
         scheduled_message_id,
-        tenant_id=tenant_id,
+        tenant_id=user.tenant_id,
     )
