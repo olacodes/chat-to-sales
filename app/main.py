@@ -12,7 +12,8 @@ from app.core.exceptions import (
 )
 from app.core.logging import get_logger
 from app.infra.cache import close_redis, init_redis
-from app.infra.database import create_all_tables, dispose_engine
+from app.infra.crypto import encrypt_token
+from app.infra.database import async_session_factory, create_all_tables, dispose_engine
 from app.infra.scheduler import start_scheduler, stop_scheduler
 from app.modules.conversation.handlers import register_message_received_handler
 from app.modules.orders.handlers import register_order_intent_handler, register_credit_sale_status_handler
@@ -57,6 +58,52 @@ logger = get_logger(__name__)
 settings = get_settings()
 
 
+# ── Platform channel seed ─────────────────────────────────────────────────────
+
+
+async def _seed_platform_channel() -> None:
+    """
+    Ensure the platform tenant's WhatsApp channel exists in the DB.
+
+    Reads TENANT_ID, WHATSAPP_PHONE_NUMBER_ID, and WHATSAPP_ACCESS_TOKEN
+    from settings. If all three are set and no channel record exists yet,
+    creates one so the app can send/receive messages immediately after a
+    fresh database without any manual setup.
+    """
+    tenant_id = settings.TENANT_ID
+    phone_id = settings.WHATSAPP_PHONE_NUMBER_ID
+    token = settings.WHATSAPP_ACCESS_TOKEN
+
+    if not tenant_id or not phone_id or not token:
+        logger.debug("Platform channel seed skipped — credentials not fully configured")
+        return
+
+    from app.modules.channels.repository import ChannelRepository
+
+    async with async_session_factory() as session:
+        repo = ChannelRepository(session)
+        existing = await repo.get_by_tenant_and_channel(
+            tenant_id=tenant_id, channel="whatsapp",
+        )
+        if existing:
+            return
+
+        encrypted = encrypt_token(token)
+        await repo.upsert(
+            tenant_id=tenant_id,
+            channel="whatsapp",
+            phone_number_id=phone_id,
+            encrypted_access_token=encrypted,
+            webhook_registered=True,
+        )
+        await session.commit()
+        logger.info(
+            "Platform WhatsApp channel seeded — tenant=%s phone_number_id=%s",
+            tenant_id,
+            phone_id,
+        )
+
+
 # ── Lifespan (startup / shutdown) ─────────────────────────────────────────────
 
 
@@ -68,6 +115,10 @@ async def lifespan(app: FastAPI):
     # Ensure all tables exist. In production, remove this and rely on Alembic.
     await create_all_tables()
     logger.info("Database tables verified/created")
+
+    # Auto-seed the platform WhatsApp channel from env vars so the app
+    # works immediately after a fresh DB without manual API calls.
+    await _seed_platform_channel()
 
     # Start Redis event consumers — one task per event type, all tenants.
     # Using PSUBSCRIBE pattern matching, each task automatically handles
