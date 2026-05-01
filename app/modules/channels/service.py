@@ -51,37 +51,44 @@ class WhatsAppChannelService:
         # Step 1 — Encrypt the token before it ever touches the database.
         encrypted = encrypt_token(req.access_token)
 
-        # Step 2 — Attempt webhook registration BEFORE the DB write so that a
-        # Meta API rejection surfaces cleanly. Failures are non-fatal; the
-        # channel is still stored so an operator can retry later.
-        webhook_ok = await self._register_webhook(
-            phone_number_id=req.phone_number_id,
-            access_token=req.access_token,
-        )
-
-        # Step 3 — Upsert the channel record.
+        # Step 2 — Upsert the channel record FIRST so the channel is persisted
+        # even if webhook registration is slow or the frontend times out.
         _, created = await self._repo.upsert(
             tenant_id=req.tenant_id,
             channel=ChannelName.WHATSAPP,
             phone_number_id=req.phone_number_id,
             encrypted_access_token=encrypted,
-            webhook_registered=webhook_ok,
+            webhook_registered=False,
         )
 
         action = "connected" if created else "reconnected"
         logger.info(
-            "WhatsApp channel %s — tenant=%s phone_number_id=%s webhook=%s",
+            "WhatsApp channel %s — tenant=%s phone_number_id=%s",
             action,
             req.tenant_id,
             req.phone_number_id,
-            webhook_ok,
         )
 
-        # Step 4 — Emit a ChannelConnected event for downstream listeners.
+        # Step 3 — Emit a ChannelConnected event for downstream listeners.
         await self._emit_connected_event(
             tenant_id=req.tenant_id,
             channel=ChannelName.WHATSAPP,
         )
+
+        # Step 4 — Attempt webhook registration AFTER the DB write. Failures
+        # are non-fatal; the channel record already exists so an operator (or
+        # a reconnect call) can retry later. This avoids blocking the frontend
+        # response on a slow Meta API round-trip.
+        webhook_ok = await self._register_webhook(
+            phone_number_id=req.phone_number_id,
+            access_token=req.access_token,
+        )
+
+        if webhook_ok:
+            await self._repo.mark_webhook_registered(
+                tenant_id=req.tenant_id,
+                channel=ChannelName.WHATSAPP,
+            )
 
         return WhatsAppConnectResponse(
             status="connected",

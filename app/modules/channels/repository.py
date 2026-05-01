@@ -68,6 +68,20 @@ class ChannelRepository:
         )
         return result.scalar_one_or_none()
 
+    async def mark_webhook_registered(
+        self,
+        *,
+        tenant_id: str,
+        channel: str,
+    ) -> None:
+        """Set webhook_registered=True on an existing channel record."""
+        existing = await self.get_by_tenant_and_channel(
+            tenant_id=tenant_id, channel=channel,
+        )
+        if existing:
+            existing.webhook_registered = True
+            await self._session.flush()
+
     async def upsert(
         self,
         *,
