@@ -68,6 +68,7 @@ async def connect_whatsapp(
     user: CurrentUserDep,
     db: DBSessionDep,
 ) -> WhatsAppConnectResponse:
+    body.tenant_id = user.tenant_id
     svc = WhatsAppChannelService(db)
     return await svc.connect(body)
 
@@ -88,5 +89,6 @@ async def connect_whatsapp_embedded_signup(
     user: CurrentUserDep,
     db: DBSessionDep,
 ) -> WhatsAppConnectResponse:
+    body.tenant_id = user.tenant_id
     svc = WhatsAppChannelService(db)
     return await svc.connect_from_embedded_signup(body)

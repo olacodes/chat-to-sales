@@ -20,5 +20,6 @@ ServiceDep = Annotated[NotificationService, Depends(_service)]
 async def send_notification(
     body: NotificationPayload, user: CurrentUserDep, svc: ServiceDep
 ) -> dict[str, str]:
+    body.tenant_id = user.tenant_id
     await svc.send(body)
     return {"status": "queued"}
