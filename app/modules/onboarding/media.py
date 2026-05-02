@@ -236,3 +236,129 @@ async def extract_products_from_text(
     except (json.JSONDecodeError, TypeError) as exc:
         logger.warning("Product extraction JSON parse failed: %s | raw=%.200s", exc, raw)
         return []
+
+
+# ── Product image analysis (Claude Vision) ───────────────────────────────────
+
+
+async def describe_product_image(
+    image_bytes: bytes,
+    catalogue: dict[str, int],
+    category: str = "",
+) -> dict[str, Any]:
+    """
+    Use Claude Vision to identify a product in a customer photo and attempt
+    to match it against the trader's catalogue.
+
+    Returns a dict with:
+        description      – human-readable description of the item in the photo
+        matched_product  – catalogue item name if a match was found, else None
+        matched_price    – price from catalogue if matched, else None
+        confidence       – 0.0–1.0 how confident the match is
+    """
+    if not _settings.ANTHROPIC_API_KEY:
+        logger.warning("ANTHROPIC_API_KEY not set — image analysis unavailable")
+        return {
+            "description": "",
+            "matched_product": None,
+            "matched_price": None,
+            "confidence": 0.0,
+        }
+
+    encoded = base64.b64encode(image_bytes).decode()
+
+    catalogue_lines = "\n".join(
+        f"- {name}: N{price:,}" for name, price in catalogue.items()
+    ) if catalogue else "(no catalogue available)"
+
+    prompt = (
+        "You are a product identification assistant for a Nigerian market WhatsApp store.\n"
+        f"The trader sells: {category or 'general goods'}\n\n"
+        "A customer sent this photo asking about a product. Identify what is in the image.\n\n"
+        f"The trader's catalogue:\n{catalogue_lines}\n\n"
+        "Instructions:\n"
+        "- Describe the item in the photo in 1-2 short sentences.\n"
+        "- If the item matches a product in the catalogue above, return its exact name.\n"
+        "- Be generous with matching — e.g. a photo of any rice bag can match 'Rice 50kg'.\n"
+        "- If no catalogue match, return null for matched_product.\n"
+        "- Return ONLY valid JSON. No commentary, no markdown fences.\n\n"
+        'Format: {"description": "...", "matched_product": "exact catalogue name or null", "confidence": 0.0 to 1.0}\n\n'
+        "JSON:"
+    )
+
+    client = anthropic.AsyncAnthropic(api_key=_settings.ANTHROPIC_API_KEY)
+    response = await client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=1024,
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/jpeg",
+                            "data": encoded,
+                        },
+                    },
+                    {"type": "text", "text": prompt},
+                ],
+            }
+        ],
+    )
+
+    raw = response.content[0].text.strip()
+
+    # Strip markdown fences if Claude wrapped the output
+    if "```" in raw:
+        parts = raw.split("```")
+        for part in parts:
+            part = part.strip()
+            if part.startswith("json"):
+                part = part[4:].strip()
+            if part.startswith("{"):
+                raw = part
+                break
+
+    try:
+        data = json.loads(raw)
+        description = str(data.get("description", "")).strip()
+        matched_product = data.get("matched_product")
+        confidence = float(data.get("confidence", 0.0))
+
+        # Validate the matched product actually exists in the catalogue
+        matched_price: int | None = None
+        if matched_product and isinstance(matched_product, str):
+            matched_product = matched_product.strip()
+            # Case-insensitive lookup
+            for cat_name, cat_price in catalogue.items():
+                if cat_name.lower() == matched_product.lower():
+                    matched_product = cat_name  # use exact catalogue casing
+                    matched_price = cat_price
+                    break
+            else:
+                # Claude returned a name not in catalogue — treat as no match
+                matched_product = None
+                confidence = min(confidence, 0.3)
+
+        logger.info(
+            "Claude Vision: description=%r matched=%s confidence=%.2f",
+            description[:80],
+            matched_product,
+            confidence,
+        )
+        return {
+            "description": description,
+            "matched_product": matched_product,
+            "matched_price": matched_price,
+            "confidence": confidence,
+        }
+    except (json.JSONDecodeError, TypeError, ValueError) as exc:
+        logger.warning("Image analysis JSON parse failed: %s | raw=%.200s", exc, raw)
+        return {
+            "description": "",
+            "matched_product": None,
+            "matched_price": None,
+            "confidence": 0.0,
+        }

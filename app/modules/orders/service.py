@@ -691,6 +691,151 @@ class OrderService:
             total,
         )
 
+    async def handle_image_inquiry(
+        self,
+        *,
+        tenant_id: str,
+        conversation_id: str,
+        customer_phone: str,
+        message: str,
+        message_id: str,
+        image_bytes: bytes,
+        media_id: str,
+        trader: dict[str, Any],
+        channel_tenant_id: str | None = None,
+    ) -> None:
+        """
+        Process a customer product inquiry via image.
+
+        1. Analyse the image with Claude Vision against the trader's catalogue.
+        2. If a catalogue match is found — reply with the price and enter the
+           normal order confirmation flow (AWAITING_CUSTOMER_CONFIRMATION).
+        3. If no match — forward the image to the trader for manual pricing.
+        4. On failure — ask customer to resend or type their request.
+        """
+        from app.modules.onboarding.media import describe_product_image
+
+        trader_name: str = trader.get("business_name", "the trader")
+        catalogue: dict[str, int] = trader.get("catalogue", {})
+        category: str = trader.get("business_category", "")
+        trader_phone: str = trader.get("phone_number", "")
+
+        # Acknowledge receipt immediately
+        await self._reply(
+            phone=customer_phone,
+            tenant_id=tenant_id,
+            event_id=f"order.image_ack.{message_id}",
+            text="I see your photo! Let me check... \U0001f50d",
+            channel_tenant_id=channel_tenant_id,
+        )
+
+        # Analyse the image
+        try:
+            analysis = await describe_product_image(
+                image_bytes=image_bytes,
+                catalogue=catalogue,
+                category=category,
+            )
+        except Exception as exc:
+            logger.error("Image analysis failed sender=%s: %s", customer_phone, exc)
+            await self._reply(
+                phone=customer_phone,
+                tenant_id=tenant_id,
+                event_id=f"order.image_fail.{message_id}",
+                text=wa.image_processing_failed(),
+                channel_tenant_id=channel_tenant_id,
+            )
+            return
+
+        description: str = analysis.get("description", "")
+        matched_product: str | None = analysis.get("matched_product")
+        matched_price: int | None = analysis.get("matched_price")
+        confidence: float = analysis.get("confidence", 0.0)
+
+        if not description:
+            await self._reply(
+                phone=customer_phone,
+                tenant_id=tenant_id,
+                event_id=f"order.image_fail.{message_id}",
+                text=wa.image_processing_failed(),
+                channel_tenant_id=channel_tenant_id,
+            )
+            return
+
+        # ── Matched: reply with price and enter order flow ────────────────────
+        if matched_product and matched_price and confidence >= 0.7:
+            items = [{"name": matched_product, "qty": 1, "unit_price": matched_price}]
+            total = matched_price
+
+            order = await self._repo.create_order(
+                tenant_id=tenant_id,
+                conversation_id=conversation_id,
+                customer_phone=customer_phone,
+                amount=Decimal(str(total)),
+            )
+            await self._repo.add_item(
+                order_id=order.id,
+                product_name=matched_product,
+                quantity=1,
+                unit_price=Decimal(str(matched_price)),
+            )
+            await self._db.commit()
+
+            await set_order_session(
+                tenant_id,
+                customer_phone,
+                {
+                    "state": AWAITING_CUSTOMER_CONFIRMATION,
+                    "order_id": order.id,
+                    "items": items,
+                    "total": total,
+                },
+            )
+
+            await self._reply(
+                phone=customer_phone,
+                tenant_id=tenant_id,
+                event_id=f"order.image_matched.{order.id}",
+                text=wa.image_inquiry_matched(matched_product, matched_price, trader_name),
+                channel_tenant_id=channel_tenant_id,
+            )
+
+            logger.info(
+                "Image inquiry matched product=%s price=%s order_id=%s customer=%s",
+                matched_product,
+                matched_price,
+                order.id,
+                customer_phone,
+            )
+            return
+
+        # ── Not matched: forward image to trader ──────────────────────────────
+        await self._reply(
+            phone=customer_phone,
+            tenant_id=tenant_id,
+            event_id=f"order.image_forwarded.{message_id}",
+            text=wa.image_inquiry_forwarded(trader_name),
+            channel_tenant_id=channel_tenant_id,
+        )
+
+        if trader_phone:
+            caption = wa.image_inquiry_to_trader(customer_phone, description)
+            await self._reply_image(
+                phone=trader_phone,
+                tenant_id=tenant_id,
+                event_id=f"order.image_to_trader.{message_id}",
+                media_id=media_id,
+                caption=caption,
+                channel_tenant_id=channel_tenant_id,
+            )
+
+        logger.info(
+            "Image inquiry forwarded to trader=%s description=%r customer=%s",
+            trader_phone,
+            description[:80],
+            customer_phone,
+        )
+
     async def handle_cart_order(
         self,
         *,
@@ -1027,6 +1172,44 @@ class OrderService:
         except Exception as exc:
             logger.error(
                 "Order interactive reply failed phone=%s event_id=%s: %s",
+                phone,
+                event_id,
+                exc,
+            )
+
+    async def _reply_image(
+        self,
+        *,
+        phone: str,
+        tenant_id: str,
+        event_id: str,
+        media_id: str,
+        caption: str | None = None,
+        channel_tenant_id: str | None = None,
+    ) -> None:
+        """
+        Forward a WhatsApp image using an independent DB session.
+
+        Same error-swallowing pattern as _reply — failures never crash the handler.
+        """
+        if not phone:
+            logger.warning("_reply_image called with empty phone for event_id=%s", event_id)
+            return
+        try:
+            async with async_session_factory.begin() as session:
+                svc = NotificationService(session)
+                await svc.send_image(
+                    tenant_id=tenant_id,
+                    event_id=event_id,
+                    recipient=phone,
+                    media_id=media_id,
+                    caption=caption,
+                    channel="whatsapp",
+                    channel_tenant_id=channel_tenant_id,
+                )
+        except Exception as exc:
+            logger.error(
+                "Order image reply failed phone=%s event_id=%s: %s",
                 phone,
                 event_id,
                 exc,

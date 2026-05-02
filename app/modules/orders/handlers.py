@@ -247,6 +247,34 @@ async def _transcribe_audio(
         return ""
 
 
+# ── Image download ───────────────────────────────────────────────────────────
+
+async def _download_image(
+    media_id: str,
+    tenant_id: str,
+) -> bytes | None:
+    """
+    Download a WhatsApp image.
+
+    Returns the raw bytes, or None on failure.
+    """
+    try:
+        from app.modules.onboarding.media import download_whatsapp_media
+
+        async with async_session_factory() as session:
+            channel_repo = ChannelRepository(session)
+            return await download_whatsapp_media(
+                media_id=media_id,
+                tenant_id=tenant_id,
+                channel_repo=channel_repo,
+            )
+    except Exception as exc:
+        logger.warning(
+            "Image download failed media_id=%s: %s", media_id, exc
+        )
+        return None
+
+
 # ── Main event handler ────────────────────────────────────────────────────────
 
 async def handle_order_intent(event: Event) -> None:
@@ -324,6 +352,23 @@ async def handle_order_intent(event: Event) -> None:
             logger.info(
                 "Order handler: audio transcribed %d chars sender=%s",
                 len(transcribed),
+                sender_phone,
+            )
+
+    # ── Handle image (product inquiry) ────────────────────────────────────────
+    is_image = (
+        media_id
+        and media_type
+        and media_type.startswith("image/")
+        and message == "[image]"
+    )
+    image_bytes: bytes | None = None
+    if is_image:
+        image_bytes = await _download_image(media_id, platform_tenant_id)
+        if image_bytes:
+            logger.info(
+                "Order handler: image downloaded %d bytes sender=%s",
+                len(image_bytes),
                 sender_phone,
             )
 
@@ -435,15 +480,28 @@ async def handle_order_intent(event: Event) -> None:
         )
         async with async_session_factory.begin() as session:
             svc = OrderService(session)
-            await svc.handle_inbound_customer_message(
-                tenant_id=trader_tenant_id,
-                conversation_id=conversation_id,
-                customer_phone=sender_phone,
-                message=message,
-                message_id=message_id,
-                trader=store_trader,
-                channel_tenant_id=platform_tenant_id,
-            )
+            if image_bytes is not None:
+                await svc.handle_image_inquiry(
+                    tenant_id=trader_tenant_id,
+                    conversation_id=conversation_id,
+                    customer_phone=sender_phone,
+                    message=message,
+                    message_id=message_id,
+                    image_bytes=image_bytes,
+                    media_id=media_id,
+                    trader=store_trader,
+                    channel_tenant_id=platform_tenant_id,
+                )
+            else:
+                await svc.handle_inbound_customer_message(
+                    tenant_id=trader_tenant_id,
+                    conversation_id=conversation_id,
+                    customer_phone=sender_phone,
+                    message=message,
+                    message_id=message_id,
+                    trader=store_trader,
+                    channel_tenant_id=platform_tenant_id,
+                )
         return
 
     # ── Route: direct-connect trader (legacy / single-tenant mode) ───────────
@@ -457,14 +515,26 @@ async def handle_order_intent(event: Event) -> None:
         )
         async with async_session_factory.begin() as session:
             svc = OrderService(session)
-            await svc.handle_inbound_customer_message(
-                tenant_id=platform_tenant_id,
-                conversation_id=conversation_id,
-                customer_phone=sender_phone,
-                message=message,
-                message_id=message_id,
-                trader=store_trader,
-            )
+            if image_bytes is not None:
+                await svc.handle_image_inquiry(
+                    tenant_id=platform_tenant_id,
+                    conversation_id=conversation_id,
+                    customer_phone=sender_phone,
+                    message=message,
+                    message_id=message_id,
+                    image_bytes=image_bytes,
+                    media_id=media_id,
+                    trader=store_trader,
+                )
+            else:
+                await svc.handle_inbound_customer_message(
+                    tenant_id=platform_tenant_id,
+                    conversation_id=conversation_id,
+                    customer_phone=sender_phone,
+                    message=message,
+                    message_id=message_id,
+                    trader=store_trader,
+                )
         return
 
     # ── No trader context — prompt customer to use store link ─────────────────

@@ -353,3 +353,131 @@ class NotificationService:
                 message=f"WhatsApp API error {response.status_code}: {response.text[:200]}",
                 status_code=502,
             )
+
+    # ── Image dispatch ─────────────────────────────────────────────────────────
+
+    async def send_image(
+        self,
+        *,
+        tenant_id: str,
+        event_id: str,
+        recipient: str,
+        media_id: str,
+        caption: str | None = None,
+        channel: str = "whatsapp",
+        order_id: str | None = None,
+        channel_tenant_id: str | None = None,
+    ) -> None:
+        """
+        Send a WhatsApp image message (forwarding an inbound media_id).
+
+        media_id: Meta media object ID from the inbound message.
+        caption: optional text caption shown below the image.
+        """
+        existing = await self._repo.get_by_event_id(event_id)
+        if existing is not None:
+            logger.info(
+                "Notification already sent for event_id=%s — skipping", event_id
+            )
+            return
+
+        notification = await self._repo.create(
+            tenant_id=tenant_id,
+            event_id=event_id,
+            recipient=recipient,
+            message_text=caption or "[image]",
+            channel=channel,
+            order_id=order_id,
+        )
+
+        try:
+            if channel == "whatsapp":
+                await self._dispatch_whatsapp_image(
+                    tenant_id=channel_tenant_id or tenant_id,
+                    recipient=recipient,
+                    media_id=media_id,
+                    caption=caption,
+                )
+            else:
+                logger.info("MOCK SEND image [%s] → %s", channel, recipient)
+
+            await self._repo.update_status(notification, NotificationStatus.SENT)
+            logger.info(
+                "Image notification sent id=%s recipient=%s event_id=%s",
+                notification.id,
+                recipient,
+                event_id,
+            )
+        except Exception as exc:
+            await self._repo.update_status(notification, NotificationStatus.FAILED)
+            logger.error(
+                "Image notification failed id=%s recipient=%s event_id=%s: %s",
+                notification.id,
+                recipient,
+                event_id,
+                exc,
+            )
+            raise
+
+    async def _dispatch_whatsapp_image(
+        self,
+        tenant_id: str,
+        recipient: str,
+        media_id: str,
+        caption: str | None = None,
+    ) -> None:
+        """Send an image message via the Meta Cloud API by forwarding a media_id."""
+        channel_record = await self._channel_repo.get_by_tenant_and_channel(
+            tenant_id=tenant_id,
+            channel="whatsapp",
+        )
+        if channel_record is None:
+            raise NotFoundError(
+                "WhatsApp channel",
+                f"tenant={tenant_id} — connect one via POST /api/v1/channels/whatsapp/connect",
+            )
+
+        phone_number_id = channel_record.phone_number_id
+        access_token = decrypt_token(channel_record.encrypted_access_token)
+
+        url = f"{_META_API_BASE}/{phone_number_id}/messages"
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+        }
+        image_payload: dict = {"id": media_id}
+        if caption:
+            image_payload["caption"] = caption
+        body = {
+            "messaging_product": "whatsapp",
+            "to": recipient,
+            "type": "image",
+            "image": image_payload,
+        }
+
+        async with httpx.AsyncClient(timeout=_WHATSAPP_TIMEOUT) as client:
+            response = await client.post(url, headers=headers, json=body)
+
+        if response.is_success:
+            logger.info(
+                "WhatsApp image sent → %s via phone_number_id=%s",
+                recipient,
+                phone_number_id,
+            )
+        else:
+            logger.error(
+                "WhatsApp image API error status=%s body=%s recipient=%s",
+                response.status_code,
+                response.text,
+                recipient,
+            )
+            if response.status_code == 401:
+                raise ChatToSalesError(
+                    message="WhatsApp access token is invalid or expired. "
+                    "Reconnect the channel via POST /api/v1/channels/whatsapp/connect.",
+                    status_code=502,
+                )
+            raise ChatToSalesError(
+                message=f"WhatsApp API error {response.status_code}: {response.text[:200]}",
+                status_code=502,
+            )

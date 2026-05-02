@@ -203,3 +203,39 @@ def trader_command_guide() -> str:
         "The ref is the short code shown in each order notification.\n\n"
         "Visit your dashboard to see all orders."
     )
+
+
+# ── Image inquiry ────────────────────────────────────────────────────────────
+
+
+def image_inquiry_matched(
+    product_name: str, price: int, trader_name: str
+) -> str:
+    return (
+        f"This look like *{product_name}* from *{trader_name}*! \U0001f4f8\n\n"
+        f"Price: {_naira(price)}\n\n"
+        "You want order am? Tell me the quantity (e.g. _I want 2_) "
+        "or reply *NO* if na different thing."
+    )
+
+
+def image_inquiry_forwarded(trader_name: str) -> str:
+    return (
+        f"I see the item! Let me ask *{trader_name}* about the price. \U0001f4f8\n\n"
+        "I go get back to you once they reply. Small time! \U0001f64f"
+    )
+
+
+def image_inquiry_to_trader(customer_phone: str, description: str) -> str:
+    return (
+        f"\U0001f4f8 Customer +{customer_phone} dey ask about this item:\n\n"
+        f"_{description}_\n\n"
+        "Reply with the price (e.g. _8500_) and I go tell them."
+    )
+
+
+def image_processing_failed() -> str:
+    return (
+        "I no fit see that photo well well. \U0001f605\n\n"
+        "Abeg send a clearer photo, or just tell me wetin you want to buy!"
+    )
