@@ -73,6 +73,20 @@ async def connect_whatsapp(
     return await svc.connect(body)
 
 
+# ── Temporary dev-only endpoint (no auth) — DELETE before production ──────────
+@router.post(
+    "/whatsapp/dev-connect",
+    status_code=status.HTTP_200_OK,
+    summary="[DEV] Connect WhatsApp without auth — DELETE before production",
+)
+async def dev_connect_whatsapp(
+    body: WhatsAppConnectRequest,
+    db: DBSessionDep,
+) -> WhatsAppConnectResponse:
+    svc = WhatsAppChannelService(db)
+    return await svc.connect(body)
+
+
 @router.post(
     "/whatsapp/embedded-signup",
     status_code=status.HTTP_200_OK,
