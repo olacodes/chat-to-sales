@@ -651,6 +651,7 @@ class OrderService:
             tenant_id=tenant_id,
             conversation_id=conversation_id,
             customer_phone=customer_phone,
+            trader_phone=trader.get("phone_number"),
             amount=Decimal(str(total)),
         )
         for item in items:
@@ -771,6 +772,7 @@ class OrderService:
                 tenant_id=tenant_id,
                 conversation_id=conversation_id,
                 customer_phone=customer_phone,
+                trader_phone=trader.get("phone_number"),
                 amount=Decimal(str(total)),
             )
             await self._repo.add_item(
@@ -894,6 +896,7 @@ class OrderService:
             tenant_id=tenant_id,
             conversation_id=conversation_id,
             customer_phone=customer_phone,
+            trader_phone=trader.get("phone_number"),
             amount=Decimal(str(total)),
         )
         for item in items:

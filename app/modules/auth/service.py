@@ -49,12 +49,14 @@ from app.modules.auth.schemas import (
 from app.infra.crypto import decrypt_token
 from app.modules.channels.repository import ChannelRepository
 from app.modules.onboarding.repository import TraderRepository
+from app.modules.orders.repository import OrderRepository
 
 logger = get_logger(__name__)
 
 
 class AuthService:
     def __init__(self, session: AsyncSession) -> None:
+        self._session = session
         self._repo = AuthRepository(session)
         self._trader_repo = TraderRepository(session)
         self._channel_repo = ChannelRepository(session)
@@ -352,18 +354,39 @@ class AuthService:
                 tenant_id=tenant.id,
                 role=UserRole.OWNER,
             )
+            # Migrate orders, conversations, and messages that were created
+            # under the shared platform tenant to this trader's new tenant.
+            settings = get_settings()
+            old_tenant_id = trader.tenant_id or settings.TENANT_ID
+            order_repo = OrderRepository(self._session)
+            migrated = await order_repo.migrate_trader_orders_to_tenant(
+                trader_phone=req.phone_number,
+                old_tenant_id=old_tenant_id,
+                new_tenant_id=tenant.id,
+            )
+
             # Point the trader's record at their own dedicated tenant so the
             # dashboard and channel connection work against the right tenant.
             await self._trader_repo.update_tenant_id(
                 phone_number=req.phone_number,
                 tenant_id=tenant.id,
             )
+
+            # Bust stale Redis caches so the order handler picks up the new tenant
+            await self._bust_trader_caches(
+                phone_number=req.phone_number,
+                old_tenant_id=old_tenant_id,
+                store_slug=trader.store_slug,
+            )
+
             tenant_id = tenant.id
             logger.info(
-                "WhatsApp OTP first login — created user=%s tenant=%s trader_phone=%s",
+                "WhatsApp OTP first login — created user=%s tenant=%s "
+                "trader_phone=%s migrated_orders=%d",
                 user.id,
                 tenant_id,
                 req.phone_number,
+                migrated,
             )
 
         token = create_access_token(
@@ -375,6 +398,31 @@ class AuthService:
             access_token=token,
             user=LoginUserInfo(user_id=user.id, email=user.email),
             tenant_id=tenant_id,
+        )
+
+    # ── Internal: Redis cache busting ─────────────────────────────────────────
+
+    async def _bust_trader_caches(
+        self,
+        *,
+        phone_number: str,
+        old_tenant_id: str,
+        store_slug: str | None,
+    ) -> None:
+        """Delete stale Redis caches after tenant_id migration."""
+        redis = get_redis()
+        keys_to_delete = [
+            f"trader:phone:{phone_number}",
+            f"trader:tenant:{old_tenant_id}",
+        ]
+        if store_slug:
+            keys_to_delete.append(f"trader:slug:{store_slug}")
+        for key in keys_to_delete:
+            await redis.delete(key)
+        logger.debug(
+            "Busted %d Redis trader cache keys for phone=%s",
+            len(keys_to_delete),
+            phone_number,
         )
 
     # ── Internal: OTP WhatsApp delivery ──────────────────────────────────────

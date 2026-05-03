@@ -9,11 +9,12 @@ positional ordering bugs at call sites.
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.logging import get_logger
+from app.modules.conversation.models import Conversation, Message, ScheduledMessage
 from app.modules.orders.models import Order, OrderItem, OrderState
 
 logger = get_logger(__name__)
@@ -125,6 +126,7 @@ class OrderRepository:
         conversation_id: str,
         customer_id: str | None = None,
         customer_phone: str | None = None,
+        trader_phone: str | None = None,
         amount: Decimal | None = None,
         currency: str = "NGN",
     ) -> Order:
@@ -134,6 +136,7 @@ class OrderRepository:
             conversation_id=conversation_id,
             customer_id=customer_id,
             customer_phone=customer_phone,
+            trader_phone=trader_phone,
             state=OrderState.INQUIRY,
             amount=amount,
             currency=currency,
@@ -237,3 +240,98 @@ class OrderRepository:
         total: int = (await self._session.execute(count_stmt)).scalar_one()
 
         return results, total
+
+    # ── Tenant migration ──────────────────────────────────────────────────────
+
+    async def migrate_trader_orders_to_tenant(
+        self,
+        *,
+        trader_phone: str,
+        old_tenant_id: str,
+        new_tenant_id: str,
+    ) -> int:
+        """
+        Move all of a trader's orders (and linked conversations/messages) from
+        the shared platform tenant to the trader's dedicated tenant.
+
+        Called once during the trader's first dashboard login.  Runs inside the
+        caller's transaction — the caller is responsible for commit.
+
+        Returns the number of orders migrated.
+        """
+        # 1. Find order IDs belonging to this trader under the old tenant
+        order_ids_stmt = (
+            select(Order.id)
+            .where(
+                Order.tenant_id == old_tenant_id,
+                Order.trader_phone == trader_phone,
+            )
+        )
+        order_rows = (await self._session.execute(order_ids_stmt)).all()
+        order_ids = [r[0] for r in order_rows]
+
+        if not order_ids:
+            logger.info(
+                "Tenant migration: no orders to migrate trader_phone=%s old_tenant=%s",
+                trader_phone,
+                old_tenant_id,
+            )
+            return 0
+
+        # 2. Collect unique conversation_ids from those orders
+        conv_ids_stmt = (
+            select(Order.conversation_id)
+            .where(Order.id.in_(order_ids))
+            .distinct()
+        )
+        conv_rows = (await self._session.execute(conv_ids_stmt)).all()
+        conv_ids = [r[0] for r in conv_rows]
+
+        # 3. Update orders → new tenant
+        await self._session.execute(
+            update(Order)
+            .where(Order.id.in_(order_ids))
+            .values(tenant_id=new_tenant_id)
+        )
+
+        # 4. Update conversations → new tenant
+        if conv_ids:
+            await self._session.execute(
+                update(Conversation)
+                .where(
+                    Conversation.id.in_(conv_ids),
+                    Conversation.tenant_id == old_tenant_id,
+                )
+                .values(tenant_id=new_tenant_id)
+            )
+
+            # 5. Update messages on those conversations → new tenant
+            await self._session.execute(
+                update(Message)
+                .where(
+                    Message.conversation_id.in_(conv_ids),
+                    Message.tenant_id == old_tenant_id,
+                )
+                .values(tenant_id=new_tenant_id)
+            )
+
+            # 6. Update scheduled messages on those conversations → new tenant
+            await self._session.execute(
+                update(ScheduledMessage)
+                .where(
+                    ScheduledMessage.conversation_id.in_(conv_ids),
+                    ScheduledMessage.tenant_id == old_tenant_id,
+                )
+                .values(tenant_id=new_tenant_id)
+            )
+
+        logger.info(
+            "Tenant migration: moved %d orders, %d conversations "
+            "trader_phone=%s old_tenant=%s → new_tenant=%s",
+            len(order_ids),
+            len(conv_ids),
+            trader_phone,
+            old_tenant_id,
+            new_tenant_id,
+        )
+        return len(order_ids)
