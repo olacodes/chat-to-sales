@@ -158,3 +158,37 @@ async def set_customer_routing(phone: str, data: dict[str, Any]) -> None:
 async def clear_customer_routing(phone: str) -> None:
     """Remove the customer routing record (order completed, cancelled, or expired)."""
     await get_redis().delete(_customer_routing_key(phone))
+
+
+# ── Pending image inquiry (trader hasn't replied yet) ────────────────────────
+
+_IMAGE_INQUIRY_PREFIX = "image:inquiry"
+_IMAGE_INQUIRY_TTL = 24 * 60 * 60  # 24 hours
+
+
+def _image_inquiry_key(trader_phone: str) -> str:
+    return f"{_IMAGE_INQUIRY_PREFIX}:{trader_phone}"
+
+
+async def get_pending_image_inquiry(trader_phone: str) -> dict[str, Any] | None:
+    """
+    Return the pending image inquiry awaiting this trader's reply, or None.
+
+    Dict keys: customer_phone, description, tenant_id, channel_tenant_id
+    """
+    raw = await get_redis().get(_image_inquiry_key(trader_phone))
+    return json.loads(raw) if raw else None
+
+
+async def set_pending_image_inquiry(
+    trader_phone: str, data: dict[str, Any]
+) -> None:
+    """Store a pending image inquiry so the trader's reply can be linked back."""
+    await get_redis().setex(
+        _image_inquiry_key(trader_phone), _IMAGE_INQUIRY_TTL, json.dumps(data)
+    )
+
+
+async def clear_pending_image_inquiry(trader_phone: str) -> None:
+    """Remove the pending image inquiry after the trader replies."""
+    await get_redis().delete(_image_inquiry_key(trader_phone))

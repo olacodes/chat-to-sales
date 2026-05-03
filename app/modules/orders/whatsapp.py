@@ -234,6 +234,23 @@ def image_inquiry_to_trader(customer_phone: str, description: str) -> str:
     )
 
 
+def image_inquiry_price_saved(product_name: str, price: int) -> str:
+    return (
+        f"\u2705 Got it! I don save *{product_name}* at {_naira(price)}.\n\n"
+        "Next time a customer send photo of this product, I go answer them automatically. \U0001f4aa"
+    )
+
+
+def image_inquiry_price_to_customer(
+    product_name: str, price: int, trader_name: str
+) -> str:
+    return (
+        f"*{trader_name}* say this na *{product_name}*! \U0001f4f8\n\n"
+        f"Price: {_naira(price)}\n\n"
+        "You want order am? Reply *YES* to confirm or *NO* to cancel."
+    )
+
+
 def image_processing_failed() -> str:
     return (
         "I no fit see that photo well well. \U0001f605\n\n"

@@ -14,12 +14,14 @@ catches and falls back to the Q&A path.
 """
 
 import base64
+import io
 import json
 from typing import Any
 
 import anthropic
 import httpx
 import openai
+from PIL import Image
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
@@ -238,6 +240,31 @@ async def extract_products_from_text(
         return []
 
 
+# ── Image resize ──────────────────────────────────────────────────────────────
+
+_MAX_IMAGE_DIM = 768
+
+
+def resize_image_bytes(image_bytes: bytes, max_dim: int = _MAX_IMAGE_DIM) -> bytes:
+    """
+    Resize an image so its longest side is at most max_dim pixels.
+
+    Preserves aspect ratio. Returns JPEG bytes. If the image is already
+    small enough, it is re-encoded as JPEG without upscaling.
+    """
+    img = Image.open(io.BytesIO(image_bytes))
+    img = img.convert("RGB")  # strip alpha if present; JPEG requires RGB
+
+    w, h = img.size
+    if w > max_dim or h > max_dim:
+        img.thumbnail((max_dim, max_dim), Image.LANCZOS)
+        logger.debug("Image resized from %dx%d to %dx%d", w, h, *img.size)
+
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=85)
+    return buf.getvalue()
+
+
 # ── Product image analysis (Claude Vision) ───────────────────────────────────
 
 
@@ -265,7 +292,8 @@ async def describe_product_image(
             "confidence": 0.0,
         }
 
-    encoded = base64.b64encode(image_bytes).decode()
+    resized = resize_image_bytes(image_bytes)
+    encoded = base64.b64encode(resized).decode()
 
     catalogue_lines = "\n".join(
         f"- {name}: N{price:,}" for name, price in catalogue.items()

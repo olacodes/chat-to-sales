@@ -711,10 +711,14 @@ class OrderService:
         1. Analyse the image with Claude Vision against the trader's catalogue.
         2. If a catalogue match is found — reply with the price and enter the
            normal order confirmation flow (AWAITING_CUSTOMER_CONFIRMATION).
-        3. If no match — forward the image to the trader for manual pricing.
-        4. On failure — ask customer to resend or type their request.
+        3. Check stored descriptions from past confirmed inquiries (passive learning).
+        4. If no match — forward the image to the trader for manual pricing and
+           store a pending inquiry session so the trader's reply can be learned.
+        5. On failure — ask customer to resend or type their request.
         """
         from app.modules.onboarding.media import describe_product_image
+        from app.modules.orders.product_descriptions import ProductDescriptionRepository
+        from app.modules.orders.session import set_pending_image_inquiry
 
         trader_name: str = trader.get("business_name", "the trader")
         catalogue: dict[str, int] = trader.get("catalogue", {})
@@ -763,53 +767,46 @@ class OrderService:
             )
             return
 
-        # ── Matched: reply with price and enter order flow ────────────────────
+        # ── Matched via catalogue: reply with price and enter order flow ──────
         if matched_product and matched_price and confidence >= 0.7:
-            items = [{"name": matched_product, "qty": 1, "unit_price": matched_price}]
-            total = matched_price
-
-            order = await self._repo.create_order(
+            await self._create_image_order(
                 tenant_id=tenant_id,
                 conversation_id=conversation_id,
                 customer_phone=customer_phone,
-                trader_phone=trader.get("phone_number"),
-                amount=Decimal(str(total)),
-            )
-            await self._repo.add_item(
-                order_id=order.id,
+                trader=trader,
                 product_name=matched_product,
-                quantity=1,
-                unit_price=Decimal(str(matched_price)),
-            )
-            await self._db.commit()
-
-            await set_order_session(
-                tenant_id,
-                customer_phone,
-                {
-                    "state": AWAITING_CUSTOMER_CONFIRMATION,
-                    "order_id": order.id,
-                    "items": items,
-                    "total": total,
-                },
-            )
-
-            await self._reply(
-                phone=customer_phone,
-                tenant_id=tenant_id,
-                event_id=f"order.image_matched.{order.id}",
-                text=wa.image_inquiry_matched(matched_product, matched_price, trader_name),
+                price=matched_price,
+                trader_name=trader_name,
                 channel_tenant_id=channel_tenant_id,
             )
-
-            logger.info(
-                "Image inquiry matched product=%s price=%s order_id=%s customer=%s",
-                matched_product,
-                matched_price,
-                order.id,
-                customer_phone,
-            )
             return
+
+        # ── Check stored descriptions from past confirmed inquiries ──────────
+        if trader_phone and description:
+            pd_repo = ProductDescriptionRepository(self._db)
+            learned = await pd_repo.find_best_match(
+                trader_phone=trader_phone,
+                new_description=description,
+                catalogue=catalogue,
+            )
+            if learned:
+                logger.info(
+                    "Passive learning match: product=%s similarity=%.3f customer=%s",
+                    learned["product_name"],
+                    learned["similarity"],
+                    customer_phone,
+                )
+                await self._create_image_order(
+                    tenant_id=tenant_id,
+                    conversation_id=conversation_id,
+                    customer_phone=customer_phone,
+                    trader=trader,
+                    product_name=learned["product_name"],
+                    price=learned["price"],
+                    trader_name=trader_name,
+                    channel_tenant_id=channel_tenant_id,
+                )
+                return
 
         # ── Not matched: forward image to trader ──────────────────────────────
         await self._reply(
@@ -831,10 +828,206 @@ class OrderService:
                 channel_tenant_id=channel_tenant_id,
             )
 
+            # Store pending inquiry so trader's price reply can be learned
+            await set_pending_image_inquiry(
+                trader_phone,
+                {
+                    "customer_phone": customer_phone,
+                    "description": description,
+                    "tenant_id": tenant_id,
+                    "conversation_id": conversation_id,
+                    "channel_tenant_id": channel_tenant_id or "",
+                },
+            )
+
         logger.info(
             "Image inquiry forwarded to trader=%s description=%r customer=%s",
             trader_phone,
             description[:80],
+            customer_phone,
+        )
+
+    async def _handle_image_inquiry_reply(
+        self,
+        *,
+        trader_phone: str,
+        message: str,
+        message_id: str,
+        trader: dict[str, Any],
+        tenant_id: str,
+        channel_tenant_id: str | None = None,
+    ) -> bool:
+        """
+        Check if the trader is replying to a pending image inquiry with a price.
+
+        Expected reply formats:
+            "8500"               — price only (product name from description)
+            "Indomie Carton 8500" — product name + price
+
+        If a pending inquiry exists and the reply contains a price:
+        1. Save the description + product name as a confirmed ProductDescription
+        2. Notify the customer with the price
+        3. Create an order in INQUIRY state for the customer
+        4. Clear the pending inquiry session
+
+        Returns True if handled, False if no pending inquiry or invalid reply.
+        """
+        import re
+        from app.modules.orders.product_descriptions import ProductDescriptionRepository
+        from app.modules.orders.session import (
+            get_pending_image_inquiry,
+            clear_pending_image_inquiry,
+        )
+
+        pending = await get_pending_image_inquiry(trader_phone)
+        if pending is None:
+            return False
+
+        # Parse the trader's reply: extract a price (last number in the message)
+        text = message.strip()
+        # Remove commas from numbers (e.g. "8,500" → "8500")
+        cleaned = re.sub(r"(\d),(\d)", r"\1\2", text)
+        # Find all numbers
+        numbers = re.findall(r"\d+", cleaned)
+        if not numbers:
+            return False  # No price found — not a reply to the image inquiry
+
+        price = int(numbers[-1])  # last number is the price
+        if price <= 0:
+            return False
+
+        # Extract product name: everything before the price, or use description
+        price_str = numbers[-1]
+        idx = cleaned.rfind(price_str)
+        name_part = cleaned[:idx].strip().rstrip("-–—:").strip()
+
+        catalogue: dict[str, int] = trader.get("catalogue", {})
+        description: str = pending["description"]
+        customer_phone: str = pending["customer_phone"]
+        pending_tenant_id: str = pending["tenant_id"]
+        conversation_id: str = pending.get("conversation_id", "")
+        pending_channel_tenant_id: str = pending.get("channel_tenant_id") or None
+
+        # Determine product name: trader-specified > fuzzy catalogue match > description
+        product_name = ""
+        if name_part:
+            # Trader typed a name — use it, but check catalogue for exact match
+            name_lower = name_part.lower()
+            for cat_name in catalogue:
+                if name_lower in cat_name.lower() or cat_name.lower() in name_lower:
+                    product_name = cat_name
+                    break
+            if not product_name:
+                product_name = name_part
+        else:
+            # Price only — try to derive name from description
+            product_name = description.split(".")[0].strip()[:120]
+
+        if not product_name:
+            return False
+
+        trader_name: str = trader.get("business_name", "the trader")
+
+        # Save the learned description
+        pd_repo = ProductDescriptionRepository(self._db)
+        await pd_repo.save(
+            trader_phone=trader_phone,
+            product_name=product_name,
+            description=description,
+            confirmed=True,
+        )
+
+        # Update the trader's catalogue with the new product/price
+        catalogue[product_name] = price
+
+        # Notify the trader
+        await self._reply(
+            phone=trader_phone,
+            tenant_id=tenant_id,
+            event_id=f"order.image_learned.{message_id}",
+            text=wa.image_inquiry_price_saved(product_name, price),
+            channel_tenant_id=channel_tenant_id,
+        )
+
+        # Create order and notify customer
+        if customer_phone and conversation_id:
+            await self._create_image_order(
+                tenant_id=pending_tenant_id,
+                conversation_id=conversation_id,
+                customer_phone=customer_phone,
+                trader=trader,
+                product_name=product_name,
+                price=price,
+                trader_name=trader_name,
+                channel_tenant_id=pending_channel_tenant_id,
+            )
+
+        await self._db.commit()
+        await clear_pending_image_inquiry(trader_phone)
+
+        logger.info(
+            "Image inquiry learned: trader=%s product=%s price=%d customer=%s",
+            trader_phone,
+            product_name,
+            price,
+            customer_phone,
+        )
+        return True
+
+    async def _create_image_order(
+        self,
+        *,
+        tenant_id: str,
+        conversation_id: str,
+        customer_phone: str,
+        trader: dict[str, Any],
+        product_name: str,
+        price: int,
+        trader_name: str,
+        channel_tenant_id: str | None = None,
+    ) -> None:
+        """Create an order from an image match (catalogue or passive learning)."""
+        items = [{"name": product_name, "qty": 1, "unit_price": price}]
+
+        order = await self._repo.create_order(
+            tenant_id=tenant_id,
+            conversation_id=conversation_id,
+            customer_phone=customer_phone,
+            trader_phone=trader.get("phone_number"),
+            amount=Decimal(str(price)),
+        )
+        await self._repo.add_item(
+            order_id=order.id,
+            product_name=product_name,
+            quantity=1,
+            unit_price=Decimal(str(price)),
+        )
+        await self._db.commit()
+
+        await set_order_session(
+            tenant_id,
+            customer_phone,
+            {
+                "state": AWAITING_CUSTOMER_CONFIRMATION,
+                "order_id": order.id,
+                "items": items,
+                "total": price,
+            },
+        )
+
+        await self._reply(
+            phone=customer_phone,
+            tenant_id=tenant_id,
+            event_id=f"order.image_matched.{order.id}",
+            text=wa.image_inquiry_matched(product_name, price, trader_name),
+            channel_tenant_id=channel_tenant_id,
+        )
+
+        logger.info(
+            "Image inquiry matched product=%s price=%s order_id=%s customer=%s",
+            product_name,
+            price,
+            order.id,
             customer_phone,
         )
 
@@ -966,6 +1159,18 @@ class OrderService:
         if result.intent not in (
             TRADER_CONFIRM, TRADER_CANCEL, TRADER_PAID, TRADER_DELIVERED
         ):
+            # Check if trader is replying to a pending image inquiry
+            handled = await self._handle_image_inquiry_reply(
+                trader_phone=trader_phone,
+                message=message,
+                message_id=message_id,
+                trader=trader,
+                tenant_id=tenant_id,
+                channel_tenant_id=channel_tenant_id,
+            )
+            if handled:
+                return
+
             await self._reply(
                 phone=trader_phone,
                 tenant_id=tenant_id,
