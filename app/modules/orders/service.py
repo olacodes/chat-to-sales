@@ -1223,7 +1223,7 @@ class OrderService:
     async def list_orders(
         self,
         *,
-        tenant_id: str,
+        tenant_id: str | None,
         state: str | None = None,
         from_date: date | None = None,
         to_date: date | None = None,

@@ -485,7 +485,7 @@ class ConversationService:
     async def list_conversations(
         self,
         *,
-        tenant_id: str,
+        tenant_id: str | None,
         limit: int = 20,
         cursor: str | None = None,
     ) -> ConversationListResponse:
@@ -543,7 +543,7 @@ class ConversationService:
         self,
         conversation_id: str,
         *,
-        tenant_id: str,
+        tenant_id: str | None,
         limit: int = 50,
         cursor: str | None = None,
     ) -> MessageListResponse:

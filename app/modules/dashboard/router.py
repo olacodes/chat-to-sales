@@ -27,7 +27,7 @@ from pydantic import BaseModel
 from sqlalchemy import String, case, cast, func, literal, select, text, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.dependencies import CurrentUserDep, DBSessionDep
+from app.core.dependencies import AuthenticatedUser, CurrentUserDep, DBSessionDep
 from app.modules.conversation.models import Conversation, ConversationStatus, Message
 from app.modules.orders.models import Order, OrderItem, OrderState
 from app.modules.payments.models import Payment, PaymentStatus
@@ -36,6 +36,11 @@ router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
 _ACTIVITY_LIMIT = 20
 _OVERVIEW_LIMIT = 5
+
+
+def _tenant_filter(user: AuthenticatedUser) -> str | None:
+    """Return None (no filter) for superadmins, tenant_id for everyone else."""
+    return None if user.is_superadmin else user.tenant_id
 
 
 # ── Response schema ───────────────────────────────────────────────────────────
@@ -51,58 +56,58 @@ class DashboardMetrics(BaseModel):
 # ── Query ─────────────────────────────────────────────────────────────────────
 
 
-async def _fetch_metrics(db: AsyncSession, tenant_id: str) -> DashboardMetrics:
+async def _fetch_metrics(db: AsyncSession, tenant_id: str | None) -> DashboardMetrics:
     """
     All four metrics in one SQL round-trip.
 
     Cross-joins two single-row aggregate subqueries so Postgres scans each
     table exactly once. The result is always a single row.
-    """
-    order_sq = (
-        select(
-            func.count(Order.id).label("total_orders"),
-            func.coalesce(
-                func.sum(
-                    case((Order.state == OrderState.PAID, Order.amount), else_=None)
-                ),
-                Decimal("0"),
-            ).label("total_revenue"),
-            func.count(
-                case(
-                    (
-                        Order.state.in_(
-                            [
-                                OrderState.CONFIRMED,
-                                OrderState.PAID,
-                                OrderState.COMPLETED,
-                            ]
-                        ),
-                        Order.id,
-                    ),
-                    else_=None,
-                )
-            ).label("confirmed_orders"),
-        )
-        .where(Order.tenant_id == tenant_id)
-        .subquery("order_stats")
-    )
 
-    conv_sq = (
-        select(
-            func.count(Conversation.id).label("total_conversations"),
-            func.count(
-                case(
-                    (
-                        Conversation.status == ConversationStatus.ACTIVE,
-                        Conversation.id,
+    When tenant_id is None (superadmin), metrics span all tenants.
+    """
+    order_base = select(
+        func.count(Order.id).label("total_orders"),
+        func.coalesce(
+            func.sum(
+                case((Order.state == OrderState.PAID, Order.amount), else_=None)
+            ),
+            Decimal("0"),
+        ).label("total_revenue"),
+        func.count(
+            case(
+                (
+                    Order.state.in_(
+                        [
+                            OrderState.CONFIRMED,
+                            OrderState.PAID,
+                            OrderState.COMPLETED,
+                        ]
                     ),
-                    else_=None,
-                )
-            ).label("active_conversations"),
-        )
-        .where(Conversation.tenant_id == tenant_id)
-        .subquery("conv_stats")
+                    Order.id,
+                ),
+                else_=None,
+            )
+        ).label("confirmed_orders"),
     )
+    if tenant_id is not None:
+        order_base = order_base.where(Order.tenant_id == tenant_id)
+    order_sq = order_base.subquery("order_stats")
+
+    conv_base = select(
+        func.count(Conversation.id).label("total_conversations"),
+        func.count(
+            case(
+                (
+                    Conversation.status == ConversationStatus.ACTIVE,
+                    Conversation.id,
+                ),
+                else_=None,
+            )
+        ).label("active_conversations"),
+    )
+    if tenant_id is not None:
+        conv_base = conv_base.where(Conversation.tenant_id == tenant_id)
+    conv_sq = conv_base.subquery("conv_stats")
 
     stmt = select(
         order_sq.c.total_orders,
@@ -136,7 +141,7 @@ async def get_dashboard_metrics(
     user: CurrentUserDep,
     db: DBSessionDep,
 ) -> DashboardMetrics:
-    return await _fetch_metrics(db, user.tenant_id)
+    return await _fetch_metrics(db, _tenant_filter(user))
 
 
 # ── Recent activity ───────────────────────────────────────────────────────────
@@ -149,13 +154,15 @@ class ActivityItem(BaseModel):
 
 
 async def _fetch_recent_activity(
-    db: AsyncSession, tenant_id: str
+    db: AsyncSession, tenant_id: str | None
 ) -> list[ActivityItem]:
     """
     UNION ALL of messages / orders / success payments, ordered by timestamp DESC.
 
     Each branch projects to (type TEXT, content TEXT, timestamp TIMESTAMPTZ) so
     the outer SELECT can ORDER BY and LIMIT without knowing the source table.
+
+    When tenant_id is None (superadmin), activity spans all tenants.
     """
     # Branch 1 — inbound messages only (sender_role = 'user')
     msg_sel = select(
@@ -166,10 +173,9 @@ async def _fetch_recent_activity(
             + cast(Message.content, String)
         ).label("content"),
         Message.created_at.label("timestamp"),
-    ).where(
-        Message.tenant_id == tenant_id,
-        Message.sender_role == "user",
-    )
+    ).where(Message.sender_role == "user")
+    if tenant_id is not None:
+        msg_sel = msg_sel.where(Message.tenant_id == tenant_id)
 
     # Branch 2 — order created events
     order_sel = select(
@@ -180,7 +186,9 @@ async def _fetch_recent_activity(
             + literal(")")
         ).label("content"),
         Order.created_at.label("timestamp"),
-    ).where(Order.tenant_id == tenant_id)
+    )
+    if tenant_id is not None:
+        order_sel = order_sel.where(Order.tenant_id == tenant_id)
 
     # Branch 3 — successful payments only
     payment_sel = select(
@@ -192,10 +200,9 @@ async def _fetch_recent_activity(
             + cast(Payment.currency, String)
         ).label("content"),
         Payment.created_at.label("timestamp"),
-    ).where(
-        Payment.tenant_id == tenant_id,
-        Payment.status == PaymentStatus.SUCCESS,
-    )
+    ).where(Payment.status == PaymentStatus.SUCCESS)
+    if tenant_id is not None:
+        payment_sel = payment_sel.where(Payment.tenant_id == tenant_id)
 
     combined = union_all(msg_sel, order_sel, payment_sel).subquery("activity")
 
@@ -221,7 +228,7 @@ async def get_recent_activity(
     user: CurrentUserDep,
     db: DBSessionDep,
 ) -> list[ActivityItem]:
-    return await _fetch_recent_activity(db, user.tenant_id)
+    return await _fetch_recent_activity(db, _tenant_filter(user))
 
 
 # ── Overview schemas ──────────────────────────────────────────────────────────
@@ -272,7 +279,7 @@ class DashboardOverview(BaseModel):
 # ── Overview queries ──────────────────────────────────────────────────────────
 
 
-async def _fetch_recent_orders(db: AsyncSession, tenant_id: str) -> list[RecentOrder]:
+async def _fetch_recent_orders(db: AsyncSession, tenant_id: str | None) -> list[RecentOrder]:
     """
     Top 5 orders by created_at DESC.
 
@@ -285,19 +292,17 @@ async def _fetch_recent_orders(db: AsyncSession, tenant_id: str) -> list[RecentO
         .correlate(Order)
         .scalar_subquery()
     )
-    stmt = (
-        select(
-            Order.id,
-            Order.state,
-            Order.amount,
-            Order.currency,
-            item_count_sq.label("item_count"),
-            Order.created_at,
-        )
-        .where(Order.tenant_id == tenant_id)
-        .order_by(Order.created_at.desc())
-        .limit(_OVERVIEW_LIMIT)
+    stmt = select(
+        Order.id,
+        Order.state,
+        Order.amount,
+        Order.currency,
+        item_count_sq.label("item_count"),
+        Order.created_at,
     )
+    if tenant_id is not None:
+        stmt = stmt.where(Order.tenant_id == tenant_id)
+    stmt = stmt.order_by(Order.created_at.desc()).limit(_OVERVIEW_LIMIT)
     rows = (await db.execute(stmt)).all()
     return [
         RecentOrder(
@@ -313,7 +318,7 @@ async def _fetch_recent_orders(db: AsyncSession, tenant_id: str) -> list[RecentO
 
 
 async def _fetch_recent_conversations(
-    db: AsyncSession, tenant_id: str
+    db: AsyncSession, tenant_id: str | None
 ) -> list[RecentConversation]:
     """
     Top 5 conversations by updated_at DESC.
@@ -337,20 +342,18 @@ async def _fetch_recent_conversations(
         .correlate(Conversation)
         .scalar_subquery()
     )
-    stmt = (
-        select(
-            Conversation.id,
-            Conversation.customer_identifier,
-            Conversation.customer_name,
-            Conversation.status,
-            Conversation.updated_at,
-            last_msg_content.label("last_content"),
-            last_msg_ts.label("last_ts"),
-        )
-        .where(Conversation.tenant_id == tenant_id)
-        .order_by(Conversation.updated_at.desc())
-        .limit(_OVERVIEW_LIMIT)
+    stmt = select(
+        Conversation.id,
+        Conversation.customer_identifier,
+        Conversation.customer_name,
+        Conversation.status,
+        Conversation.updated_at,
+        last_msg_content.label("last_content"),
+        last_msg_ts.label("last_ts"),
     )
+    if tenant_id is not None:
+        stmt = stmt.where(Conversation.tenant_id == tenant_id)
+    stmt = stmt.order_by(Conversation.updated_at.desc()).limit(_OVERVIEW_LIMIT)
     rows = (await db.execute(stmt)).all()
     return [
         RecentConversation(
@@ -370,28 +373,25 @@ async def _fetch_recent_conversations(
 
 
 async def _fetch_recent_payments(
-    db: AsyncSession, tenant_id: str
+    db: AsyncSession, tenant_id: str | None
 ) -> list[RecentPayment]:
     """
     Top 5 payments by created_at DESC, joined with orders for state + amount.
     """
-    stmt = (
-        select(
-            Payment.id,
-            Payment.order_id,
-            Payment.reference,
-            Payment.amount,
-            Payment.currency,
-            Payment.status,
-            Payment.created_at,
-            Order.state.label("order_state"),
-            Order.amount.label("order_amount"),
-        )
-        .join(Order, Payment.order_id == Order.id)
-        .where(Payment.tenant_id == tenant_id)
-        .order_by(Payment.created_at.desc())
-        .limit(_OVERVIEW_LIMIT)
-    )
+    stmt = select(
+        Payment.id,
+        Payment.order_id,
+        Payment.reference,
+        Payment.amount,
+        Payment.currency,
+        Payment.status,
+        Payment.created_at,
+        Order.state.label("order_state"),
+        Order.amount.label("order_amount"),
+    ).join(Order, Payment.order_id == Order.id)
+    if tenant_id is not None:
+        stmt = stmt.where(Payment.tenant_id == tenant_id)
+    stmt = stmt.order_by(Payment.created_at.desc()).limit(_OVERVIEW_LIMIT)
     rows = (await db.execute(stmt)).all()
     return [
         RecentPayment(
@@ -436,7 +436,7 @@ class TodayFocusResponse(BaseModel):
 
 
 async def _fetch_today_focus(
-    db: AsyncSession, tenant_id: str
+    db: AsyncSession, tenant_id: str | None
 ) -> list[TodayFocusItem]:
     now = datetime.now(timezone.utc)
     cutoff_24h = now - timedelta(hours=_OVERDUE_HOURS)
@@ -446,6 +446,12 @@ async def _fetch_today_focus(
     items: list[TodayFocusItem] = []
 
     # ── 1. Overdue inquiries: inquiry orders untouched for > 24h ──────────────
+    overdue_filters = [
+        Order.state == OrderState.INQUIRY,
+        Order.updated_at < cutoff_24h,
+    ]
+    if tenant_id is not None:
+        overdue_filters.append(Order.tenant_id == tenant_id)
     overdue_stmt = (
         select(
             Order.id,
@@ -455,11 +461,7 @@ async def _fetch_today_focus(
             Conversation.customer_identifier,
         )
         .join(Conversation, Order.conversation_id == Conversation.id)
-        .where(
-            Order.tenant_id == tenant_id,
-            Order.state == OrderState.INQUIRY,
-            Order.updated_at < cutoff_24h,
-        )
+        .where(*overdue_filters)
         .order_by(Order.updated_at.asc())
         .limit(_FOCUS_LIMIT)
     )
@@ -494,6 +496,13 @@ async def _fetch_today_focus(
         .correlate(Conversation)
         .scalar_subquery()
     )
+    unanswered_filters = [
+        Conversation.status == ConversationStatus.ACTIVE,
+        last_role_sq == "user",
+        last_ts_sq < cutoff_4h,
+    ]
+    if tenant_id is not None:
+        unanswered_filters.append(Conversation.tenant_id == tenant_id)
     unanswered_stmt = (
         select(
             Conversation.id,
@@ -501,12 +510,7 @@ async def _fetch_today_focus(
             Conversation.customer_identifier,
             last_ts_sq.label("last_msg_ts"),
         )
-        .where(
-            Conversation.tenant_id == tenant_id,
-            Conversation.status == ConversationStatus.ACTIVE,
-            last_role_sq == "user",
-            last_ts_sq < cutoff_4h,
-        )
+        .where(*unanswered_filters)
         .order_by(last_ts_sq.asc())
         .limit(_FOCUS_LIMIT)
     )
@@ -534,6 +538,13 @@ async def _fetch_today_focus(
         .correlate(Order)
         .exists()
     )
+    follow_up_filters = [
+        Order.state == OrderState.CONFIRMED,
+        Order.updated_at < cutoff_12h,
+        no_paid_payment,
+    ]
+    if tenant_id is not None:
+        follow_up_filters.append(Order.tenant_id == tenant_id)
     follow_up_stmt = (
         select(
             Order.id,
@@ -543,12 +554,7 @@ async def _fetch_today_focus(
             Conversation.customer_identifier,
         )
         .join(Conversation, Order.conversation_id == Conversation.id)
-        .where(
-            Order.tenant_id == tenant_id,
-            Order.state == OrderState.CONFIRMED,
-            Order.updated_at < cutoff_12h,
-            no_paid_payment,
-        )
+        .where(*follow_up_filters)
         .order_by(Order.updated_at.asc())
         .limit(_FOCUS_LIMIT)
     )
@@ -577,7 +583,7 @@ async def get_today_focus(
     user: CurrentUserDep,
     db: DBSessionDep,
 ) -> TodayFocusResponse:
-    items = await _fetch_today_focus(db, user.tenant_id)
+    items = await _fetch_today_focus(db, _tenant_filter(user))
     return TodayFocusResponse(items=items, total=len(items))
 
 
@@ -589,10 +595,11 @@ async def get_dashboard_overview(
     user: CurrentUserDep,
     db: DBSessionDep,
 ) -> DashboardOverview:
-    metrics = await _fetch_metrics(db, user.tenant_id)
-    recent_orders = await _fetch_recent_orders(db, user.tenant_id)
-    recent_conversations = await _fetch_recent_conversations(db, user.tenant_id)
-    recent_payments = await _fetch_recent_payments(db, user.tenant_id)
+    tid = _tenant_filter(user)
+    metrics = await _fetch_metrics(db, tid)
+    recent_orders = await _fetch_recent_orders(db, tid)
+    recent_conversations = await _fetch_recent_conversations(db, tid)
+    recent_payments = await _fetch_recent_payments(db, tid)
 
     return DashboardOverview(
         metrics=metrics,

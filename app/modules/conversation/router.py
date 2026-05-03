@@ -38,7 +38,7 @@ async def list_conversations(
     cursor: str | None = Query(default=None),
 ) -> ConversationListResponse:
     return await svc.list_conversations(
-        tenant_id=user.tenant_id,
+        tenant_id=None if user.is_superadmin else user.tenant_id,
         limit=limit,
         cursor=cursor,
     )
@@ -113,7 +113,7 @@ async def list_messages(
 ) -> MessageListResponse:
     return await svc.list_messages(
         conversation_id,
-        tenant_id=user.tenant_id,
+        tenant_id=None if user.is_superadmin else user.tenant_id,
         limit=limit,
         cursor=cursor,
     )

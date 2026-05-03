@@ -308,7 +308,7 @@ class ConversationRepository:
     async def list_conversations(
         self,
         *,
-        tenant_id: str,
+        tenant_id: str | None,
         limit: int,
         cursor_dt: datetime | None = None,
         cursor_id: str | None = None,
@@ -319,18 +319,21 @@ class ConversationRepository:
         Uses noload() to skip the selectin relationship load — we fetch the
         last message separately in a single batched query.
 
+        When tenant_id is None (superadmin), returns conversations across all tenants.
+
         Returns (conversations, last_message_by_conv_id).
         """
         stmt = (
             select(Conversation)
             .options(noload(Conversation.messages))
-            .where(Conversation.tenant_id == tenant_id)
             .order_by(
                 Conversation.updated_at.desc(),
                 Conversation.id.desc(),
             )
             .limit(limit)
         )
+        if tenant_id is not None:
+            stmt = stmt.where(Conversation.tenant_id == tenant_id)
         if cursor_dt is not None and cursor_id is not None:
             stmt = stmt.where(
                 or_(

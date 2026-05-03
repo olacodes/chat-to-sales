@@ -34,7 +34,7 @@ async def list_orders(
     offset: int = Query(default=0, ge=0),
 ) -> OrderListResponse:
     return await svc.list_orders(
-        tenant_id=user.tenant_id,
+        tenant_id=None if user.is_superadmin else user.tenant_id,
         state=state,
         from_date=from_date,
         to_date=to_date,
@@ -55,7 +55,7 @@ async def get_order(
     user: CurrentUserDep,
     svc: ServiceDep,
 ) -> OrderOut:
-    return await svc.get_by_id(order_id, tenant_id=user.tenant_id)
+    return await svc.get_by_id(order_id, tenant_id=None if user.is_superadmin else user.tenant_id)
 
 
 @router.post("/{order_id}/confirm")

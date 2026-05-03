@@ -193,7 +193,7 @@ class OrderRepository:
     async def list_orders(
         self,
         *,
-        tenant_id: str,
+        tenant_id: str | None,
         state: str | None = None,
         from_date: date | None = None,
         to_date: date | None = None,
@@ -209,8 +209,12 @@ class OrderRepository:
 
         A separate COUNT(*) query returns the total matching rows for
         pagination metadata (dashboard page-count display).
+
+        When tenant_id is None (superadmin), returns orders across all tenants.
         """
-        filters = [Order.tenant_id == tenant_id]
+        filters = []
+        if tenant_id is not None:
+            filters.append(Order.tenant_id == tenant_id)
         if state is not None:
             filters.append(Order.state == state)
         if from_date is not None:
