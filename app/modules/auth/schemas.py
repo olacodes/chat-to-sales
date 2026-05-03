@@ -98,10 +98,13 @@ class LoginResponse(BaseModel):
 
 
 def _normalize_phone(v: str) -> str:
-    """Strip all non-digit characters and validate minimum length."""
+    """Strip non-digit characters, convert Nigerian local to E.164, and validate."""
     digits = re.sub(r"\D", "", v)
     if len(digits) < 7:
         raise ValueError("Phone number must have at least 7 digits.")
+    # Nigerian local format: 0801... (11 digits) → 234801... (13 digits)
+    if len(digits) == 11 and digits.startswith("0"):
+        digits = "234" + digits[1:]
     return digits
 
 

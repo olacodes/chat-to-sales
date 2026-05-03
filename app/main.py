@@ -128,6 +128,9 @@ async def _seed_superadmin() -> None:
 
     import re
     phone = re.sub(r"\D", "", phone)
+    # Nigerian local format: 0801... (11 digits) → 234801... (13 digits)
+    if len(phone) == 11 and phone.startswith("0"):
+        phone = "234" + phone[1:]
 
     from app.core.models.user import AuthProvider, UserRole
     from app.infra.auth_utils import hash_password
