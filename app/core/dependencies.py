@@ -22,7 +22,7 @@ from jose import JWTError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
-from app.core.exceptions import UnauthorizedError
+from app.core.exceptions import ForbiddenError, UnauthorizedError
 from app.infra.auth_utils import decode_access_token
 from app.infra.database import async_session_factory
 
@@ -61,6 +61,7 @@ class AuthenticatedUser:
     user_id: str
     tenant_id: str
     email: str
+    is_superadmin: bool = False
 
 
 async def get_current_user(
@@ -83,7 +84,25 @@ async def get_current_user(
     if not user_id or not tenant_id:
         raise UnauthorizedError("Invalid token claims")
 
-    return AuthenticatedUser(user_id=user_id, tenant_id=tenant_id, email=email)
+    return AuthenticatedUser(
+        user_id=user_id,
+        tenant_id=tenant_id,
+        email=email,
+        is_superadmin=payload.get("is_superadmin", False),
+    )
 
 
 CurrentUserDep = Annotated[AuthenticatedUser, Depends(get_current_user)]
+
+
+# ── Superadmin guard ─────────────────────────────────────────────────────────
+
+
+async def require_superadmin(user: CurrentUserDep) -> AuthenticatedUser:
+    """Raise 403 if the current user is not a platform superadmin."""
+    if not user.is_superadmin:
+        raise ForbiddenError("Superadmin access required.")
+    return user
+
+
+SuperAdminDep = Annotated[AuthenticatedUser, Depends(require_superadmin)]

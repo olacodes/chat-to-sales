@@ -98,6 +98,12 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "change-this-secret-key-in-production"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
 
+    # ── Superadmin ────────────────────────────────────────────────────────────
+    # When all three are set, the app auto-seeds a superadmin account at startup.
+    ADMIN_PHONE: str = ""
+    ADMIN_EMAIL: str = ""
+    ADMIN_PASSWORD: str = ""
+
     # ── Weekly report ──────────────────────────────────────────────────────────
     # Shared secret for the POST /reports/trigger-weekly endpoint.
     # Set a strong random value in production (e.g. openssl rand -hex 32).

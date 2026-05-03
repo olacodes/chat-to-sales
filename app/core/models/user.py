@@ -14,7 +14,7 @@ Design notes:
 from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import DateTime, ForeignKey, String, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.models.base import BaseModel
@@ -104,6 +104,14 @@ class User(BaseModel):
     display_name: Mapped[str | None] = mapped_column(
         String(120),
         nullable=True,
+    )
+    # Platform admin flag — grants cross-tenant access to /admin endpoints.
+    # Set manually via seed script; never exposed in signup flows.
+    is_superadmin: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
     )
 
     # Relationships

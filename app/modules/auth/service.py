@@ -215,11 +215,13 @@ class AuthService:
             user_id=user.id,
             tenant_id=tenant_id,
             email=user.email,
+            is_superadmin=user.is_superadmin,
         )
         return LoginResponse(
             access_token=token,
             user=LoginUserInfo(user_id=user.id, email=user.email),
             tenant_id=tenant_id,
+            is_superadmin=user.is_superadmin,
         )
 
     # ── Google login ──────────────────────────────────────────────────────────
@@ -255,11 +257,13 @@ class AuthService:
             user_id=user.id,
             tenant_id=tenant_id,
             email=user.email,
+            is_superadmin=user.is_superadmin,
         )
         return LoginResponse(
             access_token=token,
             user=LoginUserInfo(user_id=user.id, email=user.email),
             tenant_id=tenant_id,
+            is_superadmin=user.is_superadmin,
         )
 
     # ── WhatsApp OTP request ──────────────────────────────────────────────────
@@ -393,11 +397,13 @@ class AuthService:
             user_id=user.id,
             tenant_id=tenant_id,
             email=user.email,
+            is_superadmin=user.is_superadmin,
         )
         return LoginResponse(
             access_token=token,
             user=LoginUserInfo(user_id=user.id, email=user.email),
             tenant_id=tenant_id,
+            is_superadmin=user.is_superadmin,
         )
 
     # ── Internal: Redis cache busting ─────────────────────────────────────────

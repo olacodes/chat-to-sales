@@ -91,6 +91,7 @@ class LoginResponse(BaseModel):
     token_type: str = "bearer"
     user: LoginUserInfo
     tenant_id: str
+    is_superadmin: bool = False
 
 
 # ── WhatsApp OTP schemas ───────────────────────────────────────────────────────

@@ -51,6 +51,7 @@ from app.modules.reports.models import (  # noqa: F401 — registers models with
     TenantReportConfig,
     WeeklyReport,
 )
+from app.modules.admin.router import router as admin_router
 from app.modules.credit_sales.router import router as credit_sales_router
 from app.modules.credit_sales.models import CreditSale  # noqa: F401 — registers model with Base
 
@@ -104,6 +105,72 @@ async def _seed_platform_channel() -> None:
         )
 
 
+# ── Superadmin seed ───────────────────────────────────────────────────────────
+
+
+async def _seed_superadmin() -> None:
+    """
+    Auto-create (or upgrade) the platform superadmin account at startup.
+
+    Reads ADMIN_PHONE, ADMIN_EMAIL, and ADMIN_PASSWORD from settings.
+    If all three are set:
+      - User does not exist → create User + Tenant + UserTenant (is_superadmin=True)
+      - User exists but not superadmin → upgrade to superadmin
+      - User is already superadmin → skip silently
+    """
+    phone = settings.ADMIN_PHONE
+    email = settings.ADMIN_EMAIL
+    password = settings.ADMIN_PASSWORD
+
+    if not phone or not email or not password:
+        logger.debug("Superadmin seed skipped — ADMIN_PHONE/EMAIL/PASSWORD not fully configured")
+        return
+
+    import re
+    phone = re.sub(r"\D", "", phone)
+
+    from app.core.models.user import AuthProvider, UserRole
+    from app.infra.auth_utils import hash_password
+    from app.modules.auth.repository import AuthRepository
+
+    async with async_session_factory.begin() as session:
+        repo = AuthRepository(session)
+        existing = await repo.get_user_by_phone(phone)
+
+        if existing is not None:
+            if existing.is_superadmin:
+                return  # already set up
+            existing.is_superadmin = True
+            session.add(existing)
+            logger.info("Superadmin flag set on existing user=%s phone=%s", existing.id, phone)
+            return
+
+        user = await repo.create_user(
+            email=email,
+            password_hash=hash_password(password),
+            auth_provider=AuthProvider.WHATSAPP,
+            display_name="Platform Admin",
+            phone_number=phone,
+        )
+        user.is_superadmin = True
+        session.add(user)
+        await session.flush()
+
+        tenant = await repo.create_tenant(name="ChatToSales Admin")
+        await repo.create_user_tenant(
+            user_id=user.id,
+            tenant_id=tenant.id,
+            role=UserRole.OWNER,
+        )
+        logger.info(
+            "Superadmin seeded — user=%s tenant=%s phone=%s email=%s",
+            user.id,
+            tenant.id,
+            phone,
+            email,
+        )
+
+
 # ── Lifespan (startup / shutdown) ─────────────────────────────────────────────
 
 
@@ -119,6 +186,9 @@ async def lifespan(app: FastAPI):
     # Auto-seed the platform WhatsApp channel from env vars so the app
     # works immediately after a fresh DB without manual API calls.
     await _seed_platform_channel()
+
+    # Auto-seed the superadmin account from env vars.
+    await _seed_superadmin()
 
     # Start Redis event consumers — one task per event type, all tenants.
     # Using PSUBSCRIBE pattern matching, each task automatically handles
@@ -191,6 +261,7 @@ def create_app() -> FastAPI:
     app.include_router(reports_router, prefix=prefix)
     app.include_router(credit_sales_router, prefix=prefix)
     app.include_router(store_router, prefix=prefix)
+    app.include_router(admin_router, prefix=prefix)
     app.include_router(realtime_router)  # no API prefix — /ws/{tenant_id}
 
     # ── Health check ──────────────────────────────────────────────────────────

@@ -41,26 +41,35 @@ def verify_password(password: str, hashed: str) -> bool:
 _ALGORITHM = "HS256"
 
 
-def create_access_token(*, user_id: str, tenant_id: str, email: str) -> str:
+def create_access_token(
+    *,
+    user_id: str,
+    tenant_id: str,
+    email: str,
+    is_superadmin: bool = False,
+) -> str:
     """
     Create a signed JWT access token.
 
     Claims:
-      sub       — user_id (standard JWT subject)
-      tenant_id — injected so downstream handlers can read it without a DB hit
-      email     — for convenience; not used for auth decisions
-      exp       — expiry based on ACCESS_TOKEN_EXPIRE_MINUTES setting
+      sub            — user_id (standard JWT subject)
+      tenant_id      — injected so downstream handlers can read it without a DB hit
+      email          — for convenience; not used for auth decisions
+      is_superadmin  — True only for platform admin accounts
+      exp            — expiry based on ACCESS_TOKEN_EXPIRE_MINUTES setting
     """
     settings = get_settings()
     expire = datetime.now(timezone.utc) + timedelta(
         minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES
     )
-    payload = {
+    payload: dict = {
         "sub": user_id,
         "tenant_id": tenant_id,
         "email": email,
         "exp": expire,
     }
+    if is_superadmin:
+        payload["is_superadmin"] = True
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=_ALGORITHM)
 
 
