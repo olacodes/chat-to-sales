@@ -148,7 +148,7 @@ async def _seed_superadmin() -> None:
         user = await repo.create_user(
             email=email,
             password_hash=hash_password(password),
-            auth_provider=AuthProvider.WHATSAPP,
+            auth_provider=AuthProvider.EMAIL,
             display_name="Platform Admin",
             phone_number=phone,
         )
