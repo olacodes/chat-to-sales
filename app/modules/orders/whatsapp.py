@@ -262,11 +262,11 @@ def image_inquiry_forwarded(trader_name: str) -> str:
     )
 
 
-def image_inquiry_to_trader(customer_phone: str, description: str) -> str:
+def image_inquiry_to_trader(customer_phone: str) -> str:
     return (
-        f"\U0001f4f8 Customer +{customer_phone} dey ask about this item:\n\n"
-        f"_{description}_\n\n"
-        "Reply with the price (e.g. _8500_) and I go tell them."
+        f"\U0001f4f8 Customer +{customer_phone} dey ask about this item.\n\n"
+        "Reply with the product name and price (e.g. _iPhone 8500_)\n"
+        "or just the price if no name (e.g. _8500_)."
     )
 
 

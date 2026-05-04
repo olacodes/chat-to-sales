@@ -49,11 +49,8 @@ class ProductDescription(BaseModel):
     # Price confirmed by the trader (Naira, whole number)
     price: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
-    # The Claude Vision text description (kept for display/forwarding, not for matching)
-    description: Mapped[str] = mapped_column(Text, nullable=False)
-
-    # OpenAI text embedding (legacy, no longer used for matching)
-    embedding: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Optional text description (from Claude Vision catalogue matching, if available)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Perceptual hash of the product image (hex string, used for matching)
     image_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -76,12 +73,12 @@ class ProductDescriptionRepository:
         *,
         trader_phone: str,
         product_name: str,
-        description: str,
+        description: str | None = None,
         price: int | None = None,
         image_hash: str | None = None,
         confirmed: bool = True,
     ) -> ProductDescription:
-        """Persist a new confirmed product description with its image hash."""
+        """Persist a new confirmed product with its image hash."""
         pd = ProductDescription(
             trader_phone=trader_phone,
             product_name=product_name,

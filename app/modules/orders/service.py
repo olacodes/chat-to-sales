@@ -774,13 +774,11 @@ class OrderService:
         """
         Process a customer product inquiry via image.
 
-        1. Analyse the image with Claude Vision against the trader's catalogue.
-        2. If a catalogue match is found — reply with the price and enter the
-           normal order confirmation flow (AWAITING_CUSTOMER_CONFIRMATION).
-        3. Check stored descriptions from past confirmed inquiries (passive learning).
-        4. If no match — forward the image to the trader for manual pricing and
+        1. Compute pHash and check against stored image hashes (fastest, no API).
+        2. If no hash match, try Claude Vision against the catalogue (only if
+           catalogue has items).
+        3. If no match — forward the image to the trader for manual pricing and
            store a pending inquiry session so the trader's reply can be learned.
-        5. On failure — ask customer to resend or type their request.
         """
         from app.modules.onboarding.media import compute_phash, describe_product_image
         from app.modules.orders.product_descriptions import ProductDescriptionRepository
@@ -826,62 +824,41 @@ class OrderService:
                 )
                 return
 
-        # Acknowledge receipt — only if we didn't already match via hash
-        await self._reply(
-            phone=customer_phone,
-            tenant_id=tenant_id,
-            event_id=f"order.image_ack.{message_id}",
-            text="I see your photo! Let me check... \U0001f50d",
-            channel_tenant_id=channel_tenant_id,
-        )
-
-        # Analyse the image with Claude Vision (for catalogue matching and description)
-        try:
-            analysis = await describe_product_image(
-                image_bytes=image_bytes,
-                catalogue=catalogue,
-                category=category,
-            )
-        except Exception as exc:
-            logger.error("Image analysis failed sender=%s: %s", customer_phone, exc)
+        # ── Try Claude Vision catalogue matching (only if catalogue has items) ──
+        if catalogue:
             await self._reply(
                 phone=customer_phone,
                 tenant_id=tenant_id,
-                event_id=f"order.image_fail.{message_id}",
-                text=wa.image_processing_failed(),
+                event_id=f"order.image_ack.{message_id}",
+                text="I see your photo! Let me check... \U0001f50d",
                 channel_tenant_id=channel_tenant_id,
             )
-            return
 
-        description: str = analysis.get("description", "")
-        matched_product: str | None = analysis.get("matched_product")
-        matched_price: int | None = analysis.get("matched_price")
-        confidence: float = analysis.get("confidence", 0.0)
+            try:
+                analysis = await describe_product_image(
+                    image_bytes=image_bytes,
+                    catalogue=catalogue,
+                    category=category,
+                )
+                matched_product: str | None = analysis.get("matched_product")
+                matched_price: int | None = analysis.get("matched_price")
+                confidence: float = analysis.get("confidence", 0.0)
 
-        if not description:
-            await self._reply(
-                phone=customer_phone,
-                tenant_id=tenant_id,
-                event_id=f"order.image_fail.{message_id}",
-                text=wa.image_processing_failed(),
-                channel_tenant_id=channel_tenant_id,
-            )
-            return
-
-        # ── Matched via catalogue: reply with price and enter order flow ──────
-        if matched_product and matched_price and confidence >= 0.7:
-            await self._create_image_order(
-                tenant_id=tenant_id,
-                conversation_id=conversation_id,
-                customer_phone=customer_phone,
-                trader=trader,
-                product_name=matched_product,
-                price=matched_price,
-                trader_name=trader_name,
-                channel_tenant_id=channel_tenant_id,
-                media_id=media_id,
-            )
-            return
+                if matched_product and matched_price and confidence >= 0.7:
+                    await self._create_image_order(
+                        tenant_id=tenant_id,
+                        conversation_id=conversation_id,
+                        customer_phone=customer_phone,
+                        trader=trader,
+                        product_name=matched_product,
+                        price=matched_price,
+                        trader_name=trader_name,
+                        channel_tenant_id=channel_tenant_id,
+                        media_id=media_id,
+                    )
+                    return
+            except Exception as exc:
+                logger.warning("Claude Vision failed sender=%s: %s", customer_phone, exc)
 
         # ── Not matched: forward image to trader ──────────────────────────────
         await self._reply(
@@ -893,7 +870,7 @@ class OrderService:
         )
 
         if trader_phone:
-            caption = wa.image_inquiry_to_trader(customer_phone, description)
+            caption = wa.image_inquiry_to_trader(customer_phone)
             await self._reply_image(
                 phone=trader_phone,
                 tenant_id=tenant_id,
@@ -908,7 +885,6 @@ class OrderService:
                 trader_phone,
                 {
                     "customer_phone": customer_phone,
-                    "description": description,
                     "image_hash": image_hash or "",
                     "tenant_id": tenant_id,
                     "conversation_id": conversation_id,
@@ -917,9 +893,8 @@ class OrderService:
             )
 
         logger.info(
-            "Image inquiry forwarded to trader=%s description=%r customer=%s",
+            "Image inquiry forwarded to trader=%s customer=%s",
             trader_phone,
-            description[:80],
             customer_phone,
         )
 
@@ -937,11 +912,11 @@ class OrderService:
         Check if the trader is replying to a pending image inquiry with a price.
 
         Expected reply formats:
-            "8500"               — price only (product name from description)
+            "8500"               — price only (product saved as "Product")
             "Indomie Carton 8500" — product name + price
 
         If a pending inquiry exists and the reply contains a price:
-        1. Save the description + product name as a confirmed ProductDescription
+        1. Save the image hash + product name as a confirmed ProductDescription
         2. Notify the customer with the price
         3. Create an order in INQUIRY state for the customer
         4. Clear the pending inquiry session
@@ -978,14 +953,13 @@ class OrderService:
         name_part = cleaned[:idx].strip().rstrip("-–—:").strip()
 
         catalogue: dict[str, int] = trader.get("catalogue", {})
-        description: str = pending["description"]
         pending_image_hash: str = pending.get("image_hash", "")
         customer_phone: str = pending["customer_phone"]
         pending_tenant_id: str = pending["tenant_id"]
         conversation_id: str = pending.get("conversation_id", "")
         pending_channel_tenant_id: str = pending.get("channel_tenant_id") or None
 
-        # Determine product name: trader-specified > fuzzy catalogue match > description
+        # Determine product name: trader-specified > fuzzy catalogue match > generic
         product_name = ""
         if name_part:
             # Trader typed a name — use it, but check catalogue for exact match
@@ -997,11 +971,8 @@ class OrderService:
             if not product_name:
                 product_name = name_part
         else:
-            # Price only — try to derive name from description
-            product_name = description.split(".")[0].strip()[:120]
-
-        if not product_name:
-            return False
+            # Price only — use generic name (trader can update later)
+            product_name = "Product"
 
         trader_name: str = trader.get("business_name", "the trader")
 
@@ -1010,7 +981,6 @@ class OrderService:
         await pd_repo.save(
             trader_phone=trader_phone,
             product_name=product_name,
-            description=description,
             price=price,
             image_hash=pending_image_hash or None,
             confirmed=True,
