@@ -235,18 +235,21 @@ def image_inquiry_matched_list(
         "Select quantity below, or type how many you want (e.g. _I want 7_)."
     )
     button_label = "Select quantity"
-    rows = [
-        {
+    rows = []
+    for q in range(1, 6):
+        total = price * q
+        rows.append({
             "id": f"QTY_{q}",
-            "title": f"{q}x {product_name}"[:24],  # WhatsApp max 24 chars
-            "description": f"Total: {_naira(price * q)}",
-        }
-        for q in range(1, 6)
-    ]
+            "title": f"Buy {q}",
+            "description": (
+                _naira(price) if q == 1
+                else f"{q} \u00d7 {_naira(price)} = {_naira(total)}"
+            ),
+        })
     rows.append({
         "id": "NO",
-        "title": "Cancel",
-        "description": "This is not what I want",
+        "title": "Cancel order",
+        "description": "Not what I'm looking for",
     })
     sections = [{"title": "Quantity", "rows": rows}]
     return body, button_label, sections
