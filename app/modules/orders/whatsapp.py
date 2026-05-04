@@ -219,6 +219,39 @@ def image_inquiry_matched(
     )
 
 
+def image_inquiry_matched_list(
+    product_name: str, price: int, trader_name: str
+) -> tuple[str, str, list[dict]]:
+    """
+    Return (body_text, button_label, sections) for a WhatsApp list message.
+
+    The customer taps the button to open a quantity picker, selects a qty
+    (or Cancel), and the list_reply.id comes back as 'QTY_1' etc.
+    They can also type freely (e.g. 'I want 7') — NLP handles that.
+    """
+    body = (
+        f"This look like *{product_name}* from *{trader_name}*! \U0001f4f8\n\n"
+        f"Price: {_naira(price)} each\n\n"
+        "Select quantity below, or type how many you want (e.g. _I want 7_)."
+    )
+    button_label = "Select quantity"
+    rows = [
+        {
+            "id": f"QTY_{q}",
+            "title": f"{q}x {product_name}"[:24],  # WhatsApp max 24 chars
+            "description": f"Total: {_naira(price * q)}",
+        }
+        for q in range(1, 6)
+    ]
+    rows.append({
+        "id": "NO",
+        "title": "Cancel",
+        "description": "This is not what I want",
+    })
+    sections = [{"title": "Quantity", "rows": rows}]
+    return body, button_label, sections
+
+
 def image_inquiry_forwarded(trader_name: str) -> str:
     return (
         f"I see the item! Let me ask *{trader_name}* about the price. \U0001f4f8\n\n"

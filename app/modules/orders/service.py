@@ -474,6 +474,32 @@ class OrderService:
 
         # ── Existing session: customer is responding to a summary ─────────────
         if session and session.get("state") == AWAITING_CUSTOMER_CONFIRMATION:
+            # Handle interactive quantity button taps (QTY_1, QTY_2, etc.)
+            qty_match = message.strip().upper()
+            if qty_match.startswith("QTY_"):
+                try:
+                    qty = int(qty_match.split("_")[1])
+                except (IndexError, ValueError):
+                    qty = 1
+                if qty < 1:
+                    qty = 1
+                # Update order items with the selected quantity
+                order_id = session["order_id"]
+                order = await self._repo.get_by_id(order_id=order_id, tenant_id=tenant_id)
+                if order and order.state == OrderState.INQUIRY and order.items:
+                    item = order.items[0]
+                    item.quantity = qty
+                    order.amount = Decimal(str(int(item.unit_price) * qty))
+                    self._db.add(order)
+                    await self._db.flush()
+                    # Update session with new total
+                    session_items = session.get("items", [])
+                    if session_items:
+                        session_items[0]["qty"] = qty
+                    session["total"] = int(order.amount)
+                # Treat as a confirmation — fall through to CONFIRM logic below
+                message = "YES"
+
             result = await parse_message(message, category=category, catalogue=catalogue)
 
             if result.intent == CONFIRM:
@@ -1022,11 +1048,16 @@ class OrderService:
             },
         )
 
-        await self._reply(
+        list_body, list_button, list_sections = wa.image_inquiry_matched_list(
+            product_name, price, trader_name
+        )
+        await self._reply_list(
             phone=customer_phone,
             tenant_id=tenant_id,
             event_id=f"order.image_matched.{order.id}",
-            text=wa.image_inquiry_matched(product_name, price, trader_name),
+            body_text=list_body,
+            button_label=list_button,
+            sections=list_sections,
             channel_tenant_id=channel_tenant_id,
         )
 
@@ -1421,6 +1452,46 @@ class OrderService:
         except Exception as exc:
             logger.error(
                 "Order interactive reply failed phone=%s event_id=%s: %s",
+                phone,
+                event_id,
+                exc,
+            )
+
+    async def _reply_list(
+        self,
+        *,
+        phone: str,
+        tenant_id: str,
+        event_id: str,
+        body_text: str,
+        button_label: str,
+        sections: list[dict],
+        channel_tenant_id: str | None = None,
+    ) -> None:
+        """
+        Send a WhatsApp list picker message using an independent DB session.
+
+        Same error-swallowing pattern as _reply — failures never crash the handler.
+        """
+        if not phone:
+            logger.warning("_reply_list called with empty phone for event_id=%s", event_id)
+            return
+        try:
+            async with async_session_factory.begin() as session:
+                svc = NotificationService(session)
+                await svc.send_list(
+                    tenant_id=tenant_id,
+                    event_id=event_id,
+                    recipient=phone,
+                    body_text=body_text,
+                    button_label=button_label,
+                    sections=sections,
+                    channel="whatsapp",
+                    channel_tenant_id=channel_tenant_id,
+                )
+        except Exception as exc:
+            logger.error(
+                "Order list reply failed phone=%s event_id=%s: %s",
                 phone,
                 event_id,
                 exc,

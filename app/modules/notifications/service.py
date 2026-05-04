@@ -364,6 +364,141 @@ class NotificationService:
                 status_code=502,
             )
 
+    # ── List message ─────────────────────────────────────────────────────────
+
+    async def send_list(
+        self,
+        *,
+        tenant_id: str,
+        event_id: str,
+        recipient: str,
+        body_text: str,
+        button_label: str,
+        sections: list[dict],
+        channel: str = "whatsapp",
+        order_id: str | None = None,
+        channel_tenant_id: str | None = None,
+    ) -> None:
+        """
+        Send a WhatsApp list picker message.
+
+        sections: [{"title": "...", "rows": [{"id": "...", "title": "...", "description": "..."}]}]
+        button_label: text on the button that opens the list (max 20 chars).
+        """
+        existing = await self._repo.get_by_event_id(event_id)
+        if existing is not None:
+            logger.info(
+                "Notification already sent for event_id=%s — skipping", event_id
+            )
+            return
+
+        notification = await self._repo.create(
+            tenant_id=tenant_id,
+            event_id=event_id,
+            recipient=recipient,
+            message_text=body_text,
+            channel=channel,
+            order_id=order_id,
+        )
+
+        try:
+            if channel == "whatsapp":
+                await self._dispatch_whatsapp_list(
+                    tenant_id=channel_tenant_id or tenant_id,
+                    recipient=recipient,
+                    body_text=body_text,
+                    button_label=button_label,
+                    sections=sections,
+                )
+            else:
+                logger.info("MOCK SEND list [%s] → %s", channel, recipient)
+
+            await self._repo.update_status(notification, NotificationStatus.SENT)
+            logger.info(
+                "List notification sent id=%s recipient=%s event_id=%s",
+                notification.id,
+                recipient,
+                event_id,
+            )
+        except Exception as exc:
+            await self._repo.update_status(notification, NotificationStatus.FAILED)
+            logger.error(
+                "List notification failed id=%s recipient=%s event_id=%s: %s",
+                notification.id,
+                recipient,
+                event_id,
+                exc,
+            )
+            raise
+
+    async def _dispatch_whatsapp_list(
+        self,
+        tenant_id: str,
+        recipient: str,
+        body_text: str,
+        button_label: str,
+        sections: list[dict],
+    ) -> None:
+        """Send a list picker message via the Meta Cloud API."""
+        channel_record = await self._channel_repo.get_by_tenant_and_channel(
+            tenant_id=tenant_id,
+            channel="whatsapp",
+        )
+        if channel_record is None:
+            raise NotFoundError(
+                "WhatsApp channel",
+                f"tenant={tenant_id} — connect one via POST /api/v1/channels/whatsapp/connect",
+            )
+
+        phone_number_id = channel_record.phone_number_id
+        access_token = decrypt_token(channel_record.encrypted_access_token)
+
+        url = f"{_META_API_BASE}/{phone_number_id}/messages"
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+        }
+        body = {
+            "messaging_product": "whatsapp",
+            "to": recipient,
+            "type": "interactive",
+            "interactive": {
+                "type": "list",
+                "body": {"text": body_text},
+                "action": {
+                    "button": button_label[:20],
+                    "sections": sections,
+                },
+            },
+        }
+
+        async with httpx.AsyncClient(timeout=_WHATSAPP_TIMEOUT) as client:
+            response = await client.post(url, headers=headers, json=body)
+
+        if response.is_success:
+            logger.info(
+                "WhatsApp list sent → %s via phone_number_id=%s",
+                recipient,
+                phone_number_id,
+            )
+        else:
+            logger.error(
+                "WhatsApp list API error status=%s body=%s recipient=%s",
+                response.status_code,
+                response.text,
+                recipient,
+            )
+            if response.status_code == 401:
+                raise ChatToSalesError(
+                    message="WhatsApp access token is invalid or expired. "
+                    "Reconnect the channel via POST /api/v1/channels/whatsapp/connect.",
+                    status_code=502,
+                )
+            raise ChatToSalesError(
+                message=f"WhatsApp API error {response.status_code}: {response.text[:200]}",
+                status_code=502,
+            )
+
     # ── Image dispatch ─────────────────────────────────────────────────────────
 
     async def send_image(
