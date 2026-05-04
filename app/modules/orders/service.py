@@ -474,13 +474,27 @@ class OrderService:
 
         # ── Existing session: customer is responding to a summary ─────────────
         if session and session.get("state") == AWAITING_CUSTOMER_CONFIRMATION:
-            # Handle interactive quantity button taps (QTY_1, QTY_2, etc.)
+            # Handle quantity selection — from list tap (QTY_1) or typed (I want 7)
+            import re as _re
+            qty: int | None = None
             qty_match = message.strip().upper()
+
             if qty_match.startswith("QTY_"):
+                # Interactive list tap: QTY_1, QTY_2, etc.
                 try:
                     qty = int(qty_match.split("_")[1])
                 except (IndexError, ValueError):
                     qty = 1
+            else:
+                # Typed message: extract the first number from text like
+                # "I want 7", "give me 3", "send 10", or just "7"
+                num_match = _re.search(r"\b(\d+)\b", message.strip())
+                if num_match:
+                    parsed = int(num_match.group(1))
+                    if 1 <= parsed <= 1000:
+                        qty = parsed
+
+            if qty is not None:
                 if qty < 1:
                     qty = 1
                 # Update order items with the selected quantity
