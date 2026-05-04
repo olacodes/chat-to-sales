@@ -928,12 +928,13 @@ class OrderService:
 
         trader_name: str = trader.get("business_name", "the trader")
 
-        # Save the learned description
+        # Save the learned description with price
         pd_repo = ProductDescriptionRepository(self._db)
         await pd_repo.save(
             trader_phone=trader_phone,
             product_name=product_name,
             description=description,
+            price=price,
             confirmed=True,
         )
 

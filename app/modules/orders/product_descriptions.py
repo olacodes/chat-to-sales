@@ -18,7 +18,7 @@ import math
 
 import openai
 
-from sqlalchemy import Boolean, Index, String, Text, select
+from sqlalchemy import Boolean, Index, Integer, String, Text, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -79,6 +79,9 @@ class ProductDescription(BaseModel):
     # The confirmed product name (matches a catalogue item)
     product_name: Mapped[str] = mapped_column(String(255), nullable=False)
 
+    # Price confirmed by the trader (Naira, whole number)
+    price: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
     # The Claude Vision text description of the customer's photo
     description: Mapped[str] = mapped_column(Text, nullable=False)
 
@@ -113,6 +116,7 @@ class ProductDescriptionRepository:
         trader_phone: str,
         product_name: str,
         description: str,
+        price: int | None = None,
         confirmed: bool = True,
     ) -> ProductDescription:
         """Persist a new confirmed product description with its embedding."""
@@ -129,6 +133,7 @@ class ProductDescriptionRepository:
         pd = ProductDescription(
             trader_phone=trader_phone,
             product_name=product_name,
+            price=price,
             description=description,
             embedding=embedding_json,
             confirmed=confirmed,
@@ -172,8 +177,9 @@ class ProductDescriptionRepository:
         Returns {"product_name": str, "price": int, "similarity": float}
         if a match above the threshold is found, else None.
 
-        Only returns matches for products that still exist in the catalogue
-        (prices may have changed since the description was stored).
+        Price resolution order:
+        1. Catalogue price (latest, if the product exists there)
+        2. Stored price from the ProductDescription (trader-confirmed)
         """
         confirmed = await self.list_confirmed_for_trader(trader_phone=trader_phone)
         if not confirmed:
@@ -199,15 +205,17 @@ class ProductDescriptionRepository:
             if score <= best_score or score < _MATCH_THRESHOLD:
                 continue
 
-            # Verify product still exists in catalogue (case-insensitive)
+            # Price resolution: catalogue first (may have updated), then stored price
             price: int | None = None
             for cat_name, cat_price in catalogue.items():
                 if cat_name.lower() == pd.product_name.lower():
                     price = cat_price
                     break
+            if price is None:
+                price = pd.price  # fall back to the trader-confirmed price
 
             if price is None:
-                continue
+                continue  # no price at all — cannot create an order
 
             best_score = score
             best_match = {
