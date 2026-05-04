@@ -240,6 +240,32 @@ async def extract_products_from_text(
         return []
 
 
+# ── Perceptual image hashing ──────────────────────────────────────────────────
+
+
+def compute_phash(image_bytes: bytes) -> str:
+    """
+    Compute a perceptual hash (pHash) of an image.
+
+    Returns a hex string (16 chars for a 64-bit hash). Two images of the
+    same product produce similar hashes regardless of background, lighting,
+    or minor angle changes. Compare using Hamming distance (0 = identical,
+    ≤12 = same product, >20 = different product).
+    """
+    import imagehash
+    img = Image.open(io.BytesIO(image_bytes))
+    h = imagehash.phash(img, hash_size=16)
+    return str(h)
+
+
+def phash_hamming_distance(hash_a: str, hash_b: str) -> int:
+    """Compute Hamming distance between two hex-encoded pHash strings."""
+    import imagehash
+    a = imagehash.hex_to_hash(hash_a)
+    b = imagehash.hex_to_hash(hash_b)
+    return a - b
+
+
 # ── Image resize ──────────────────────────────────────────────────────────────
 
 _MAX_IMAGE_DIM = 768

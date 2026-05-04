@@ -782,7 +782,7 @@ class OrderService:
            store a pending inquiry session so the trader's reply can be learned.
         5. On failure — ask customer to resend or type their request.
         """
-        from app.modules.onboarding.media import describe_product_image
+        from app.modules.onboarding.media import compute_phash, describe_product_image
         from app.modules.orders.product_descriptions import ProductDescriptionRepository
         from app.modules.orders.session import set_pending_image_inquiry
 
@@ -791,7 +791,42 @@ class OrderService:
         category: str = trader.get("business_category", "")
         trader_phone: str = trader.get("phone_number", "")
 
-        # Acknowledge receipt immediately
+        # Compute perceptual hash for image matching (fast, no API call)
+        image_hash: str | None = None
+        try:
+            image_hash = compute_phash(image_bytes)
+        except Exception as exc:
+            logger.warning("pHash computation failed sender=%s: %s", customer_phone, exc)
+
+        # Check stored image hashes BEFORE Claude Vision (fastest path, no API cost)
+        if image_hash and trader_phone:
+            pd_repo = ProductDescriptionRepository(self._db)
+            learned = await pd_repo.find_best_match(
+                trader_phone=trader_phone,
+                new_image_hash=image_hash,
+                catalogue=catalogue,
+            )
+            if learned:
+                logger.info(
+                    "Image hash match: product=%s distance=%d customer=%s",
+                    learned["product_name"],
+                    learned["distance"],
+                    customer_phone,
+                )
+                await self._create_image_order(
+                    tenant_id=tenant_id,
+                    conversation_id=conversation_id,
+                    customer_phone=customer_phone,
+                    trader=trader,
+                    product_name=learned["product_name"],
+                    price=learned["price"],
+                    trader_name=trader_name,
+                    channel_tenant_id=channel_tenant_id,
+                    media_id=media_id,
+                )
+                return
+
+        # Acknowledge receipt — only if we didn't already match via hash
         await self._reply(
             phone=customer_phone,
             tenant_id=tenant_id,
@@ -800,7 +835,7 @@ class OrderService:
             channel_tenant_id=channel_tenant_id,
         )
 
-        # Analyse the image
+        # Analyse the image with Claude Vision (for catalogue matching and description)
         try:
             analysis = await describe_product_image(
                 image_bytes=image_bytes,
@@ -848,34 +883,6 @@ class OrderService:
             )
             return
 
-        # ── Check stored descriptions from past confirmed inquiries ──────────
-        if trader_phone and description:
-            pd_repo = ProductDescriptionRepository(self._db)
-            learned = await pd_repo.find_best_match(
-                trader_phone=trader_phone,
-                new_description=description,
-                catalogue=catalogue,
-            )
-            if learned:
-                logger.info(
-                    "Passive learning match: product=%s similarity=%.3f customer=%s",
-                    learned["product_name"],
-                    learned["similarity"],
-                    customer_phone,
-                )
-                await self._create_image_order(
-                    tenant_id=tenant_id,
-                    conversation_id=conversation_id,
-                    customer_phone=customer_phone,
-                    trader=trader,
-                    product_name=learned["product_name"],
-                    price=learned["price"],
-                    trader_name=trader_name,
-                    channel_tenant_id=channel_tenant_id,
-                    media_id=media_id,
-                )
-                return
-
         # ── Not matched: forward image to trader ──────────────────────────────
         await self._reply(
             phone=customer_phone,
@@ -902,6 +909,7 @@ class OrderService:
                 {
                     "customer_phone": customer_phone,
                     "description": description,
+                    "image_hash": image_hash or "",
                     "tenant_id": tenant_id,
                     "conversation_id": conversation_id,
                     "channel_tenant_id": channel_tenant_id or "",
@@ -971,6 +979,7 @@ class OrderService:
 
         catalogue: dict[str, int] = trader.get("catalogue", {})
         description: str = pending["description"]
+        pending_image_hash: str = pending.get("image_hash", "")
         customer_phone: str = pending["customer_phone"]
         pending_tenant_id: str = pending["tenant_id"]
         conversation_id: str = pending.get("conversation_id", "")
@@ -996,13 +1005,14 @@ class OrderService:
 
         trader_name: str = trader.get("business_name", "the trader")
 
-        # Save the learned description with price
+        # Save the learned product with image hash and price
         pd_repo = ProductDescriptionRepository(self._db)
         await pd_repo.save(
             trader_phone=trader_phone,
             product_name=product_name,
             description=description,
             price=price,
+            image_hash=pending_image_hash or None,
             confirmed=True,
         )
 
