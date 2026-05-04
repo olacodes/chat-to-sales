@@ -520,6 +520,22 @@ class OrderService:
                 items: list[dict[str, Any]] = session.get("items", [])
                 total: int = session.get("total", 0)
                 order_ref = order.id[:8]
+                trader_phone_number: str = trader.get("phone_number", "")
+
+                # If the order came from an image inquiry, send the customer's
+                # photo first, then the interactive buttons as a reply to it.
+                photo_wamid: str | None = None
+                session_media_id: str | None = session.get("media_id")
+                if session_media_id and trader_phone_number:
+                    photo_wamid = await self._reply_image(
+                        phone=trader_phone_number,
+                        tenant_id=tenant_id,
+                        event_id=f"order.image_notify_trader.{order.id}",
+                        media_id=session_media_id,
+                        caption=f"Customer +{customer_phone} wants to buy this item:",
+                        channel_tenant_id=channel_tenant_id,
+                    )
+
                 body_text, buttons = wa.order_received_interactive(
                     items=items,
                     total=total,
@@ -527,12 +543,13 @@ class OrderService:
                     order_ref=order_ref,
                 )
                 await self._reply_interactive(
-                    phone=trader.get("phone_number", ""),
+                    phone=trader_phone_number,
                     tenant_id=tenant_id,
                     event_id=f"order.trader_notify.{order.id}",
                     body_text=body_text,
                     buttons=buttons,
                     channel_tenant_id=channel_tenant_id,
+                    context_message_id=photo_wamid,
                 )
                 await clear_order_session(tenant_id, customer_phone)
                 await self._reply(
@@ -1016,15 +1033,18 @@ class OrderService:
         channel_tenant_id: str | None = None,
         media_id: str | None = None,
     ) -> None:
-        """Create an order from an image match (catalogue or passive learning)."""
+        """
+        Create an INQUIRY order from an image match and ask the customer to
+        select a quantity.  The trader is NOT notified here — notification
+        happens after the customer confirms (in handle_inbound_customer_message).
+        """
         items = [{"name": product_name, "qty": 1, "unit_price": price}]
-        trader_phone: str = trader.get("phone_number", "")
 
         order = await self._repo.create_order(
             tenant_id=tenant_id,
             conversation_id=conversation_id,
             customer_phone=customer_phone,
-            trader_phone=trader_phone,
+            trader_phone=trader.get("phone_number"),
             amount=Decimal(str(price)),
         )
         await self._repo.add_item(
@@ -1035,18 +1055,17 @@ class OrderService:
         )
         await self._db.commit()
 
-        order_ref = order.id[:8]
-
-        await set_order_session(
-            tenant_id,
-            customer_phone,
-            {
-                "state": AWAITING_CUSTOMER_CONFIRMATION,
-                "order_id": order.id,
-                "items": items,
-                "total": price,
-            },
-        )
+        # Store session with media_id so the CONFIRM handler can forward
+        # the customer's photo to the trader alongside the order notification.
+        session_data: dict[str, Any] = {
+            "state": AWAITING_CUSTOMER_CONFIRMATION,
+            "order_id": order.id,
+            "items": items,
+            "total": price,
+        }
+        if media_id:
+            session_data["media_id"] = media_id
+        await set_order_session(tenant_id, customer_phone, session_data)
 
         list_body, list_button, list_sections = wa.image_inquiry_matched_list(
             product_name, price, trader_name
@@ -1061,38 +1080,9 @@ class OrderService:
             channel_tenant_id=channel_tenant_id,
         )
 
-        # Notify trader — photo first (if available), then interactive buttons
-        # as a reply to the photo so they're visually linked
-        if trader_phone:
-            photo_wamid: str | None = None
-            if media_id:
-                photo_wamid = await self._reply_image(
-                    phone=trader_phone,
-                    tenant_id=tenant_id,
-                    event_id=f"order.image_notify_trader.{order.id}",
-                    media_id=media_id,
-                    caption=f"Customer +{customer_phone} wants to buy this item:",
-                    channel_tenant_id=channel_tenant_id,
-                )
-
-            body_text, buttons = wa.order_received_interactive(
-                items=items,
-                total=price,
-                customer_phone=customer_phone,
-                order_ref=order_ref,
-            )
-            await self._reply_interactive(
-                phone=trader_phone,
-                tenant_id=tenant_id,
-                event_id=f"order.image_notify_trader_btn.{order.id}",
-                body_text=body_text,
-                buttons=buttons,
-                channel_tenant_id=channel_tenant_id,
-                context_message_id=photo_wamid,
-            )
-
         logger.info(
-            "Image inquiry matched product=%s price=%s order_id=%s customer=%s",
+            "Image inquiry order created — awaiting customer qty selection "
+            "product=%s price=%s order_id=%s customer=%s",
             product_name,
             price,
             order.id,
