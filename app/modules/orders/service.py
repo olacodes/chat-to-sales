@@ -778,6 +778,7 @@ class OrderService:
                 price=matched_price,
                 trader_name=trader_name,
                 channel_tenant_id=channel_tenant_id,
+                media_id=media_id,
             )
             return
 
@@ -805,6 +806,7 @@ class OrderService:
                     price=learned["price"],
                     trader_name=trader_name,
                     channel_tenant_id=channel_tenant_id,
+                    media_id=media_id,
                 )
                 return
 
@@ -986,15 +988,17 @@ class OrderService:
         price: int,
         trader_name: str,
         channel_tenant_id: str | None = None,
+        media_id: str | None = None,
     ) -> None:
         """Create an order from an image match (catalogue or passive learning)."""
         items = [{"name": product_name, "qty": 1, "unit_price": price}]
+        trader_phone: str = trader.get("phone_number", "")
 
         order = await self._repo.create_order(
             tenant_id=tenant_id,
             conversation_id=conversation_id,
             customer_phone=customer_phone,
-            trader_phone=trader.get("phone_number"),
+            trader_phone=trader_phone,
             amount=Decimal(str(price)),
         )
         await self._repo.add_item(
@@ -1004,6 +1008,8 @@ class OrderService:
             unit_price=Decimal(str(price)),
         )
         await self._db.commit()
+
+        order_ref = order.id[:8]
 
         await set_order_session(
             tenant_id,
@@ -1023,6 +1029,32 @@ class OrderService:
             text=wa.image_inquiry_matched(product_name, price, trader_name),
             channel_tenant_id=channel_tenant_id,
         )
+
+        # Notify trader with the customer's photo so they can verify
+        if trader_phone:
+            notify_text = wa.order_received_to_trader(
+                items=items,
+                total=price,
+                customer_phone=customer_phone,
+                order_ref=order_ref,
+            )
+            if media_id:
+                await self._reply_image(
+                    phone=trader_phone,
+                    tenant_id=tenant_id,
+                    event_id=f"order.image_notify_trader.{order.id}",
+                    media_id=media_id,
+                    caption=notify_text,
+                    channel_tenant_id=channel_tenant_id,
+                )
+            else:
+                await self._reply(
+                    phone=trader_phone,
+                    tenant_id=tenant_id,
+                    event_id=f"order.image_notify_trader.{order.id}",
+                    text=notify_text,
+                    channel_tenant_id=channel_tenant_id,
+                )
 
         logger.info(
             "Image inquiry matched product=%s price=%s order_id=%s customer=%s",
