@@ -156,12 +156,16 @@ class NotificationService:
         channel: str = "whatsapp",
         order_id: str | None = None,
         channel_tenant_id: str | None = None,
+        context_message_id: str | None = None,
     ) -> None:
         """
         Send a WhatsApp interactive button message.
 
         buttons: list of {"id": "CONFIRM abc123", "title": "Confirm"} (max 3).
         The id is sent back as the button_reply.id when the user taps it.
+
+        context_message_id: when set, the message is displayed as a reply to
+        the specified wamid (shows a quoted thumbnail of the original message).
         """
         existing = await self._repo.get_by_event_id(event_id)
         if existing is not None:
@@ -186,6 +190,7 @@ class NotificationService:
                     recipient=recipient,
                     body_text=body_text,
                     buttons=buttons,
+                    context_message_id=context_message_id,
                 )
             else:
                 logger.info("MOCK SEND interactive [%s] → %s", channel, recipient)
@@ -281,11 +286,14 @@ class NotificationService:
         recipient: str,
         body_text: str,
         buttons: list[dict[str, str]],
+        context_message_id: str | None = None,
     ) -> None:
         """
         Send an interactive button message via the Meta Cloud API.
 
         buttons: [{"id": "CONFIRM abc", "title": "Confirm"}, ...] (max 3).
+        context_message_id: when set, the message is sent as a reply to this
+        wamid — WhatsApp displays it with a quoted thumbnail of the original.
         """
         channel_record = await self._channel_repo.get_by_tenant_and_channel(
             tenant_id=tenant_id,
@@ -305,7 +313,7 @@ class NotificationService:
             "Authorization": f"Bearer {access_token}",
             "Content-Type": "application/json",
         }
-        body = {
+        body: dict = {
             "messaging_product": "whatsapp",
             "to": recipient,
             "type": "interactive",
@@ -326,6 +334,8 @@ class NotificationService:
                 },
             },
         }
+        if context_message_id:
+            body["context"] = {"message_id": context_message_id}
 
         async with httpx.AsyncClient(timeout=_WHATSAPP_TIMEOUT) as client:
             response = await client.post(url, headers=headers, json=body)
@@ -367,19 +377,21 @@ class NotificationService:
         channel: str = "whatsapp",
         order_id: str | None = None,
         channel_tenant_id: str | None = None,
-    ) -> None:
+    ) -> str | None:
         """
         Send a WhatsApp image message (forwarding an inbound media_id).
 
         media_id: Meta media object ID from the inbound message.
         caption: optional text caption shown below the image.
+
+        Returns the wamid of the sent message (for reply-to chaining), or None.
         """
         existing = await self._repo.get_by_event_id(event_id)
         if existing is not None:
             logger.info(
                 "Notification already sent for event_id=%s — skipping", event_id
             )
-            return
+            return None
 
         notification = await self._repo.create(
             tenant_id=tenant_id,
@@ -390,9 +402,10 @@ class NotificationService:
             order_id=order_id,
         )
 
+        wamid: str | None = None
         try:
             if channel == "whatsapp":
-                await self._dispatch_whatsapp_image(
+                wamid = await self._dispatch_whatsapp_image(
                     tenant_id=channel_tenant_id or tenant_id,
                     recipient=recipient,
                     media_id=media_id,
@@ -403,10 +416,11 @@ class NotificationService:
 
             await self._repo.update_status(notification, NotificationStatus.SENT)
             logger.info(
-                "Image notification sent id=%s recipient=%s event_id=%s",
+                "Image notification sent id=%s recipient=%s event_id=%s wamid=%s",
                 notification.id,
                 recipient,
                 event_id,
+                wamid,
             )
         except Exception as exc:
             await self._repo.update_status(notification, NotificationStatus.FAILED)
@@ -418,6 +432,7 @@ class NotificationService:
                 exc,
             )
             raise
+        return wamid
 
     async def _dispatch_whatsapp_image(
         self,
@@ -425,8 +440,14 @@ class NotificationService:
         recipient: str,
         media_id: str,
         caption: str | None = None,
-    ) -> None:
-        """Send an image message via the Meta Cloud API by forwarding a media_id."""
+    ) -> str | None:
+        """
+        Send an image message via the Meta Cloud API by forwarding a media_id.
+
+        Returns the wamid (WhatsApp message ID) of the sent message, or None
+        if parsing fails. The wamid can be used as context.message_id to reply
+        to this image in a subsequent message.
+        """
         channel_record = await self._channel_repo.get_by_tenant_and_channel(
             tenant_id=tenant_id,
             channel="whatsapp",
@@ -464,6 +485,13 @@ class NotificationService:
                 recipient,
                 phone_number_id,
             )
+            # Extract wamid from Meta response
+            try:
+                wamid = response.json()["messages"][0]["id"]
+                return wamid
+            except (KeyError, IndexError, TypeError):
+                logger.warning("Could not extract wamid from image send response")
+                return None
         else:
             logger.error(
                 "WhatsApp image API error status=%s body=%s recipient=%s",

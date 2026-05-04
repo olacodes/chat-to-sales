@@ -1030,31 +1030,35 @@ class OrderService:
             channel_tenant_id=channel_tenant_id,
         )
 
-        # Notify trader with the customer's photo so they can verify
+        # Notify trader — photo first (if available), then interactive buttons
+        # as a reply to the photo so they're visually linked
         if trader_phone:
-            notify_text = wa.order_received_to_trader(
+            photo_wamid: str | None = None
+            if media_id:
+                photo_wamid = await self._reply_image(
+                    phone=trader_phone,
+                    tenant_id=tenant_id,
+                    event_id=f"order.image_notify_trader.{order.id}",
+                    media_id=media_id,
+                    caption=f"Customer +{customer_phone} wants to buy this item:",
+                    channel_tenant_id=channel_tenant_id,
+                )
+
+            body_text, buttons = wa.order_received_interactive(
                 items=items,
                 total=price,
                 customer_phone=customer_phone,
                 order_ref=order_ref,
             )
-            if media_id:
-                await self._reply_image(
-                    phone=trader_phone,
-                    tenant_id=tenant_id,
-                    event_id=f"order.image_notify_trader.{order.id}",
-                    media_id=media_id,
-                    caption=notify_text,
-                    channel_tenant_id=channel_tenant_id,
-                )
-            else:
-                await self._reply(
-                    phone=trader_phone,
-                    tenant_id=tenant_id,
-                    event_id=f"order.image_notify_trader.{order.id}",
-                    text=notify_text,
-                    channel_tenant_id=channel_tenant_id,
-                )
+            await self._reply_interactive(
+                phone=trader_phone,
+                tenant_id=tenant_id,
+                event_id=f"order.image_notify_trader_btn.{order.id}",
+                body_text=body_text,
+                buttons=buttons,
+                channel_tenant_id=channel_tenant_id,
+                context_message_id=photo_wamid,
+            )
 
         logger.info(
             "Image inquiry matched product=%s price=%s order_id=%s customer=%s",
@@ -1389,10 +1393,13 @@ class OrderService:
         body_text: str,
         buttons: list[dict[str, str]],
         channel_tenant_id: str | None = None,
+        context_message_id: str | None = None,
     ) -> None:
         """
         Send a WhatsApp interactive button message using an independent DB session.
 
+        context_message_id: when set, the message is displayed as a reply to
+        the specified wamid (shows a quoted thumbnail of the original message).
         Same error-swallowing pattern as _reply — failures never crash the handler.
         """
         if not phone:
@@ -1409,6 +1416,7 @@ class OrderService:
                     buttons=buttons,
                     channel="whatsapp",
                     channel_tenant_id=channel_tenant_id,
+                    context_message_id=context_message_id,
                 )
         except Exception as exc:
             logger.error(
@@ -1427,19 +1435,20 @@ class OrderService:
         media_id: str,
         caption: str | None = None,
         channel_tenant_id: str | None = None,
-    ) -> None:
+    ) -> str | None:
         """
         Forward a WhatsApp image using an independent DB session.
 
+        Returns the wamid of the sent message (for reply-to chaining), or None.
         Same error-swallowing pattern as _reply — failures never crash the handler.
         """
         if not phone:
             logger.warning("_reply_image called with empty phone for event_id=%s", event_id)
-            return
+            return None
         try:
             async with async_session_factory.begin() as session:
                 svc = NotificationService(session)
-                await svc.send_image(
+                return await svc.send_image(
                     tenant_id=tenant_id,
                     event_id=event_id,
                     recipient=phone,
@@ -1455,6 +1464,7 @@ class OrderService:
                 event_id,
                 exc,
             )
+            return None
 
     # ── List query ────────────────────────────────────────────────────────────
 
