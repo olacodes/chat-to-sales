@@ -486,13 +486,22 @@ class OrderService:
                 except (IndexError, ValueError):
                     qty = 1
             else:
-                # Typed message: extract the first number from text like
-                # "I want 7", "give me 3", "send 10", or just "7"
+                # Typed message: extract quantity from digits or number words.
+                # Supports: "7", "I want 7", "give me three", "meji" (Yoruba)
+                from app.modules.orders.nlp import _WORD_TO_NUM
+
+                # First try digit match
                 num_match = _re.search(r"\b(\d+)\b", message.strip())
                 if num_match:
                     parsed = int(num_match.group(1))
                     if 1 <= parsed <= 1000:
                         qty = parsed
+                else:
+                    # Try word-to-number (English + Yoruba)
+                    for word in message.strip().lower().split():
+                        if word in _WORD_TO_NUM:
+                            qty = _WORD_TO_NUM[word]
+                            break
 
             if qty is not None:
                 if qty < 1:
