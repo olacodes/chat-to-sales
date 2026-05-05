@@ -39,6 +39,13 @@ from app.modules.onboarding.session import (
     get_state,
     set_state,
 )
+from app.modules.onboarding.analytics import (
+    EVT_COMPLETED,
+    EVT_PATH_CHOSEN,
+    EVT_STARTED,
+    EVT_STEP,
+    track_onboarding_event,
+)
 from app.modules.orders.session import cache_trader_by_phone
 
 logger = get_logger(__name__)
@@ -300,6 +307,9 @@ class OnboardingService:
     # ── Step handlers ─────────────────────────────────────────────────────────
 
     async def _start(self, *, phone_number: str, tenant_id: str, message_id: str) -> None:
+        await track_onboarding_event(
+            phone_number=phone_number, event_type=EVT_STARTED, step_name="welcome",
+        )
         await self._advance(
             phone_number,
             OnboardingStep.AWAITING_NAME,
@@ -331,6 +341,9 @@ class OnboardingService:
         # Truncate silently at 60 chars (per spec)
         name = name[:60]
 
+        await track_onboarding_event(
+            phone_number=phone_number, event_type=EVT_STEP, step_name="business_name",
+        )
         await self._advance(
             phone_number,
             OnboardingStep.AWAITING_CATEGORY,
@@ -387,6 +400,9 @@ class OnboardingService:
             )
             return
 
+        await track_onboarding_event(
+            phone_number=phone_number, event_type=EVT_STEP, step_name="category",
+        )
         # Build the category confirmation line
         short_name = catalogue_templates.CATEGORY_SHORT_NAMES.get(category_key, category_key.title())
         item_count = len(catalogue_templates.get_items(category_key))
@@ -415,9 +431,14 @@ class OnboardingService:
         message_id: str,
         state: OnboardingState,
     ) -> None:
+        _PATH_MAP = {"1": "photo", "2": "voice", "3": "qa", "4": "skip"}
         match msg.strip():
             case "1":
                 # Path A — send photo prompt, wait for image
+                await track_onboarding_event(
+                    phone_number=phone_number, event_type=EVT_PATH_CHOSEN,
+                    step_name="catalogue_path", path="photo",
+                )
                 await self._advance(
                     phone_number,
                     OnboardingStep.AWAITING_PHOTO,
@@ -428,6 +449,10 @@ class OnboardingService:
                 )
             case "2":
                 # Path B — send voice prompt, wait for audio
+                await track_onboarding_event(
+                    phone_number=phone_number, event_type=EVT_PATH_CHOSEN,
+                    step_name="catalogue_path", path="voice",
+                )
                 await self._advance(
                     phone_number,
                     OnboardingStep.AWAITING_VOICE,
@@ -438,9 +463,17 @@ class OnboardingService:
                 )
             case "3":
                 # Path C — Q&A
+                await track_onboarding_event(
+                    phone_number=phone_number, event_type=EVT_PATH_CHOSEN,
+                    step_name="catalogue_path", path="qa",
+                )
                 await self._start_qa(phone_number, state.data, tenant_id, message_id)
             case "4":
                 # Path D — skip, complete immediately
+                await track_onboarding_event(
+                    phone_number=phone_number, event_type=EVT_PATH_CHOSEN,
+                    step_name="catalogue_path", path="skip",
+                )
                 await self._complete(phone_number, state.data, tenant_id, message_id)
             case _:
                 await self._reply(
@@ -787,6 +820,18 @@ class OnboardingService:
         category_desc: str = data.get("category_desc", "")
         qa_prices: dict[str, Any] = data.get("qa_prices", {})
         media_catalogue: str | None = data.get("media_catalogue")
+
+        # Determine path for analytics
+        if media_catalogue:
+            _path = "photo"  # Could be photo or voice — both store media_catalogue
+        elif qa_prices:
+            _path = "qa"
+        else:
+            _path = "skip"
+        await track_onboarding_event(
+            phone_number=phone_number, event_type=EVT_COMPLETED,
+            step_name="completed", path=_path,
+        )
 
         business_category = (
             category_desc if category == "other" and category_desc else category

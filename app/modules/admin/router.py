@@ -6,13 +6,16 @@ Superadmin backoffice endpoints — cross-tenant views for the platform owner.
 All routes require a JWT with is_superadmin=True (enforced by SuperAdminDep).
 """
 
+from datetime import date
 from decimal import Decimal
+from typing import Any
 
 from fastapi import APIRouter, Query
 from pydantic import BaseModel
 
 from app.core.dependencies import DBSessionDep, SuperAdminDep
 from app.modules.admin.repository import AdminRepository
+from app.modules.onboarding.analytics import OnboardingAnalyticsRepository
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
@@ -176,4 +179,40 @@ async def list_orders(
     return OrderListResponse(
         orders=[_order_out(o) for o in orders],
         total=total,
+    )
+
+
+# ── Onboarding analytics ───────────────────────────────────────────────────
+
+
+class PathStats(BaseModel):
+    chosen: int
+    completed: int
+
+
+class OnboardingAnalyticsResponse(BaseModel):
+    total_started: int
+    total_completed: int
+    completion_rate: float
+    avg_completion_minutes: float
+    by_path: dict[str, PathStats]
+    drop_off_by_step: dict[str, int]
+
+
+@router.get("/analytics/onboarding", summary="Onboarding funnel analytics")
+async def get_onboarding_analytics(
+    _admin: SuperAdminDep,
+    db: DBSessionDep,
+    from_date: date | None = Query(None, alias="from"),
+    to_date: date | None = Query(None, alias="to"),
+) -> OnboardingAnalyticsResponse:
+    repo = OnboardingAnalyticsRepository(db)
+    data = await repo.get_analytics(from_date=from_date, to_date=to_date)
+    return OnboardingAnalyticsResponse(
+        total_started=data["total_started"],
+        total_completed=data["total_completed"],
+        completion_rate=data["completion_rate"],
+        avg_completion_minutes=data["avg_completion_minutes"],
+        by_path={k: PathStats(**v) for k, v in data["by_path"].items()},
+        drop_off_by_step=data["drop_off_by_step"],
     )
