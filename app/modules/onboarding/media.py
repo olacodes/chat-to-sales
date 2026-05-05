@@ -123,9 +123,64 @@ async def ocr_image_bytes(image_bytes: bytes) -> str:
 # ── Transcription (OpenAI Whisper) ────────────────────────────────────────────
 
 
+# Formats Whisper accepts natively (no conversion needed)
+_WHISPER_NATIVE = frozenset({"ogg", "mp3", "mp4", "mpeg", "mpga", "m4a", "wav", "webm", "flac", "oga"})
+
+_EXT_MAP: dict[str, str] = {
+    "audio/ogg": "ogg",
+    "audio/mpeg": "mp3",
+    "audio/mp4": "mp4",
+    "audio/aac": "aac",
+    "audio/amr": "amr",
+    "audio/wav": "wav",
+    "audio/webm": "webm",
+    "audio/3gpp": "3gpp",
+    "audio/flac": "flac",
+    "audio/x-m4a": "m4a",
+}
+
+
+async def _convert_audio_to_ogg(audio_bytes: bytes, input_ext: str) -> bytes:
+    """
+    Convert audio bytes to OGG Opus using ffmpeg (async subprocess).
+
+    Returns the converted bytes, or raises on failure.
+    """
+    import asyncio
+    import tempfile
+    import os
+
+    with tempfile.NamedTemporaryFile(suffix=f".{input_ext}", delete=False) as inp:
+        inp.write(audio_bytes)
+        inp_path = inp.name
+    out_path = inp_path + ".ogg"
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "ffmpeg", "-i", inp_path, "-c:a", "libopus", "-b:a", "64k",
+            "-y", out_path,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            raise RuntimeError(f"ffmpeg failed (rc={proc.returncode}): {stderr.decode()[:200]}")
+        with open(out_path, "rb") as f:
+            return f.read()
+    finally:
+        for p in (inp_path, out_path):
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
+
+
 async def transcribe_audio_bytes(audio_bytes: bytes, mime_type: str = "audio/ogg") -> str:
     """
     Transcribe audio using OpenAI Whisper, configured for Nigerian/West African English.
+
+    If the audio format is not natively supported by Whisper (e.g. AAC, AMR, 3GPP),
+    it is converted to OGG Opus via ffmpeg before upload.
 
     Returns the transcription text. Returns an empty string if the API key is
     not configured or transcription confidence is too low.
@@ -134,17 +189,19 @@ async def transcribe_audio_bytes(audio_bytes: bytes, mime_type: str = "audio/ogg
         logger.warning("OPENAI_API_KEY not set — transcription unavailable")
         return ""
 
-    _ext_map: dict[str, str] = {
-        "audio/ogg": "ogg",
-        "audio/mpeg": "mp3",
-        "audio/mp4": "mp4",
-        "audio/aac": "m4a",
-        "audio/amr": "ogg",
-        "audio/wav": "wav",
-        "audio/webm": "webm",
-        "audio/3gpp": "mp4",
-    }
-    ext = _ext_map.get(mime_type, "ogg")
+    ext = _EXT_MAP.get(mime_type, "ogg")
+
+    if ext not in _WHISPER_NATIVE:
+        # Convert unsupported format to OGG Opus via ffmpeg
+        try:
+            audio_bytes = await _convert_audio_to_ogg(audio_bytes, ext)
+            ext = "ogg"
+            mime_type = "audio/ogg"
+            logger.info("Converted %s audio to OGG for Whisper", mime_type)
+        except Exception as exc:
+            logger.warning("ffmpeg audio conversion failed (%s): %s", mime_type, exc)
+            return ""
+
     filename = f"audio.{ext}"
 
     client = openai.AsyncOpenAI(api_key=_settings.OPENAI_API_KEY)

@@ -21,6 +21,10 @@ RUN pip install --upgrade pip \
 # ── Runtime stage ─────────────────────────────────────────────────────────────
 FROM python:3.11-slim AS runtime
 
+# ffmpeg for audio format conversion (AAC/AMR → OGG for Whisper)
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
 # Non-root user for security
 RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser
 
