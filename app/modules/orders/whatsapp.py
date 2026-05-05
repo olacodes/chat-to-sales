@@ -205,6 +205,140 @@ def trader_command_guide() -> str:
     )
 
 
+def trader_menu() -> tuple[str, str, list[dict]]:
+    """Return (body, button_label, sections) for the trader main menu list message."""
+    body = "What you wan do? \U0001f4cb"
+    button_label = "Open menu"
+    sections = [
+        {
+            "title": "Orders",
+            "rows": [
+                {"id": "MENU_HELP", "title": "\u2753 Help", "description": "See order commands"},
+            ],
+        },
+        {
+            "title": "Catalogue",
+            "rows": [
+                {"id": "MENU_CATALOGUE", "title": "\U0001f4cb My Catalogue", "description": "View all your products"},
+                {"id": "MENU_ADD", "title": "\u2795 Add Product", "description": "Add new product + price"},
+                {"id": "MENU_REMOVE", "title": "\u2796 Remove Product", "description": "Remove a product"},
+                {"id": "MENU_PRICE", "title": "\U0001f4b0 Update Price", "description": "Change a product's price"},
+            ],
+        },
+        {
+            "title": "Store",
+            "rows": [
+                {"id": "MENU_STORE", "title": "\U0001f6cd My Store", "description": "View store link"},
+            ],
+        },
+    ]
+    return body, button_label, sections
+
+
+# ── Catalogue management templates ───────────────────────────────────────────
+
+
+def catalogue_list(catalogue: dict[str, int], business_name: str) -> str:
+    """Format the trader's catalogue as a readable list."""
+    if not catalogue:
+        return (
+            f"*{business_name}* — Your catalogue is empty.\n\n"
+            "Add products by typing:\n"
+            "_ADD Indomie Carton 8500_\n\n"
+            "Or send MENU for more options."
+        )
+    lines = []
+    for i, (name, price) in enumerate(sorted(catalogue.items()), 1):
+        lines.append(f"  {i}. {name} — {_naira(price)}")
+    return (
+        f"*{business_name}* — Your catalogue ({len(catalogue)} products):\n\n"
+        + "\n".join(lines)
+        + "\n\nTo update, type:\n"
+        "_ADD <product> <price>_\n"
+        "_REMOVE <product>_\n"
+        "_PRICE <product> <new price>_"
+    )
+
+
+def product_added(name: str, price: int) -> str:
+    return f"\u2705 Added *{name}* at {_naira(price)} to your catalogue."
+
+
+def product_removed(name: str) -> str:
+    return f"\u2705 Removed *{name}* from your catalogue."
+
+
+def product_price_updated(name: str, old_price: int, new_price: int) -> str:
+    return (
+        f"\u2705 *{name}* price updated: {_naira(old_price)} \u2192 {_naira(new_price)}"
+    )
+
+
+def product_not_found(name: str) -> str:
+    return (
+        f"I no fit find *{name}* in your catalogue. \U0001f914\n\n"
+        "Type _CATALOGUE_ to see all your products."
+    )
+
+
+def add_product_prompt() -> str:
+    return (
+        "Type the product name and price. For example:\n\n"
+        "_Milo 3500_\n"
+        "_Peak Milk Tin 1200_"
+    )
+
+
+def remove_product_list(catalogue: dict[str, int]) -> tuple[str, str, list[dict]]:
+    """Return (body, button_label, sections) for product removal picker."""
+    body = "Which product you wan remove?"
+    button_label = "Select product"
+    rows = []
+    for name, price in sorted(catalogue.items()):
+        rows.append({
+            "id": f"RM_{name}"[:72],  # WhatsApp max 72 chars for row ID
+            "title": name[:24],
+            "description": _naira(price),
+        })
+    if len(rows) > 10:
+        rows = rows[:10]  # WhatsApp max 10 rows
+    sections = [{"title": "Your products", "rows": rows}]
+    return body, button_label, sections
+
+
+def price_product_list(catalogue: dict[str, int]) -> tuple[str, str, list[dict]]:
+    """Return (body, button_label, sections) for price update picker."""
+    body = "Which product you wan update?"
+    button_label = "Select product"
+    rows = []
+    for name, price in sorted(catalogue.items()):
+        rows.append({
+            "id": f"PR_{name}"[:72],
+            "title": name[:24],
+            "description": f"Current: {_naira(price)}",
+        })
+    if len(rows) > 10:
+        rows = rows[:10]
+    sections = [{"title": "Your products", "rows": rows}]
+    return body, button_label, sections
+
+
+def price_enter_prompt(name: str, current_price: int) -> str:
+    return (
+        f"*{name}* — current price: {_naira(current_price)}\n\n"
+        "Type the new price (e.g. _9000_):"
+    )
+
+
+def store_info(slug: str, business_name: str, product_count: int) -> str:
+    return (
+        f"\U0001f6cd *{business_name}*\n\n"
+        f"Store link: https://chattosales.com/stores/{slug}\n"
+        f"Products: {product_count}\n\n"
+        "Share this link with your customers!"
+    )
+
+
 # ── Image inquiry ────────────────────────────────────────────────────────────
 
 

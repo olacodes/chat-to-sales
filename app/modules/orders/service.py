@@ -1023,6 +1023,314 @@ class OrderService:
         )
         return True
 
+    # ── Catalogue management helpers ─────────────────────────────────────────
+
+    async def _send_trader_menu(
+        self,
+        *,
+        trader_phone: str,
+        message_id: str,
+        tenant_id: str,
+        channel_tenant_id: str | None = None,
+    ) -> None:
+        body, button_label, sections = wa.trader_menu()
+        await self._reply_list(
+            phone=trader_phone,
+            tenant_id=tenant_id,
+            event_id=f"trader.menu.{message_id}",
+            body_text=body,
+            button_label=button_label,
+            sections=sections,
+            channel_tenant_id=channel_tenant_id,
+        )
+
+    async def _handle_menu_tap(
+        self,
+        *,
+        tap: str,
+        trader_phone: str,
+        message_id: str,
+        trader: dict[str, Any],
+        tenant_id: str,
+        channel_tenant_id: str | None = None,
+    ) -> None:
+        from app.modules.orders.session import set_trader_session, TRADER_AWAITING_ADD
+
+        trader_name = trader.get("business_name", "the trader")
+        catalogue: dict[str, int] = trader.get("catalogue", {})
+        store_slug: str = trader.get("store_slug", "")
+
+        if tap == "MENU_CATALOGUE":
+            await self._reply(
+                phone=trader_phone,
+                tenant_id=tenant_id,
+                event_id=f"trader.catalogue.{message_id}",
+                text=wa.catalogue_list(catalogue, trader_name),
+                channel_tenant_id=channel_tenant_id,
+            )
+        elif tap == "MENU_ADD":
+            await set_trader_session(trader_phone, {"state": TRADER_AWAITING_ADD})
+            await self._reply(
+                phone=trader_phone,
+                tenant_id=tenant_id,
+                event_id=f"trader.add_prompt.{message_id}",
+                text=wa.add_product_prompt(),
+                channel_tenant_id=channel_tenant_id,
+            )
+        elif tap == "MENU_REMOVE":
+            if not catalogue:
+                await self._reply(
+                    phone=trader_phone,
+                    tenant_id=tenant_id,
+                    event_id=f"trader.remove_empty.{message_id}",
+                    text="Your catalogue is empty — nothing to remove.",
+                    channel_tenant_id=channel_tenant_id,
+                )
+            else:
+                body, btn, sections = wa.remove_product_list(catalogue)
+                await self._reply_list(
+                    phone=trader_phone,
+                    tenant_id=tenant_id,
+                    event_id=f"trader.remove_picker.{message_id}",
+                    body_text=body,
+                    button_label=btn,
+                    sections=sections,
+                    channel_tenant_id=channel_tenant_id,
+                )
+        elif tap == "MENU_PRICE":
+            if not catalogue:
+                await self._reply(
+                    phone=trader_phone,
+                    tenant_id=tenant_id,
+                    event_id=f"trader.price_empty.{message_id}",
+                    text="Your catalogue is empty — add products first.",
+                    channel_tenant_id=channel_tenant_id,
+                )
+            else:
+                body, btn, sections = wa.price_product_list(catalogue)
+                await self._reply_list(
+                    phone=trader_phone,
+                    tenant_id=tenant_id,
+                    event_id=f"trader.price_picker.{message_id}",
+                    body_text=body,
+                    button_label=btn,
+                    sections=sections,
+                    channel_tenant_id=channel_tenant_id,
+                )
+        elif tap == "MENU_STORE":
+            product_count = len(catalogue)
+            await self._reply(
+                phone=trader_phone,
+                tenant_id=tenant_id,
+                event_id=f"trader.store_info.{message_id}",
+                text=wa.store_info(store_slug, trader_name, product_count),
+                channel_tenant_id=channel_tenant_id,
+            )
+        elif tap == "MENU_HELP":
+            await self._reply(
+                phone=trader_phone,
+                tenant_id=tenant_id,
+                event_id=f"trader.help.{message_id}",
+                text=wa.trader_command_guide(),
+                channel_tenant_id=channel_tenant_id,
+            )
+
+    async def _handle_trader_session(
+        self,
+        *,
+        tsession: dict[str, Any],
+        trader_phone: str,
+        message: str,
+        message_id: str,
+        trader: dict[str, Any],
+        tenant_id: str,
+        channel_tenant_id: str | None = None,
+    ) -> bool:
+        """Handle multi-step catalogue flows. Returns True if handled."""
+        import re as _re
+        from app.modules.orders.session import (
+            clear_trader_session,
+            TRADER_AWAITING_ADD,
+            TRADER_AWAITING_PRICE_VALUE,
+        )
+
+        state = tsession.get("state", "")
+
+        if state == TRADER_AWAITING_ADD:
+            await clear_trader_session(trader_phone)
+            # Parse "Milo 3500" or "Peak Milk Tin 1,200"
+            text = message.strip()
+            cleaned = _re.sub(r"(\d),(\d)", r"\1\2", text)
+            m = _re.match(r"^(.+?)\s+(\d+)\s*$", cleaned)
+            if m:
+                name = m.group(1).strip()
+                price = int(m.group(2))
+                if name and price > 0:
+                    await self._do_add_product(
+                        trader_phone=trader_phone,
+                        product_name=name,
+                        price=price,
+                        message_id=message_id,
+                        trader=trader,
+                        tenant_id=tenant_id,
+                        channel_tenant_id=channel_tenant_id,
+                    )
+                    return True
+            # Could not parse — prompt again
+            await self._reply(
+                phone=trader_phone,
+                tenant_id=tenant_id,
+                event_id=f"trader.add_invalid.{message_id}",
+                text="I no understand that. Type product name and price like:\n\n_Milo 3500_",
+                channel_tenant_id=channel_tenant_id,
+            )
+            return True
+
+        if state == TRADER_AWAITING_PRICE_VALUE:
+            await clear_trader_session(trader_phone)
+            product_name = tsession.get("product_name", "")
+            cleaned = _re.sub(r"(\d),(\d)", r"\1\2", message.strip())
+            numbers = _re.findall(r"\d+", cleaned)
+            if numbers:
+                new_price = int(numbers[0])
+                if new_price > 0 and product_name:
+                    await self._do_update_price(
+                        trader_phone=trader_phone,
+                        product_name=product_name,
+                        new_price=new_price,
+                        message_id=message_id,
+                        trader=trader,
+                        tenant_id=tenant_id,
+                        channel_tenant_id=channel_tenant_id,
+                    )
+                    return True
+            await self._reply(
+                phone=trader_phone,
+                tenant_id=tenant_id,
+                event_id=f"trader.price_invalid.{message_id}",
+                text="I no understand that. Just type the new price like:\n\n_9000_",
+                channel_tenant_id=channel_tenant_id,
+            )
+            return True
+
+        return False
+
+    async def _do_add_product(
+        self,
+        *,
+        trader_phone: str,
+        product_name: str,
+        price: int,
+        message_id: str,
+        trader: dict[str, Any],
+        tenant_id: str,
+        channel_tenant_id: str | None = None,
+    ) -> None:
+        catalogue: dict[str, int] = dict(trader.get("catalogue", {}))
+        catalogue[product_name] = price
+        await self._persist_catalogue(trader_phone, catalogue)
+        await self._reply(
+            phone=trader_phone,
+            tenant_id=tenant_id,
+            event_id=f"trader.added.{message_id}",
+            text=wa.product_added(product_name, price),
+            channel_tenant_id=channel_tenant_id,
+        )
+
+    async def _do_remove_product(
+        self,
+        *,
+        trader_phone: str,
+        product_name: str,
+        message_id: str,
+        trader: dict[str, Any],
+        tenant_id: str,
+        channel_tenant_id: str | None = None,
+    ) -> None:
+        catalogue: dict[str, int] = dict(trader.get("catalogue", {}))
+        # Case-insensitive removal
+        matched_key: str | None = None
+        for key in catalogue:
+            if key.lower() == product_name.lower():
+                matched_key = key
+                break
+        if matched_key is None:
+            await self._reply(
+                phone=trader_phone,
+                tenant_id=tenant_id,
+                event_id=f"trader.remove_notfound.{message_id}",
+                text=wa.product_not_found(product_name),
+                channel_tenant_id=channel_tenant_id,
+            )
+            return
+        del catalogue[matched_key]
+        await self._persist_catalogue(trader_phone, catalogue)
+        await self._reply(
+            phone=trader_phone,
+            tenant_id=tenant_id,
+            event_id=f"trader.removed.{message_id}",
+            text=wa.product_removed(matched_key),
+            channel_tenant_id=channel_tenant_id,
+        )
+
+    async def _do_update_price(
+        self,
+        *,
+        trader_phone: str,
+        product_name: str,
+        new_price: int,
+        message_id: str,
+        trader: dict[str, Any],
+        tenant_id: str,
+        channel_tenant_id: str | None = None,
+    ) -> None:
+        catalogue: dict[str, int] = dict(trader.get("catalogue", {}))
+        matched_key: str | None = None
+        old_price: int = 0
+        for key, val in catalogue.items():
+            if key.lower() == product_name.lower():
+                matched_key = key
+                old_price = val
+                break
+        if matched_key is None:
+            await self._reply(
+                phone=trader_phone,
+                tenant_id=tenant_id,
+                event_id=f"trader.price_notfound.{message_id}",
+                text=wa.product_not_found(product_name),
+                channel_tenant_id=channel_tenant_id,
+            )
+            return
+        catalogue[matched_key] = new_price
+        await self._persist_catalogue(trader_phone, catalogue)
+        await self._reply(
+            phone=trader_phone,
+            tenant_id=tenant_id,
+            event_id=f"trader.price_updated.{message_id}",
+            text=wa.product_price_updated(matched_key, old_price, new_price),
+            channel_tenant_id=channel_tenant_id,
+        )
+
+    async def _persist_catalogue(
+        self, trader_phone: str, catalogue: dict[str, int]
+    ) -> None:
+        """Save catalogue to DB and bust Redis trader cache."""
+        from app.modules.orders.session import cache_trader_by_phone
+
+        async with async_session_factory.begin() as session:
+            repo = TraderRepository(session)
+            await repo.update_catalogue(
+                phone_number=trader_phone, catalogue=catalogue
+            )
+
+        # Bust the trader cache so the order handler picks up the new catalogue
+        cached = await get_trader_by_phone_cache(trader_phone)
+        if cached and isinstance(cached, dict) and cached:
+            cached["catalogue"] = catalogue
+            await cache_trader_by_phone(trader_phone, cached)
+
+    # ── Image order helpers ──────────────────────────────────────────────────
+
     async def _create_image_order(
         self,
         *,
@@ -1201,22 +1509,174 @@ class OrderService:
         """
         Process a WhatsApp command from the store owner.
 
-        Recognised commands (case-insensitive):
+        Order commands:
             CONFIRM <ref>    INQUIRY -> CONFIRMED, notify customer
             CANCEL  <ref>    INQUIRY/CONFIRMED -> FAILED, notify customer
             PAID    <ref>    CONFIRMED -> PAID
             DELIVERED <ref>  CONFIRMED/PAID -> COMPLETED
 
-        Any other text replies with the command guide.
+        Catalogue commands:
+            ADD <product> <price>     Add a product
+            REMOVE <product>          Remove a product
+            PRICE <product> <price>   Update a product's price
+            CATALOGUE                 View all products
+            MENU                      Show interactive menu
 
-        trader dict keys: business_name, phone_number
-        channel_tenant_id: platform tenant for outbound WhatsApp (multi-trader routing).
+        Interactive menu taps:
+            MENU_ADD, MENU_REMOVE, MENU_PRICE, MENU_CATALOGUE, MENU_STORE, MENU_HELP
+
+        Any other text shows the interactive menu.
         """
-        from app.modules.orders.nlp import _layer1  # local import avoids cycle
+        from app.modules.orders.nlp import _layer1
+        from app.modules.orders.session import (
+            get_trader_session,
+            set_trader_session,
+            clear_trader_session,
+            TRADER_AWAITING_ADD,
+            TRADER_AWAITING_REMOVE,
+            TRADER_AWAITING_PRICE_SELECT,
+            TRADER_AWAITING_PRICE_VALUE,
+        )
 
         trader_name: str = trader.get("business_name", "the trader")
-        result = _layer1(message)
+        catalogue: dict[str, int] = trader.get("catalogue", {})
+        store_slug: str = trader.get("store_slug", "")
 
+        # ── Check for active trader session (multi-step flows) ────────────────
+        tsession = await get_trader_session(trader_phone)
+        if tsession:
+            handled = await self._handle_trader_session(
+                tsession=tsession,
+                trader_phone=trader_phone,
+                message=message,
+                message_id=message_id,
+                trader=trader,
+                tenant_id=tenant_id,
+                channel_tenant_id=channel_tenant_id,
+            )
+            if handled:
+                return
+
+        # ── Parse the message ─────────────────────────────────────────────────
+        result = _layer1(message)
+        stripped = message.strip().upper()
+
+        # ── Handle menu list taps (MENU_*) ────────────────────────────────────
+        if stripped.startswith("MENU_"):
+            await self._handle_menu_tap(
+                tap=stripped,
+                trader_phone=trader_phone,
+                message_id=message_id,
+                trader=trader,
+                tenant_id=tenant_id,
+                channel_tenant_id=channel_tenant_id,
+            )
+            return
+
+        # ── Handle remove list tap (RM_*) ─────────────────────────────────────
+        if stripped.startswith("RM_"):
+            product_name = message.strip()[3:]  # preserve original case
+            await self._do_remove_product(
+                trader_phone=trader_phone,
+                product_name=product_name,
+                message_id=message_id,
+                trader=trader,
+                tenant_id=tenant_id,
+                channel_tenant_id=channel_tenant_id,
+            )
+            return
+
+        # ── Handle price list tap (PR_*) ──────────────────────────────────────
+        if stripped.startswith("PR_"):
+            product_name = message.strip()[3:]
+            price = catalogue.get(product_name)
+            if price is None:
+                # Fuzzy match
+                for cat_name, cat_price in catalogue.items():
+                    if cat_name.lower() == product_name.lower():
+                        product_name = cat_name
+                        price = cat_price
+                        break
+            if price is not None:
+                await set_trader_session(trader_phone, {
+                    "state": TRADER_AWAITING_PRICE_VALUE,
+                    "product_name": product_name,
+                })
+                await self._reply(
+                    phone=trader_phone,
+                    tenant_id=tenant_id,
+                    event_id=f"trader.price_prompt.{message_id}",
+                    text=wa.price_enter_prompt(product_name, price),
+                    channel_tenant_id=channel_tenant_id,
+                )
+            else:
+                await self._reply(
+                    phone=trader_phone,
+                    tenant_id=tenant_id,
+                    event_id=f"trader.price_notfound.{message_id}",
+                    text=wa.product_not_found(product_name),
+                    channel_tenant_id=channel_tenant_id,
+                )
+            return
+
+        # ── Catalogue commands (typed) ────────────────────────────────────────
+        if result.intent == TRADER_ADD:
+            item = result.items[0]
+            await self._do_add_product(
+                trader_phone=trader_phone,
+                product_name=item["name"],
+                price=item["unit_price"],
+                message_id=message_id,
+                trader=trader,
+                tenant_id=tenant_id,
+                channel_tenant_id=channel_tenant_id,
+            )
+            return
+
+        if result.intent == TRADER_REMOVE:
+            await self._do_remove_product(
+                trader_phone=trader_phone,
+                product_name=result.items[0]["name"],
+                message_id=message_id,
+                trader=trader,
+                tenant_id=tenant_id,
+                channel_tenant_id=channel_tenant_id,
+            )
+            return
+
+        if result.intent == TRADER_PRICE:
+            item = result.items[0]
+            await self._do_update_price(
+                trader_phone=trader_phone,
+                product_name=item["name"],
+                new_price=item["unit_price"],
+                message_id=message_id,
+                trader=trader,
+                tenant_id=tenant_id,
+                channel_tenant_id=channel_tenant_id,
+            )
+            return
+
+        if result.intent == TRADER_CATALOGUE:
+            await self._reply(
+                phone=trader_phone,
+                tenant_id=tenant_id,
+                event_id=f"trader.catalogue.{message_id}",
+                text=wa.catalogue_list(catalogue, trader_name),
+                channel_tenant_id=channel_tenant_id,
+            )
+            return
+
+        if result.intent == TRADER_MENU:
+            await self._send_trader_menu(
+                trader_phone=trader_phone,
+                message_id=message_id,
+                tenant_id=tenant_id,
+                channel_tenant_id=channel_tenant_id,
+            )
+            return
+
+        # ── Order commands ────────────────────────────────────────────────────
         if result.intent not in (
             TRADER_CONFIRM, TRADER_CANCEL, TRADER_PAID, TRADER_DELIVERED
         ):
@@ -1232,11 +1692,11 @@ class OrderService:
             if handled:
                 return
 
-            await self._reply(
-                phone=trader_phone,
+            # Show interactive menu instead of text command guide
+            await self._send_trader_menu(
+                trader_phone=trader_phone,
+                message_id=message_id,
                 tenant_id=tenant_id,
-                event_id=f"order.cmd_guide.{message_id}",
-                text=wa.trader_command_guide(),
                 channel_tenant_id=channel_tenant_id,
             )
             return

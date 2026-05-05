@@ -39,6 +39,11 @@ TRADER_CONFIRM = "trader_confirm"
 TRADER_CANCEL = "trader_cancel"
 TRADER_PAID = "trader_paid"
 TRADER_DELIVERED = "trader_delivered"
+TRADER_ADD = "trader_add"
+TRADER_REMOVE = "trader_remove"
+TRADER_PRICE = "trader_price"
+TRADER_CATALOGUE = "trader_catalogue"
+TRADER_MENU = "trader_menu"
 UNKNOWN = "unknown"
 
 
@@ -104,6 +109,33 @@ _TRADER_VERB_MAP = {
     "deliver": TRADER_DELIVERED,
     "delivered": TRADER_DELIVERED,
 }
+
+# Catalogue management commands
+# ADD <product name> <price>  e.g. "ADD Milo 3500", "add Peak Milk Tin 1200"
+_ADD_RE = re.compile(
+    r"^add\s+(.+?)\s+(\d[\d,]*)\s*$",
+    re.IGNORECASE,
+)
+# REMOVE <product name>  e.g. "REMOVE Garri", "remove Peak Milk"
+_REMOVE_RE = re.compile(
+    r"^(?:remove|delete)\s+(.+)$",
+    re.IGNORECASE,
+)
+# PRICE <product name> <new price>  e.g. "PRICE Indomie 9000"
+_PRICE_RE = re.compile(
+    r"^price\s+(.+?)\s+(\d[\d,]*)\s*$",
+    re.IGNORECASE,
+)
+# CATALOGUE / CATALOG / MY PRODUCTS
+_CATALOGUE_RE = re.compile(
+    r"^(?:catalogue|catalog|my products|products|my catalogue|my catalog)$",
+    re.IGNORECASE,
+)
+# MENU / HELP
+_MENU_RE = re.compile(
+    r"^(?:menu|help|commands|options)$",
+    re.IGNORECASE,
+)
 
 
 # ── Layer-1 helpers ───────────────────────────────────────────────────────────
@@ -173,6 +205,42 @@ def _layer1(message: str) -> ParseResult:
             order_ref=ref,
             confidence=1.0,
         )
+
+    # ── Catalogue management commands ────────────────────────────────────────
+    m = _ADD_RE.match(stripped)
+    if m:
+        product = m.group(1).strip()
+        price = int(m.group(2).replace(",", ""))
+        return ParseResult(
+            intent=TRADER_ADD,
+            items=[{"name": product, "qty": 1, "unit_price": price}],
+            confidence=1.0,
+        )
+
+    m = _PRICE_RE.match(stripped)
+    if m:
+        product = m.group(1).strip()
+        price = int(m.group(2).replace(",", ""))
+        return ParseResult(
+            intent=TRADER_PRICE,
+            items=[{"name": product, "qty": 1, "unit_price": price}],
+            confidence=1.0,
+        )
+
+    m = _REMOVE_RE.match(stripped)
+    if m:
+        product = m.group(1).strip()
+        return ParseResult(
+            intent=TRADER_REMOVE,
+            items=[{"name": product, "qty": 1, "unit_price": None}],
+            confidence=1.0,
+        )
+
+    if _CATALOGUE_RE.match(stripped):
+        return ParseResult(intent=TRADER_CATALOGUE, confidence=1.0)
+
+    if _MENU_RE.match(stripped):
+        return ParseResult(intent=TRADER_MENU, confidence=1.0)
 
     # ── Customer YES / NO ─────────────────────────────────────────────────────
     if _YES_RE.match(stripped):

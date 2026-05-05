@@ -4,6 +4,8 @@ app/modules/onboarding/repository.py
 Database operations for the Trader model.
 """
 
+import json
+
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -61,6 +63,37 @@ class TraderRepository:
             update(Trader)
             .where(Trader.phone_number == phone_number)
             .values(tenant_id=tenant_id)
+        )
+
+    # ── Catalogue management ────────────────────────────────────────────────
+
+    async def get_catalogue(self, phone_number: str) -> dict[str, int]:
+        """Return the trader's catalogue as a {name: price} dict."""
+        trader = await self.get_by_phone(phone_number)
+        if trader is None or not trader.onboarding_catalogue:
+            return {}
+        try:
+            raw = json.loads(trader.onboarding_catalogue)
+            if isinstance(raw, dict):
+                return {str(k): int(v) for k, v in raw.items() if v}
+            if isinstance(raw, list):
+                return {
+                    str(item.get("name", "")): int(item.get("price", 0))
+                    for item in raw
+                    if isinstance(item, dict) and item.get("name") and item.get("price")
+                }
+        except (json.JSONDecodeError, TypeError, ValueError):
+            pass
+        return {}
+
+    async def update_catalogue(
+        self, *, phone_number: str, catalogue: dict[str, int]
+    ) -> None:
+        """Persist the updated catalogue dict as JSON."""
+        await self._db.execute(
+            update(Trader)
+            .where(Trader.phone_number == phone_number)
+            .values(onboarding_catalogue=json.dumps(catalogue))
         )
 
     async def create(

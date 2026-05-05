@@ -192,3 +192,37 @@ async def set_pending_image_inquiry(
 async def clear_pending_image_inquiry(trader_phone: str) -> None:
     """Remove the pending image inquiry after the trader replies."""
     await get_redis().delete(_image_inquiry_key(trader_phone))
+
+
+# ── Trader command session (multi-step catalogue flows) ──────────────────────
+
+_TRADER_SESSION_PREFIX = "trader:session"
+_TRADER_SESSION_TTL = 10 * 60  # 10 minutes
+
+# Trader session states
+TRADER_AWAITING_ADD = "awaiting_add"
+TRADER_AWAITING_REMOVE = "awaiting_remove"
+TRADER_AWAITING_PRICE_SELECT = "awaiting_price_select"
+TRADER_AWAITING_PRICE_VALUE = "awaiting_price_value"
+
+
+def _trader_session_key(phone: str) -> str:
+    return f"{_TRADER_SESSION_PREFIX}:{phone}"
+
+
+async def get_trader_session(phone: str) -> dict[str, Any] | None:
+    """Return the active trader command session, or None."""
+    raw = await get_redis().get(_trader_session_key(phone))
+    return json.loads(raw) if raw else None
+
+
+async def set_trader_session(phone: str, data: dict[str, Any]) -> None:
+    """Store a trader command session with a 10-minute TTL."""
+    await get_redis().setex(
+        _trader_session_key(phone), _TRADER_SESSION_TTL, json.dumps(data)
+    )
+
+
+async def clear_trader_session(phone: str) -> None:
+    """Remove the trader command session."""
+    await get_redis().delete(_trader_session_key(phone))
