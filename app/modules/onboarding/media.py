@@ -138,9 +138,11 @@ async def transcribe_audio_bytes(audio_bytes: bytes, mime_type: str = "audio/ogg
         "audio/ogg": "ogg",
         "audio/mpeg": "mp3",
         "audio/mp4": "mp4",
-        "audio/aac": "aac",
-        "audio/amr": "amr",
+        "audio/aac": "m4a",
+        "audio/amr": "ogg",
         "audio/wav": "wav",
+        "audio/webm": "webm",
+        "audio/3gpp": "mp4",
     }
     ext = _ext_map.get(mime_type, "ogg")
     filename = f"audio.{ext}"
