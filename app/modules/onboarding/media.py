@@ -181,18 +181,24 @@ async def extract_products_from_text(
     if not text.strip():
         return []
 
+    category_line = f"The trader sells: {category}\n\n" if category else ""
     prompt = (
-        f"You are helping a Nigerian informal market trader set up their WhatsApp store.\n"
-        f"The trader sells: {category}\n\n"
-        "Below is text from their price list (may be handwritten OCR, voice transcription, "
-        "or typed in Nigerian Pidgin/English). Extract every product name and price you can find.\n\n"
+        f"You are extracting products and prices from a Nigerian trader's price list.\n"
+        f"{category_line}"
+        "The text below comes from OCR, a WhatsApp screenshot, voice transcription, "
+        "or typed input. It may contain UI artifacts (timestamps, 'Forwarded', etc.) — ignore those.\n\n"
         "Rules:\n"
-        "- Prices are in Nigerian Naira. Accept: 8500, 8,500, N8500, ₦8,500, 8.5k → all mean 8500.\n"
-        "- Nigerian brand abbreviations: Ind = Indomie, Pk Milk = Peak Milk, etc.\n"
+        "- Extract EVERY line that has a product/item name and a price. Be aggressive — when in doubt, include it.\n"
+        "- Products can be anything: food, phones, electronics, fabric, cosmetics, etc.\n"
+        "- Prices are in Nigerian Naira. The 'k' suffix means thousands:\n"
+        "    500k = 500000, 800k = 800000, 8.5k = 8500, 1.2m = 1200000\n"
+        "    Also accept: 8500, 8,500, N8500, ₦8,500\n"
+        "- Nigerian brand abbreviations: Ind = Indomie, Pk Milk = Peak Milk, Uk = UK-used, etc.\n"
         "- Yoruba numbers: meji=2, meta=3, merin=4, marun=5, mefa=6, meje=7, mejo=8.\n"
         "- If a product has no clear price, omit it.\n"
-        "- Return ONLY a JSON array. No commentary, no markdown fences.\n\n"
-        'Format: [{"name": "product name", "price": 8500}, ...]\n\n'
+        "- Return ONLY a JSON array. No commentary, no markdown fences.\n"
+        "- If you find zero products, return an empty array: []\n\n"
+        'Format: [{"name": "product name", "price": 500000}, ...]\n\n'
         f"Text:\n{text}\n\n"
         "JSON array:"
     )
