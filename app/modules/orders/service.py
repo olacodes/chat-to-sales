@@ -38,13 +38,19 @@ from app.modules.orders.nlp import (
     CANCEL,
     CONFIRM,
     ORDER,
+    TRADER_ADD,
     TRADER_CANCEL,
+    TRADER_CATALOGUE,
     TRADER_CONFIRM,
     TRADER_DELIVERED,
+    TRADER_MENU,
     TRADER_PAID,
+    TRADER_PRICE,
+    TRADER_REMOVE,
     UNKNOWN,
     parse_message,
 )
+from app.modules.onboarding.repository import TraderRepository
 from app.modules.orders.repository import OrderRepository
 from app.modules.orders.schemas import OrderCreate, OrderItemCreate, OrderListResponse
 from app.modules.orders.session import (
@@ -1152,9 +1158,33 @@ class OrderService:
             clear_trader_session,
             TRADER_AWAITING_ADD,
             TRADER_AWAITING_PRICE_VALUE,
+            TRADER_AWAITING_REMOVE_CONFIRM,
         )
 
         state = tsession.get("state", "")
+
+        if state == TRADER_AWAITING_REMOVE_CONFIRM:
+            await clear_trader_session(trader_phone)
+            product_name = tsession.get("product_name", "")
+            answer = message.strip().upper()
+            if answer == "YES":
+                await self._do_remove_product(
+                    trader_phone=trader_phone,
+                    product_name=product_name,
+                    message_id=message_id,
+                    trader=trader,
+                    tenant_id=tenant_id,
+                    channel_tenant_id=channel_tenant_id,
+                )
+            else:
+                await self._reply(
+                    phone=trader_phone,
+                    tenant_id=tenant_id,
+                    event_id=f"trader.remove_cancel.{message_id}",
+                    text=wa.remove_cancelled(product_name),
+                    channel_tenant_id=channel_tenant_id,
+                )
+            return True
 
         if state == TRADER_AWAITING_ADD:
             await clear_trader_session(trader_phone)
@@ -1273,6 +1303,48 @@ class OrderService:
             channel_tenant_id=channel_tenant_id,
         )
 
+    async def _request_remove_confirmation(
+        self,
+        *,
+        trader_phone: str,
+        product_name: str,
+        message_id: str,
+        catalogue: dict[str, int],
+        tenant_id: str,
+        channel_tenant_id: str | None = None,
+    ) -> None:
+        """Ask the trader to confirm product removal before deleting."""
+        from app.modules.orders.session import set_trader_session, TRADER_AWAITING_REMOVE_CONFIRM
+
+        # Case-insensitive lookup to find actual key and price
+        matched_key: str | None = None
+        matched_price: int = 0
+        for key, val in catalogue.items():
+            if key.lower() == product_name.lower():
+                matched_key = key
+                matched_price = val
+                break
+        if matched_key is None:
+            await self._reply(
+                phone=trader_phone,
+                tenant_id=tenant_id,
+                event_id=f"trader.remove_notfound.{message_id}",
+                text=wa.product_not_found(product_name),
+                channel_tenant_id=channel_tenant_id,
+            )
+            return
+        await set_trader_session(trader_phone, {
+            "state": TRADER_AWAITING_REMOVE_CONFIRM,
+            "product_name": matched_key,
+        })
+        await self._reply(
+            phone=trader_phone,
+            tenant_id=tenant_id,
+            event_id=f"trader.remove_confirm.{message_id}",
+            text=wa.confirm_remove_prompt(matched_key, matched_price),
+            channel_tenant_id=channel_tenant_id,
+        )
+
     async def _do_update_price(
         self,
         *,
@@ -1315,7 +1387,7 @@ class OrderService:
         self, trader_phone: str, catalogue: dict[str, int]
     ) -> None:
         """Save catalogue to DB and bust Redis trader cache."""
-        from app.modules.orders.session import cache_trader_by_phone
+        from app.modules.orders.session import cache_trader_by_phone, get_trader_by_phone_cache
 
         async with async_session_factory.begin() as session:
             repo = TraderRepository(session)
@@ -1575,12 +1647,30 @@ class OrderService:
 
         # ── Handle remove list tap (RM_*) ─────────────────────────────────────
         if stripped.startswith("RM_"):
-            product_name = message.strip()[3:]  # preserve original case
-            await self._do_remove_product(
+            suffix = message.strip()[3:]  # preserve original case
+            # Pagination: RM_NEXT_2, RM_PREV_1
+            if stripped.startswith("RM_NEXT_") or stripped.startswith("RM_PREV_"):
+                try:
+                    page = int(suffix.split("_")[-1])
+                except (IndexError, ValueError):
+                    page = 1
+                body, btn, sections = wa.remove_product_list(catalogue, page=page)
+                await self._reply_list(
+                    phone=trader_phone,
+                    tenant_id=tenant_id,
+                    event_id=f"trader.remove_picker_p{page}.{message_id}",
+                    body_text=body,
+                    button_label=btn,
+                    sections=sections,
+                    channel_tenant_id=channel_tenant_id,
+                )
+                return
+            # Product tap — ask for confirmation
+            await self._request_remove_confirmation(
                 trader_phone=trader_phone,
-                product_name=product_name,
+                product_name=suffix,
                 message_id=message_id,
-                trader=trader,
+                catalogue=catalogue,
                 tenant_id=tenant_id,
                 channel_tenant_id=channel_tenant_id,
             )
@@ -1588,10 +1678,28 @@ class OrderService:
 
         # ── Handle price list tap (PR_*) ──────────────────────────────────────
         if stripped.startswith("PR_"):
-            product_name = message.strip()[3:]
+            suffix = message.strip()[3:]
+            # Pagination: PR_NEXT_2, PR_PREV_1
+            if stripped.startswith("PR_NEXT_") or stripped.startswith("PR_PREV_"):
+                try:
+                    page = int(suffix.split("_")[-1])
+                except (IndexError, ValueError):
+                    page = 1
+                body, btn, sections = wa.price_product_list(catalogue, page=page)
+                await self._reply_list(
+                    phone=trader_phone,
+                    tenant_id=tenant_id,
+                    event_id=f"trader.price_picker_p{page}.{message_id}",
+                    body_text=body,
+                    button_label=btn,
+                    sections=sections,
+                    channel_tenant_id=channel_tenant_id,
+                )
+                return
+            # Product tap — prompt for new price
+            product_name = suffix
             price = catalogue.get(product_name)
             if price is None:
-                # Fuzzy match
                 for cat_name, cat_price in catalogue.items():
                     if cat_name.lower() == product_name.lower():
                         product_name = cat_name
@@ -1634,11 +1742,11 @@ class OrderService:
             return
 
         if result.intent == TRADER_REMOVE:
-            await self._do_remove_product(
+            await self._request_remove_confirmation(
                 trader_phone=trader_phone,
                 product_name=result.items[0]["name"],
                 message_id=message_id,
-                trader=trader,
+                catalogue=catalogue,
                 tenant_id=tenant_id,
                 channel_tenant_id=channel_tenant_id,
             )

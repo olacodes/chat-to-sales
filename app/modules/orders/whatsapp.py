@@ -9,6 +9,7 @@ Every string here is written to pass the Bodija Test:
 Copy is warm, concise, and uses light Pidgin where it feels natural.
 """
 
+import math
 from decimal import Decimal
 from typing import Any
 
@@ -25,6 +26,71 @@ def _item_line(item: dict[str, Any]) -> str:
         subtotal = qty * int(price)
         return f"  {qty}x {name} - {_naira(price)} each = {_naira(subtotal)}"
     return f"  {qty}x {name}"
+
+
+_PAGE_SIZE = 8  # items per page when paginating (leaves room for up to 2 nav rows)
+
+
+def _paginate_product_rows(
+    products: list[tuple[str, int]],
+    page: int,
+    *,
+    id_prefix: str,
+    show_price: bool,
+) -> tuple[list[dict], int]:
+    """
+    Slice a sorted product list into WhatsApp list-picker rows with pagination.
+
+    Returns (rows, total_pages).  If total products <= 10 there is no
+    pagination and all products are returned on page 1.
+
+    Navigation rows use IDs like ``RM_NEXT_2`` / ``PR_PREV_1``.
+    """
+    total = len(products)
+
+    # No pagination needed for 10 or fewer products
+    if total <= 10:
+        rows = []
+        for name, price in products:
+            desc = _naira(price) if show_price else f"Current: {_naira(price)}"
+            rows.append({
+                "id": f"{id_prefix}_{name}"[:72],
+                "title": name[:24],
+                "description": desc,
+            })
+        return rows, 1
+
+    total_pages = math.ceil(total / _PAGE_SIZE)
+    page = max(1, min(page, total_pages))
+
+    start = (page - 1) * _PAGE_SIZE
+    end = start + _PAGE_SIZE
+    page_products = products[start:end]
+
+    rows = []
+    for name, price in page_products:
+        desc = _naira(price) if show_price else f"Current: {_naira(price)}"
+        rows.append({
+            "id": f"{id_prefix}_{name}"[:72],
+            "title": name[:24],
+            "description": desc,
+        })
+
+    # Navigation rows
+    if page > 1:
+        rows.append({
+            "id": f"{id_prefix}_PREV_{page - 1}",
+            "title": "\u2b05 Previous page",
+            "description": f"Page {page - 1} of {total_pages}",
+        })
+    if page < total_pages:
+        rows.append({
+            "id": f"{id_prefix}_NEXT_{page + 1}",
+            "title": "Next page \u27a1",
+            "description": f"Page {page + 1} of {total_pages}",
+        })
+
+    return rows, total_pages
 
 
 # ── Customer-facing ───────────────────────────────────────────────────────────
@@ -289,38 +355,45 @@ def add_product_prompt() -> str:
     )
 
 
-def remove_product_list(catalogue: dict[str, int]) -> tuple[str, str, list[dict]]:
-    """Return (body, button_label, sections) for product removal picker."""
-    body = "Which product you wan remove?"
+def remove_product_list(
+    catalogue: dict[str, int], page: int = 1
+) -> tuple[str, str, list[dict]]:
+    """Return (body, button_label, sections) for product removal picker with pagination."""
+    products = sorted(catalogue.items())
+    rows, total_pages = _paginate_product_rows(
+        products, page, id_prefix="RM", show_price=True
+    )
+    page_label = f" (page {page}/{total_pages})" if total_pages > 1 else ""
+    body = f"Which product you wan remove?{page_label}"
     button_label = "Select product"
-    rows = []
-    for name, price in sorted(catalogue.items()):
-        rows.append({
-            "id": f"RM_{name}"[:72],  # WhatsApp max 72 chars for row ID
-            "title": name[:24],
-            "description": _naira(price),
-        })
-    if len(rows) > 10:
-        rows = rows[:10]  # WhatsApp max 10 rows
     sections = [{"title": "Your products", "rows": rows}]
     return body, button_label, sections
 
 
-def price_product_list(catalogue: dict[str, int]) -> tuple[str, str, list[dict]]:
-    """Return (body, button_label, sections) for price update picker."""
-    body = "Which product you wan update?"
+def price_product_list(
+    catalogue: dict[str, int], page: int = 1
+) -> tuple[str, str, list[dict]]:
+    """Return (body, button_label, sections) for price update picker with pagination."""
+    products = sorted(catalogue.items())
+    rows, total_pages = _paginate_product_rows(
+        products, page, id_prefix="PR", show_price=False
+    )
+    page_label = f" (page {page}/{total_pages})" if total_pages > 1 else ""
+    body = f"Which product you wan update?{page_label}"
     button_label = "Select product"
-    rows = []
-    for name, price in sorted(catalogue.items()):
-        rows.append({
-            "id": f"PR_{name}"[:72],
-            "title": name[:24],
-            "description": f"Current: {_naira(price)}",
-        })
-    if len(rows) > 10:
-        rows = rows[:10]
     sections = [{"title": "Your products", "rows": rows}]
     return body, button_label, sections
+
+
+def confirm_remove_prompt(name: str, price: int) -> str:
+    return (
+        f"Remove *{name}* ({_naira(price)}) from your catalogue?\n\n"
+        "Reply *YES* to confirm or *NO* to cancel."
+    )
+
+
+def remove_cancelled(name: str) -> str:
+    return f"No wahala, *{name}* stays in your catalogue."
 
 
 def price_enter_prompt(name: str, current_price: int) -> str:
