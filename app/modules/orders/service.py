@@ -1248,8 +1248,17 @@ class OrderService:
                 except Exception as exc:
                     logger.warning("Pricelist OCR failed: %s", exc)
                     ocr_text = ""
-                if ocr_text:
-                    ocr_texts.append(ocr_text)
+                if not ocr_text:
+                    # OCR failed — tell the trader, don't count it
+                    await self._reply(
+                        phone=trader_phone,
+                        tenant_id=tenant_id,
+                        event_id=f"trader.pricelist_ocr_fail.{message_id}",
+                        text="I no fit read that photo. \U0001f914 Try a clearer one or send another.",
+                        channel_tenant_id=channel_tenant_id,
+                    )
+                    return True
+                ocr_texts.append(ocr_text)
                 photo_count += 1
 
                 # Auto-trigger processing at max photos
