@@ -1301,6 +1301,55 @@ class OrderService:
             channel_tenant_id=channel_tenant_id,
         )
 
+    async def _do_remove_products(
+        self,
+        *,
+        trader_phone: str,
+        names: list[str],
+        message_id: str,
+        trader: dict[str, Any],
+        tenant_id: str,
+        channel_tenant_id: str | None = None,
+    ) -> None:
+        """Remove one or more products from the catalogue in a single persist + reply."""
+        catalogue: dict[str, int] = dict(trader.get("catalogue", {}))
+        removed: list[str] = []
+        not_found: list[str] = []
+        for name in names:
+            matched_key: str | None = None
+            for key in catalogue:
+                if key.lower() == name.lower():
+                    matched_key = key
+                    break
+            if matched_key:
+                del catalogue[matched_key]
+                removed.append(matched_key)
+            else:
+                not_found.append(name)
+        if removed:
+            await self._persist_catalogue(trader_phone, catalogue)
+            if len(removed) == 1:
+                text = wa.product_removed(removed[0])
+            else:
+                text = wa.products_removed_batch(removed)
+            if not_found:
+                text += f"\n\nI no fit find: {', '.join(not_found)}"
+            await self._reply(
+                phone=trader_phone,
+                tenant_id=tenant_id,
+                event_id=f"trader.removed.{message_id}",
+                text=text,
+                channel_tenant_id=channel_tenant_id,
+            )
+        else:
+            await self._reply(
+                phone=trader_phone,
+                tenant_id=tenant_id,
+                event_id=f"trader.remove_notfound.{message_id}",
+                text=wa.product_not_found(", ".join(not_found)),
+                channel_tenant_id=channel_tenant_id,
+            )
+
     async def _do_update_price(
         self,
         *,
@@ -1338,6 +1387,59 @@ class OrderService:
             text=wa.product_price_updated(matched_key, old_price, new_price),
             channel_tenant_id=channel_tenant_id,
         )
+
+    async def _do_update_prices(
+        self,
+        *,
+        trader_phone: str,
+        items: list[dict[str, Any]],
+        message_id: str,
+        trader: dict[str, Any],
+        tenant_id: str,
+        channel_tenant_id: str | None = None,
+    ) -> None:
+        """Update one or more product prices in a single persist + reply."""
+        catalogue: dict[str, int] = dict(trader.get("catalogue", {}))
+        updated: list[tuple[str, int, int]] = []  # (name, old_price, new_price)
+        not_found: list[str] = []
+        for item in items:
+            name = item["name"]
+            new_price = item["unit_price"]
+            matched_key: str | None = None
+            old_price: int = 0
+            for key, val in catalogue.items():
+                if key.lower() == name.lower():
+                    matched_key = key
+                    old_price = val
+                    break
+            if matched_key:
+                catalogue[matched_key] = new_price
+                updated.append((matched_key, old_price, new_price))
+            else:
+                not_found.append(name)
+        if updated:
+            await self._persist_catalogue(trader_phone, catalogue)
+            if len(updated) == 1:
+                text = wa.product_price_updated(updated[0][0], updated[0][1], updated[0][2])
+            else:
+                text = wa.prices_updated_batch(updated)
+            if not_found:
+                text += f"\n\nI no fit find: {', '.join(not_found)}"
+            await self._reply(
+                phone=trader_phone,
+                tenant_id=tenant_id,
+                event_id=f"trader.price_updated.{message_id}",
+                text=text,
+                channel_tenant_id=channel_tenant_id,
+            )
+        else:
+            await self._reply(
+                phone=trader_phone,
+                tenant_id=tenant_id,
+                event_id=f"trader.price_notfound.{message_id}",
+                text=wa.product_not_found(", ".join(not_found)),
+                channel_tenant_id=channel_tenant_id,
+            )
 
     async def _persist_catalogue(
         self, trader_phone: str, catalogue: dict[str, int]
@@ -1696,9 +1798,9 @@ class OrderService:
             return
 
         if result.intent == TRADER_REMOVE:
-            await self._do_remove_product(
+            await self._do_remove_products(
                 trader_phone=trader_phone,
-                product_name=result.items[0]["name"],
+                names=[item["name"] for item in result.items],
                 message_id=message_id,
                 trader=trader,
                 tenant_id=tenant_id,
@@ -1707,11 +1809,9 @@ class OrderService:
             return
 
         if result.intent == TRADER_PRICE:
-            item = result.items[0]
-            await self._do_update_price(
+            await self._do_update_prices(
                 trader_phone=trader_phone,
-                product_name=item["name"],
-                new_price=item["unit_price"],
+                items=result.items,
                 message_id=message_id,
                 trader=trader,
                 tenant_id=tenant_id,

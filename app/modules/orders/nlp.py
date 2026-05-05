@@ -125,10 +125,12 @@ _REMOVE_RE = re.compile(
     re.IGNORECASE,
 )
 # PRICE <product name> <new price>  e.g. "PRICE Indomie 9000"
+# Also batch: "PRICE Rice 75000, Milo 4000, Garri 3000"
 _PRICE_RE = re.compile(
     r"^price\s+(.+?)\s+(\d[\d,]*)\s*$",
     re.IGNORECASE,
 )
+_PRICE_PREFIX_RE = re.compile(r"^price[\s\n]", re.IGNORECASE)
 # CATALOGUE / CATALOG / MY PRODUCTS
 _CATALOGUE_RE = re.compile(
     r"^(?:catalogue|catalog|my products|products|my catalogue|my catalog)$",
@@ -258,24 +260,28 @@ def _layer1(message: str) -> ParseResult:
                 confidence=1.0,
             )
 
-    m = _PRICE_RE.match(stripped)
-    if m:
-        product = m.group(1).strip()
-        price = int(m.group(2).replace(",", ""))
-        return ParseResult(
-            intent=TRADER_PRICE,
-            items=[{"name": product, "qty": 1, "unit_price": price}],
-            confidence=1.0,
-        )
+    if _PRICE_PREFIX_RE.match(stripped):
+        # Reuse _parse_add_items logic: "PRICE X 100, Y 200" has same format as "ADD X 100, Y 200"
+        items = _parse_add_items(re.sub(r"^price", "ADD", stripped, flags=re.IGNORECASE))
+        if items:
+            return ParseResult(
+                intent=TRADER_PRICE,
+                items=items,
+                confidence=1.0,
+            )
 
     m = _REMOVE_RE.match(stripped)
     if m:
-        product = m.group(1).strip()
-        return ParseResult(
-            intent=TRADER_REMOVE,
-            items=[{"name": product, "qty": 1, "unit_price": None}],
-            confidence=1.0,
-        )
+        body = m.group(1).strip()
+        # Support batch: "REMOVE Garri, Milo, Rice"
+        parts = [p.strip() for p in body.split(",") if p.strip()]
+        items = [{"name": name, "qty": 1, "unit_price": None} for name in parts]
+        if items:
+            return ParseResult(
+                intent=TRADER_REMOVE,
+                items=items,
+                confidence=1.0,
+            )
 
     if _CATALOGUE_RE.match(stripped):
         return ParseResult(intent=TRADER_CATALOGUE, confidence=1.0)

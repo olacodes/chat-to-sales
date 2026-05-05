@@ -374,10 +374,23 @@ def product_removed(name: str) -> str:
     return f"\u2705 Removed *{name}* from your catalogue."
 
 
+def products_removed_batch(names: list[str]) -> str:
+    lines = "\n".join(f"  - {name}" for name in names)
+    return f"\u2705 Removed {len(names)} products from your catalogue:\n\n{lines}"
+
+
 def product_price_updated(name: str, old_price: int, new_price: int) -> str:
     return (
         f"\u2705 *{name}* price updated: {_naira(old_price)} \u2192 {_naira(new_price)}"
     )
+
+
+def prices_updated_batch(items: list[tuple[str, int, int]]) -> str:
+    lines = "\n".join(
+        f"  {name}: {_naira(old)} \u2192 {_naira(new)}"
+        for name, old, new in items
+    )
+    return f"\u2705 Updated {len(items)} prices:\n\n{lines}"
 
 
 def product_not_found(name: str) -> str:
