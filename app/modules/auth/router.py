@@ -23,6 +23,7 @@ from app.modules.auth.schemas import (
     OTPRequestRequest,
     OTPRequestResponse,
     OTPVerifyRequest,
+    PhoneSignupRequest,
     SignupResponse,
 )
 from app.modules.auth.service import AuthService
@@ -104,6 +105,70 @@ async def login_google(
 ) -> LoginResponse:
     svc = AuthService(db)
     return await svc.google_login(body)
+
+
+@router.post(
+    "/signup/phone",
+    status_code=status.HTTP_200_OK,
+    summary="Sign up with phone — creates Trader store + sends OTP",
+    description=(
+        "Creates a Trader profile (store) for the given phone number, then sends "
+        "a 6-digit OTP for verification. If a Trader already exists for this "
+        "number, skips creation and just sends the OTP. "
+        "After this, call /otp/verify to complete signup and get a JWT."
+    ),
+)
+async def signup_phone(
+    body: PhoneSignupRequest,
+    db: DBSessionDep,
+) -> OTPRequestResponse:
+    import json
+    from app.modules.onboarding.repository import TraderRepository
+    from app.modules.onboarding.service import _generate_unique_slug
+    from app.modules.orders.session import cache_trader_by_phone
+    from app.modules.onboarding.analytics import (
+        EVT_STARTED, EVT_COMPLETED, EVT_PATH_CHOSEN, track_onboarding_event,
+    )
+
+    trader_repo = TraderRepository(db)
+    existing = await trader_repo.get_by_phone(body.phone_number)
+
+    if existing is None:
+        # Build catalogue
+        catalogue_dict = {p.name: p.price for p in body.products} if body.products else {}
+        catalogue_json = json.dumps(catalogue_dict) if catalogue_dict else None
+
+        slug = await _generate_unique_slug(trader_repo, body.business_name)
+        await trader_repo.create(
+            phone_number=body.phone_number,
+            business_name=body.business_name,
+            business_category=body.business_category,
+            store_slug=slug,
+            onboarding_catalogue=catalogue_json,
+        )
+        await db.commit()
+
+        # Cache trader identity
+        await cache_trader_by_phone(body.phone_number, {
+            "tenant_id": "",
+            "phone_number": body.phone_number,
+            "business_name": body.business_name,
+            "business_category": body.business_category,
+            "store_slug": slug,
+            "catalogue": catalogue_dict,
+        })
+
+        # Track analytics
+        path = "web_products" if body.products else "web_skip"
+        await track_onboarding_event(phone_number=body.phone_number, event_type=EVT_STARTED, step_name="web_signup")
+        await track_onboarding_event(phone_number=body.phone_number, event_type=EVT_PATH_CHOSEN, step_name="catalogue_path", path=path)
+        await track_onboarding_event(phone_number=body.phone_number, event_type=EVT_COMPLETED, step_name="completed", path=path)
+
+        logger.info("Phone signup: trader created phone=%s slug=%s", body.phone_number, slug)
+
+    # Send OTP (reuse existing logic)
+    svc = AuthService(db)
+    return await svc.request_otp(OTPRequestRequest(phone_number=body.phone_number))
 
 
 @router.post(

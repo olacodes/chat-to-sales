@@ -108,6 +108,25 @@ def _normalize_phone(v: str) -> str:
     return digits
 
 
+class PhoneSignupProduct(BaseModel):
+    name: str
+    price: int
+
+
+class PhoneSignupRequest(BaseModel):
+    """POST /api/v1/auth/signup/phone"""
+
+    phone_number: str = Field(..., description="Trader WhatsApp number (any format)")
+    business_name: str = Field(..., min_length=2, max_length=60)
+    business_category: str = Field(..., min_length=1)
+    products: list[PhoneSignupProduct] = []
+
+    @field_validator("phone_number", mode="before")
+    @classmethod
+    def normalize_phone(cls, v: str) -> str:
+        return _normalize_phone(v)
+
+
 class OTPRequestRequest(BaseModel):
     """POST /api/v1/auth/otp/request"""
 
