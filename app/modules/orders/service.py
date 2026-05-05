@@ -1148,12 +1148,18 @@ class OrderService:
             )
         elif tap == "MENU_PRICELIST":
             from app.modules.orders.session import set_trader_session, TRADER_AWAITING_PRICELIST_PHOTO
-            await set_trader_session(trader_phone, {"state": TRADER_AWAITING_PRICELIST_PHOTO})
-            await self._reply(
+            await set_trader_session(trader_phone, {
+                "state": TRADER_AWAITING_PRICELIST_PHOTO,
+                "ocr_texts": [],
+                "photo_count": 0,
+            })
+            body, buttons = wa.pricelist_prompt()
+            await self._reply_interactive(
                 phone=trader_phone,
                 tenant_id=tenant_id,
                 event_id=f"trader.pricelist_prompt.{message_id}",
-                text=wa.pricelist_prompt(),
+                body_text=body,
+                buttons=buttons,
                 channel_tenant_id=channel_tenant_id,
             )
         elif tap == "MENU_CATEGORY":
@@ -1203,110 +1209,113 @@ class OrderService:
         state = tsession.get("state", "")
 
         if state == TRADER_AWAITING_PRICELIST_PHOTO:
+            _MAX_PRICELIST_PHOTOS = 10
+            ocr_texts: list[str] = tsession.get("ocr_texts", [])
+            photo_count: int = tsession.get("photo_count", 0)
             category: str = trader.get("business_category", "")
+
+            # "Done" button tap or typed "done" — process all collected texts
+            answer = message.strip().upper()
+            if answer in ("DONE", "PRICELIST_DONE"):
+                if not ocr_texts:
+                    # No photos sent yet — re-prompt
+                    body, buttons = wa.pricelist_prompt()
+                    await self._reply_interactive(
+                        phone=trader_phone,
+                        tenant_id=tenant_id,
+                        event_id=f"trader.pricelist_reprompt.{message_id}",
+                        body_text=body,
+                        buttons=buttons,
+                        channel_tenant_id=channel_tenant_id,
+                    )
+                    return True
+                await self._process_pricelist_texts(
+                    ocr_texts=ocr_texts,
+                    category=category,
+                    trader_phone=trader_phone,
+                    message_id=message_id,
+                    trader=trader,
+                    tenant_id=tenant_id,
+                    channel_tenant_id=channel_tenant_id,
+                )
+                return True
+
+            # Photo received — OCR immediately, collect text
             if image_bytes:
-                # Photo received — OCR + Claude extract
-                await self._reply(
-                    phone=trader_phone,
-                    tenant_id=tenant_id,
-                    event_id=f"trader.pricelist_processing.{message_id}",
-                    text=wa.pricelist_processing(),
-                    channel_tenant_id=channel_tenant_id,
-                )
                 try:
-                    from app.modules.onboarding.media import (
-                        ocr_image_bytes,
-                        extract_products_from_text,
-                    )
+                    from app.modules.onboarding.media import ocr_image_bytes
                     ocr_text = await ocr_image_bytes(image_bytes)
-                    if not ocr_text:
-                        await clear_trader_session(trader_phone)
-                        await self._reply(
-                            phone=trader_phone,
-                            tenant_id=tenant_id,
-                            event_id=f"trader.pricelist_ocr_fail.{message_id}",
-                            text=wa.pricelist_empty(),
-                            channel_tenant_id=channel_tenant_id,
-                        )
-                        return True
-                    items = await extract_products_from_text(ocr_text, category)
                 except Exception as exc:
-                    logger.warning("Pricelist OCR/extract failed: %s", exc)
-                    await clear_trader_session(trader_phone)
+                    logger.warning("Pricelist OCR failed: %s", exc)
+                    ocr_text = ""
+                if ocr_text:
+                    ocr_texts.append(ocr_text)
+                photo_count += 1
+
+                # Auto-trigger processing at max photos
+                if photo_count >= _MAX_PRICELIST_PHOTOS:
                     await self._reply(
                         phone=trader_phone,
                         tenant_id=tenant_id,
-                        event_id=f"trader.pricelist_error.{message_id}",
-                        text=wa.pricelist_empty(),
+                        event_id=f"trader.pricelist_maxphotos.{message_id}",
+                        text=f"\U0001f4f8 {photo_count} photos received (maximum). Processing now...",
                         channel_tenant_id=channel_tenant_id,
                     )
-                    return True
-            elif message and message != "[image]":
-                # Voice note transcription or typed text — Claude extract
-                try:
-                    from app.modules.onboarding.media import extract_products_from_text
-                    items = await extract_products_from_text(message, category)
-                except Exception as exc:
-                    logger.warning("Pricelist text extract failed: %s", exc)
-                    await clear_trader_session(trader_phone)
-                    await self._reply(
-                        phone=trader_phone,
+                    await self._process_pricelist_texts(
+                        ocr_texts=ocr_texts,
+                        category=category,
+                        trader_phone=trader_phone,
+                        message_id=message_id,
+                        trader=trader,
                         tenant_id=tenant_id,
-                        event_id=f"trader.pricelist_error.{message_id}",
-                        text=wa.pricelist_empty(),
                         channel_tenant_id=channel_tenant_id,
                     )
                     return True
-            else:
-                # No image/text — re-prompt
-                await self._reply(
+
+                # Save updated session and acknowledge
+                await set_trader_session(trader_phone, {
+                    "state": TRADER_AWAITING_PRICELIST_PHOTO,
+                    "ocr_texts": ocr_texts,
+                    "photo_count": photo_count,
+                })
+                body, buttons = wa.pricelist_photo_received(photo_count)
+                await self._reply_interactive(
                     phone=trader_phone,
                     tenant_id=tenant_id,
-                    event_id=f"trader.pricelist_reprompt.{message_id}",
-                    text=wa.pricelist_prompt(),
+                    event_id=f"trader.pricelist_photo_{photo_count}.{message_id}",
+                    body_text=body,
+                    buttons=buttons,
                     channel_tenant_id=channel_tenant_id,
                 )
                 return True
 
-            if not items:
-                await clear_trader_session(trader_phone)
-                await self._reply(
+            # Voice note transcription or typed text — collect as OCR text
+            if message and message != "[image]":
+                ocr_texts.append(message)
+                photo_count += 1
+                await set_trader_session(trader_phone, {
+                    "state": TRADER_AWAITING_PRICELIST_PHOTO,
+                    "ocr_texts": ocr_texts,
+                    "photo_count": photo_count,
+                })
+                body, buttons = wa.pricelist_photo_received(photo_count)
+                await self._reply_interactive(
                     phone=trader_phone,
                     tenant_id=tenant_id,
-                    event_id=f"trader.pricelist_empty.{message_id}",
-                    text=wa.pricelist_empty(),
+                    event_id=f"trader.pricelist_voice_{photo_count}.{message_id}",
+                    body_text=body,
+                    buttons=buttons,
                     channel_tenant_id=channel_tenant_id,
                 )
                 return True
 
-            # Compute new vs updated counts
-            catalogue = trader.get("catalogue", {})
-            new_count = 0
-            updated_count = 0
-            for item in items:
-                matched = False
-                for key in catalogue:
-                    if key.lower() == item["name"].lower():
-                        matched = True
-                        break
-                if matched:
-                    updated_count += 1
-                else:
-                    new_count += 1
-
-            # Store items in session for confirmation
-            await set_trader_session(trader_phone, {
-                "state": TRADER_AWAITING_PRICELIST_CONFIRM,
-                "items": items,
-                "new_count": new_count,
-                "updated_count": updated_count,
-            })
-            body_text, buttons = wa.pricelist_extracted(items, new_count, updated_count)
+            # No image/text — re-prompt
+            body, buttons = wa.pricelist_prompt()
             await self._reply_interactive(
                 phone=trader_phone,
                 tenant_id=tenant_id,
-                event_id=f"trader.pricelist_extracted.{message_id}",
-                body_text=body_text,
+                event_id=f"trader.pricelist_reprompt.{message_id}",
+                body_text=body,
                 buttons=buttons,
                 channel_tenant_id=channel_tenant_id,
             )
@@ -1617,6 +1626,83 @@ class OrderService:
                 text=wa.product_not_found(", ".join(not_found)),
                 channel_tenant_id=channel_tenant_id,
             )
+
+    async def _process_pricelist_texts(
+        self,
+        *,
+        ocr_texts: list[str],
+        category: str,
+        trader_phone: str,
+        message_id: str,
+        trader: dict[str, Any],
+        tenant_id: str,
+        channel_tenant_id: str | None = None,
+    ) -> None:
+        """Combine collected OCR/voice texts, extract products, show confirmation."""
+        from app.modules.orders.session import (
+            clear_trader_session,
+            set_trader_session,
+            TRADER_AWAITING_PRICELIST_CONFIRM,
+        )
+
+        await self._reply(
+            phone=trader_phone,
+            tenant_id=tenant_id,
+            event_id=f"trader.pricelist_processing.{message_id}",
+            text=wa.pricelist_processing(),
+            channel_tenant_id=channel_tenant_id,
+        )
+
+        combined_text = "\n\n".join(ocr_texts)
+        try:
+            from app.modules.onboarding.media import extract_products_from_text
+            items = await extract_products_from_text(combined_text, category)
+        except Exception as exc:
+            logger.warning("Pricelist extract failed: %s", exc)
+            items = []
+
+        await clear_trader_session(trader_phone)
+
+        if not items:
+            await self._reply(
+                phone=trader_phone,
+                tenant_id=tenant_id,
+                event_id=f"trader.pricelist_empty.{message_id}",
+                text=wa.pricelist_empty(),
+                channel_tenant_id=channel_tenant_id,
+            )
+            return
+
+        # Compute new vs updated counts
+        catalogue = trader.get("catalogue", {})
+        new_count = 0
+        updated_count = 0
+        for item in items:
+            matched = False
+            for key in catalogue:
+                if key.lower() == item["name"].lower():
+                    matched = True
+                    break
+            if matched:
+                updated_count += 1
+            else:
+                new_count += 1
+
+        await set_trader_session(trader_phone, {
+            "state": TRADER_AWAITING_PRICELIST_CONFIRM,
+            "items": items,
+            "new_count": new_count,
+            "updated_count": updated_count,
+        })
+        body_text, buttons = wa.pricelist_extracted(items, new_count, updated_count)
+        await self._reply_interactive(
+            phone=trader_phone,
+            tenant_id=tenant_id,
+            event_id=f"trader.pricelist_extracted.{message_id}",
+            body_text=body_text,
+            buttons=buttons,
+            channel_tenant_id=channel_tenant_id,
+        )
 
     async def _do_change_category(
         self,
@@ -2083,12 +2169,18 @@ class OrderService:
 
         if result.intent == TRADER_PRICELIST:
             from app.modules.orders.session import set_trader_session, TRADER_AWAITING_PRICELIST_PHOTO
-            await set_trader_session(trader_phone, {"state": TRADER_AWAITING_PRICELIST_PHOTO})
-            await self._reply(
+            await set_trader_session(trader_phone, {
+                "state": TRADER_AWAITING_PRICELIST_PHOTO,
+                "ocr_texts": [],
+                "photo_count": 0,
+            })
+            body, buttons = wa.pricelist_prompt()
+            await self._reply_interactive(
                 phone=trader_phone,
                 tenant_id=tenant_id,
                 event_id=f"trader.pricelist_prompt.{message_id}",
-                text=wa.pricelist_prompt(),
+                body_text=body,
+                buttons=buttons,
                 channel_tenant_id=channel_tenant_id,
             )
             return

@@ -486,15 +486,31 @@ def category_changed(new_category_display: str) -> str:
 # ── Pricelist upload templates ──────────────────────────────────────────────
 
 
-def pricelist_prompt() -> str:
-    return (
-        "Send me a *photo of your price list* and I go update your catalogue. \U0001f4f7\n\n"
-        "You fit also send a *voice note* reading out your products and prices."
+def pricelist_prompt() -> tuple[str, list[dict[str, str]]]:
+    """Return (body_text, buttons) for the pricelist upload prompt."""
+    body = (
+        "Send me *photos of your price list* and I go update your catalogue. \U0001f4f7\n\n"
+        "You fit send *multiple photos* — I go read all of them.\n"
+        "You fit also send a *voice note* reading out your products and prices.\n\n"
+        "When you done sending, tap the button below."
     )
+    buttons = [{"id": "PRICELIST_DONE", "title": "\u2705 Done sending"}]
+    return body, buttons
+
+
+def pricelist_photo_received(count: int) -> tuple[str, list[dict[str, str]]]:
+    """Return (body_text, buttons) acknowledging a received photo/voice."""
+    photo_word = "photo" if count == 1 else "photos"
+    body = (
+        f"\U0001f4f8 Got it! {count} {photo_word} received.\n\n"
+        "Send more or tap *Done* when you're finished."
+    )
+    buttons = [{"id": "PRICELIST_DONE", "title": "\u2705 Done sending"}]
+    return body, buttons
 
 
 def pricelist_processing() -> str:
-    return "I see your price list! Give me small time to read am... \U0001f50d"
+    return "Reading your price list... \U0001f50d"
 
 
 def pricelist_extracted(
