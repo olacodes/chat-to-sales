@@ -1288,11 +1288,13 @@ class OrderService:
                 "new_count": new_count,
                 "updated_count": updated_count,
             })
-            await self._reply(
+            body_text, buttons = wa.pricelist_extracted(items, new_count, updated_count)
+            await self._reply_interactive(
                 phone=trader_phone,
                 tenant_id=tenant_id,
                 event_id=f"trader.pricelist_extracted.{message_id}",
-                text=wa.pricelist_extracted(items, new_count, updated_count),
+                body_text=body_text,
+                buttons=buttons,
                 channel_tenant_id=channel_tenant_id,
             )
             return True
@@ -1300,7 +1302,7 @@ class OrderService:
         if state == TRADER_AWAITING_PRICELIST_CONFIRM:
             await clear_trader_session(trader_phone)
             answer = message.strip().upper()
-            if answer == "YES":
+            if answer in ("YES", "PRICELIST_YES"):
                 items = tsession.get("items", [])
                 catalogue: dict[str, int] = dict(trader.get("catalogue", {}))
                 for item in items:

@@ -472,7 +472,8 @@ def pricelist_processing() -> str:
 
 def pricelist_extracted(
     items: list[dict], new_count: int, updated_count: int
-) -> str:
+) -> tuple[str, list[dict[str, str]]]:
+    """Return (body_text, buttons) for an interactive pricelist confirmation."""
     lines = "\n".join(
         f"  {item['name']} — {_naira(item['price'])}" for item in items
     )
@@ -482,11 +483,12 @@ def pricelist_extracted(
     if updated_count:
         summary_parts.append(f"{updated_count} price updates")
     summary = ", ".join(summary_parts) if summary_parts else "no changes"
-    return (
-        f"I found *{len(items)} products* ({summary}):\n\n"
-        f"{lines}\n\n"
-        "Reply *YES* to update your catalogue or *NO* to cancel."
-    )
+    body = f"I found *{len(items)} products* ({summary}):\n\n{lines}"
+    buttons = [
+        {"id": "PRICELIST_YES", "title": "\u2705 Update catalogue"},
+        {"id": "PRICELIST_NO", "title": "\u274c Cancel"},
+    ]
+    return body, buttons
 
 
 def pricelist_confirmed(new_count: int, updated_count: int, total: int) -> str:
