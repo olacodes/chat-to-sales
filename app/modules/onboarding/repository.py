@@ -86,6 +86,16 @@ class TraderRepository:
             pass
         return {}
 
+    async def update_category(
+        self, *, phone_number: str, category: str
+    ) -> None:
+        """Update the trader's business category."""
+        await self._db.execute(
+            update(Trader)
+            .where(Trader.phone_number == phone_number)
+            .values(business_category=category)
+        )
+
     async def update_catalogue(
         self, *, phone_number: str, catalogue: dict[str, int]
     ) -> None:

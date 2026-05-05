@@ -296,6 +296,7 @@ def trader_menu() -> tuple[str, str, list[dict]]:
             "title": "Store",
             "rows": [
                 {"id": "MENU_STORE", "title": "\U0001f6cd My Store", "description": "View store link"},
+                {"id": "MENU_CATEGORY", "title": "\U0001f3f7 Change Category", "description": "Switch business category"},
             ],
         },
     ]
@@ -454,6 +455,32 @@ def store_info(slug: str, business_name: str, product_count: int) -> str:
         f"Products: {product_count}\n\n"
         "Share this link with your customers!"
     )
+
+
+# ── Category change templates ───────────────────────────────────────────────
+
+
+def category_picker(current_category: str) -> tuple[str, str, list[dict]]:
+    """Return (body, button_label, sections) for category selection."""
+    from app.modules.onboarding.catalogue_templates import (
+        CATEGORY_DISPLAY_NAMES,
+    )
+    from app.modules.onboarding.models import BusinessCategory
+
+    body = f"Your current category: *{CATEGORY_DISPLAY_NAMES.get(current_category, current_category)}*\n\nSelect your new category:"
+    button_label = "Pick category"
+    rows = []
+    for cat in BusinessCategory:
+        rows.append({
+            "id": f"CAT_{cat.value}",
+            "title": CATEGORY_DISPLAY_NAMES.get(cat.value, cat.value)[:24],
+        })
+    sections = [{"title": "Business categories", "rows": rows}]
+    return body, button_label, sections
+
+
+def category_changed(new_category_display: str) -> str:
+    return f"\u2705 Category changed to *{new_category_display}*."
 
 
 # ── Pricelist upload templates ──────────────────────────────────────────────

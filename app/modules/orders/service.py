@@ -41,6 +41,7 @@ from app.modules.orders.nlp import (
     TRADER_ADD,
     TRADER_CANCEL,
     TRADER_CATALOGUE,
+    TRADER_CATEGORY,
     TRADER_CONFIRM,
     TRADER_DELIVERED,
     TRADER_MENU,
@@ -1155,6 +1156,18 @@ class OrderService:
                 text=wa.pricelist_prompt(),
                 channel_tenant_id=channel_tenant_id,
             )
+        elif tap == "MENU_CATEGORY":
+            current_cat = trader.get("business_category", "")
+            body, btn, sections = wa.category_picker(current_cat)
+            await self._reply_list(
+                phone=trader_phone,
+                tenant_id=tenant_id,
+                event_id=f"trader.category_picker.{message_id}",
+                body_text=body,
+                button_label=btn,
+                sections=sections,
+                channel_tenant_id=channel_tenant_id,
+            )
         elif tap == "MENU_HELP":
             await self._reply(
                 phone=trader_phone,
@@ -1605,6 +1618,41 @@ class OrderService:
                 channel_tenant_id=channel_tenant_id,
             )
 
+    async def _do_change_category(
+        self,
+        *,
+        trader_phone: str,
+        new_category: str,
+        message_id: str,
+        tenant_id: str,
+        channel_tenant_id: str | None = None,
+    ) -> None:
+        """Update the trader's business category in DB and bust cache."""
+        from app.modules.onboarding.catalogue_templates import CATEGORY_DISPLAY_NAMES
+        from app.modules.orders.session import cache_trader_by_phone, get_trader_by_phone_cache
+
+        display = CATEGORY_DISPLAY_NAMES.get(new_category, new_category)
+
+        async with async_session_factory.begin() as session:
+            repo = TraderRepository(session)
+            await repo.update_category(
+                phone_number=trader_phone, category=new_category
+            )
+
+        # Bust the trader cache so future messages use the new category
+        cached = await get_trader_by_phone_cache(trader_phone)
+        if cached and isinstance(cached, dict) and cached:
+            cached["business_category"] = new_category
+            await cache_trader_by_phone(trader_phone, cached)
+
+        await self._reply(
+            phone=trader_phone,
+            tenant_id=tenant_id,
+            event_id=f"trader.category_changed.{message_id}",
+            text=wa.category_changed(display),
+            channel_tenant_id=channel_tenant_id,
+        )
+
     async def _persist_catalogue(
         self, trader_phone: str, catalogue: dict[str, int]
     ) -> None:
@@ -1951,6 +1999,18 @@ class OrderService:
                 )
             return
 
+        # ── Handle category list tap (CAT_*) ────────────────────────────────
+        if stripped.startswith("CAT_"):
+            new_category = message.strip()[4:]  # preserve original case
+            await self._do_change_category(
+                trader_phone=trader_phone,
+                new_category=new_category,
+                message_id=message_id,
+                tenant_id=tenant_id,
+                channel_tenant_id=channel_tenant_id,
+            )
+            return
+
         # ── Catalogue commands (typed) ────────────────────────────────────────
         if result.intent == TRADER_ADD:
             await self._do_add_products(
@@ -2005,6 +2065,20 @@ class OrderService:
                     sections=sections,
                     channel_tenant_id=channel_tenant_id,
                 )
+            return
+
+        if result.intent == TRADER_CATEGORY:
+            current_cat = trader.get("business_category", "")
+            body, btn, sections = wa.category_picker(current_cat)
+            await self._reply_list(
+                phone=trader_phone,
+                tenant_id=tenant_id,
+                event_id=f"trader.category_picker.{message_id}",
+                body_text=body,
+                button_label=btn,
+                sections=sections,
+                channel_tenant_id=channel_tenant_id,
+            )
             return
 
         if result.intent == TRADER_PRICELIST:
