@@ -1,25 +1,32 @@
 """
 app/modules/onboarding/router.py
 
-Public store endpoint — no authentication required.
-Customers and traders visit chattosales.com/store/{slug} which is served
-by the Next.js frontend; the frontend fetches trader data from this endpoint.
+Public store endpoint + authenticated web onboarding setup.
 """
 
+import json
 from urllib.parse import quote
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, UploadFile, File
 
 from app.core.config import get_settings
-from app.core.dependencies import DBSessionDep
+from app.core.dependencies import CurrentUserDep, DBSessionDep
+from app.core.logging import get_logger
+from app.infra.database import async_session_factory
 from app.modules.channels.repository import ChannelRepository
 from app.modules.onboarding.repository import TraderRepository
 from app.modules.onboarding.schemas import (
+    CatalogueItem,
+    ExtractPricelistResponse,
     StoreListItem,
     StoreListOut,
     TraderStoreOut,
+    WebSetupRequest,
+    WebSetupResponse,
     normalize_catalogue,
 )
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/stores", tags=["Store"])
 
@@ -126,3 +133,143 @@ async def get_store(slug: str, db: DBSessionDep) -> TraderStoreOut:
         ordering_whatsapp_url=ordering_whatsapp_url,
         catalogue=normalize_catalogue(trader.onboarding_catalogue),
     )
+
+
+# ── Web onboarding endpoints (authenticated) ────────────────────────────────
+
+
+@router.get("/setup/status", summary="Check if current user has completed store setup")
+async def get_setup_status(
+    user: CurrentUserDep,
+    db: DBSessionDep,
+) -> dict:
+    """Return whether the authenticated user already has a Trader store."""
+    from app.core.models.user import User
+    from sqlalchemy import select
+
+    db_user = (
+        await db.execute(select(User).where(User.id == user.user_id))
+    ).scalar_one_or_none()
+    phone = db_user.phone_number if db_user else None
+
+    if not phone:
+        return {"has_store": False, "store_slug": None}
+
+    repo = TraderRepository(db)
+    trader = await repo.get_by_phone(phone)
+    if trader and trader.onboarding_status == "complete":
+        return {"has_store": True, "store_slug": trader.store_slug}
+    return {"has_store": False, "store_slug": None}
+
+
+@router.post("/setup", summary="Web-based store setup")
+async def web_setup(
+    body: WebSetupRequest,
+    user: CurrentUserDep,
+    db: DBSessionDep,
+) -> WebSetupResponse:
+    """
+    Create a Trader store from the web dashboard.
+
+    Requires an authenticated user with a phone number (OTP-verified).
+    Creates the Trader row, generates a unique store slug, and caches
+    the trader identity so WhatsApp commands work immediately.
+    """
+    from app.core.models.user import User
+    from sqlalchemy import select
+    from app.modules.onboarding.service import _generate_unique_slug
+    from app.modules.orders.session import cache_trader_by_phone
+    from app.modules.onboarding.analytics import (
+        EVT_STARTED, EVT_COMPLETED, EVT_PATH_CHOSEN, track_onboarding_event,
+    )
+
+    # Get the user's phone number
+    db_user = (
+        await db.execute(select(User).where(User.id == user.user_id))
+    ).scalar_one_or_none()
+    if not db_user or not db_user.phone_number:
+        raise HTTPException(
+            status_code=400,
+            detail="Phone number required. Please verify your phone number first.",
+        )
+    phone = db_user.phone_number
+
+    # Validate
+    name = body.business_name.strip()
+    if len(name) < 2 or len(name) > 60:
+        raise HTTPException(status_code=400, detail="Business name must be 2-60 characters.")
+
+    # Check for existing trader
+    repo = TraderRepository(db)
+    existing = await repo.get_by_phone(phone)
+    if existing and existing.onboarding_status == "complete":
+        raise HTTPException(status_code=409, detail="Store already set up.")
+
+    # Build catalogue JSON
+    catalogue_dict: dict[str, int] = {}
+    if body.products:
+        catalogue_dict = {p.name: p.price for p in body.products}
+    catalogue_json = json.dumps(catalogue_dict) if catalogue_dict else None
+
+    # Generate slug and create trader
+    slug = await _generate_unique_slug(repo, name)
+    await repo.create(
+        phone_number=phone,
+        business_name=name,
+        business_category=body.business_category,
+        store_slug=slug,
+        tenant_id=user.tenant_id,
+        onboarding_catalogue=catalogue_json,
+    )
+    await db.commit()
+
+    # Cache trader identity
+    await cache_trader_by_phone(phone, {
+        "tenant_id": user.tenant_id,
+        "phone_number": phone,
+        "business_name": name,
+        "business_category": body.business_category,
+        "store_slug": slug,
+        "catalogue": catalogue_dict,
+    })
+
+    # Track analytics
+    path = "web_products" if body.products else "web_skip"
+    await track_onboarding_event(phone_number=phone, event_type=EVT_STARTED, step_name="web_setup")
+    await track_onboarding_event(phone_number=phone, event_type=EVT_PATH_CHOSEN, step_name="catalogue_path", path=path)
+    await track_onboarding_event(phone_number=phone, event_type=EVT_COMPLETED, step_name="completed", path=path)
+
+    logger.info("Web onboarding complete phone=%s slug=%s", phone, slug)
+
+    return WebSetupResponse(
+        store_slug=slug,
+        business_name=name,
+        business_category=body.business_category,
+        product_count=len(catalogue_dict),
+    )
+
+
+@router.post("/setup/extract-pricelist", summary="Extract products from price list photo")
+async def extract_pricelist(
+    user: CurrentUserDep,
+    file: UploadFile = File(...),
+) -> ExtractPricelistResponse:
+    """
+    Upload a price list photo, run OCR + Claude extraction, return products.
+
+    The frontend can then display the results in an editable table before
+    the trader submits the final setup.
+    """
+    from app.modules.onboarding.media import ocr_image_bytes, extract_products_from_text
+
+    image_bytes = await file.read()
+    if not image_bytes:
+        raise HTTPException(status_code=400, detail="Empty file.")
+
+    ocr_text = await ocr_image_bytes(image_bytes)
+    if not ocr_text:
+        return ExtractPricelistResponse(products=[])
+
+    items = await extract_products_from_text(ocr_text, category="")
+    products = [CatalogueItem(name=item["name"], price=item["price"]) for item in items]
+    return ExtractPricelistResponse(products=products)

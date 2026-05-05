@@ -38,6 +38,26 @@ class TraderStoreOut(BaseModel):
     catalogue: list[CatalogueItem]
 
 
+# ── Web onboarding schemas ────────────────────────────────────────────────────
+
+
+class WebSetupRequest(BaseModel):
+    business_name: str
+    business_category: str
+    products: list[CatalogueItem] = []
+
+
+class WebSetupResponse(BaseModel):
+    store_slug: str
+    business_name: str
+    business_category: str
+    product_count: int
+
+
+class ExtractPricelistResponse(BaseModel):
+    products: list[CatalogueItem]
+
+
 def normalize_catalogue(raw: str | None) -> list[CatalogueItem]:
     """
     Parse onboarding_catalogue JSON into a uniform list of CatalogueItem.
