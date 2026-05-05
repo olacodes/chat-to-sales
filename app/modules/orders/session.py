@@ -204,6 +204,8 @@ TRADER_AWAITING_ADD = "awaiting_add"
 TRADER_AWAITING_REMOVE = "awaiting_remove"
 TRADER_AWAITING_PRICE_SELECT = "awaiting_price_select"
 TRADER_AWAITING_PRICE_VALUE = "awaiting_price_value"
+TRADER_AWAITING_PRICELIST_PHOTO = "awaiting_pricelist_photo"
+TRADER_AWAITING_PRICELIST_CONFIRM = "awaiting_pricelist_confirm"
 
 
 def _trader_session_key(phone: str) -> str:

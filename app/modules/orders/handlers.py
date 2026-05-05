@@ -394,6 +394,7 @@ async def handle_order_intent(event: Event) -> None:
                 message_id=message_id,
                 trader=trader_data,
                 channel_tenant_id=platform_tenant_id,
+                image_bytes=image_bytes,
             )
         return
 

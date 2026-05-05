@@ -289,6 +289,7 @@ def trader_menu() -> tuple[str, str, list[dict]]:
                 {"id": "MENU_ADD", "title": "\u2795 Add Product", "description": "Add new product + price"},
                 {"id": "MENU_REMOVE", "title": "\u2796 Remove Product", "description": "Remove a product"},
                 {"id": "MENU_PRICE", "title": "\U0001f4b0 Update Price", "description": "Change a product's price"},
+                {"id": "MENU_PRICELIST", "title": "\U0001f4f7 Upload Price List", "description": "Photo/voice to update catalogue"},
             ],
         },
         {
@@ -452,6 +453,64 @@ def store_info(slug: str, business_name: str, product_count: int) -> str:
         f"Store link: https://chattosales.com/stores/{slug}\n"
         f"Products: {product_count}\n\n"
         "Share this link with your customers!"
+    )
+
+
+# ── Pricelist upload templates ──────────────────────────────────────────────
+
+
+def pricelist_prompt() -> str:
+    return (
+        "Send me a *photo of your price list* and I go update your catalogue. \U0001f4f7\n\n"
+        "You fit also send a *voice note* reading out your products and prices."
+    )
+
+
+def pricelist_processing() -> str:
+    return "I see your price list! Give me small time to read am... \U0001f50d"
+
+
+def pricelist_extracted(
+    items: list[dict], new_count: int, updated_count: int
+) -> str:
+    lines = "\n".join(
+        f"  {item['name']} — {_naira(item['price'])}" for item in items
+    )
+    summary_parts = []
+    if new_count:
+        summary_parts.append(f"{new_count} new")
+    if updated_count:
+        summary_parts.append(f"{updated_count} price updates")
+    summary = ", ".join(summary_parts) if summary_parts else "no changes"
+    return (
+        f"I found *{len(items)} products* ({summary}):\n\n"
+        f"{lines}\n\n"
+        "Reply *YES* to update your catalogue or *NO* to cancel."
+    )
+
+
+def pricelist_confirmed(new_count: int, updated_count: int, total: int) -> str:
+    parts = []
+    if new_count:
+        parts.append(f"{new_count} new products added")
+    if updated_count:
+        parts.append(f"{updated_count} prices updated")
+    detail = ", ".join(parts) if parts else "no changes"
+    return (
+        f"\u2705 Catalogue updated! {detail}.\n\n"
+        f"You now have *{total} products* in your catalogue."
+    )
+
+
+def pricelist_cancelled() -> str:
+    return "No wahala, your catalogue stays the same. \U0001f44d"
+
+
+def pricelist_empty() -> str:
+    return (
+        "I no fit find any products in that. \U0001f914\n\n"
+        "Make sure the price list show product names and prices clearly.\n"
+        "Try again or type _MENU_ for other options."
     )
 
 

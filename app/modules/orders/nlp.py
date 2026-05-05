@@ -43,6 +43,7 @@ TRADER_ADD = "trader_add"
 TRADER_REMOVE = "trader_remove"
 TRADER_PRICE = "trader_price"
 TRADER_CATALOGUE = "trader_catalogue"
+TRADER_PRICELIST = "trader_pricelist"
 TRADER_MENU = "trader_menu"
 UNKNOWN = "unknown"
 
@@ -134,6 +135,11 @@ _PRICE_PREFIX_RE = re.compile(r"^price[\s\n]", re.IGNORECASE)
 # CATALOGUE / CATALOG / MY PRODUCTS
 _CATALOGUE_RE = re.compile(
     r"^(?:catalogue|catalog|my products|products|my catalogue|my catalog)$",
+    re.IGNORECASE,
+)
+# PRICELIST / PRICE LIST / UPLOAD PRICELIST
+_PRICELIST_RE = re.compile(
+    r"^(?:price\s*list|upload\s*price\s*list|new\s*price\s*list|update\s*price\s*list)$",
     re.IGNORECASE,
 )
 # MENU / HELP
@@ -285,6 +291,9 @@ def _layer1(message: str) -> ParseResult:
 
     if _CATALOGUE_RE.match(stripped):
         return ParseResult(intent=TRADER_CATALOGUE, confidence=1.0)
+
+    if _PRICELIST_RE.match(stripped):
+        return ParseResult(intent=TRADER_PRICELIST, confidence=1.0)
 
     if _MENU_RE.match(stripped):
         return ParseResult(intent=TRADER_MENU, confidence=1.0)

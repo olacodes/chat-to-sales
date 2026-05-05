@@ -33,8 +33,8 @@
 
 | # | Task | Description | MVP |
 |---|------|-------------|-----|
-| ⬜ | Catalogue editing via WhatsApp | Let traders add/remove/update products after onboarding through chat commands (e.g., "ADD Milo 3500", "REMOVE Garri", "PRICE Indomie 9000") | ✅ Yes |
-| ⬜ | Onboarding re-entry | Allow completed traders to re-run onboarding to rebuild their catalogue from scratch | ✅ Yes |
+| ✅ | Catalogue editing via WhatsApp | Let traders add/remove/update products after onboarding through chat commands (e.g., "ADD Milo 3500", "REMOVE Garri", "PRICE Indomie 9000") | ✅ Yes |
+| ✅ | Onboarding re-entry | Allow completed traders to re-run onboarding to rebuild their catalogue from scratch | ✅ Yes |
 | ⬜ | Category change command | `CATEGORY` command to let trader switch business category after onboarding | ✅ Yes |
 | ⬜ | Photo gallery during onboarding | Let traders send multiple photos (e.g., 3 pages of a price list) and combine the OCR results | ✅ Yes |
 | ⬜ | Onboarding analytics | Track completion rates per path, drop-off points, average time to complete in the admin dashboard | ✅ Yes |
