@@ -202,7 +202,6 @@ _TRADER_SESSION_TTL = 10 * 60  # 10 minutes
 # Trader session states
 TRADER_AWAITING_ADD = "awaiting_add"
 TRADER_AWAITING_REMOVE = "awaiting_remove"
-TRADER_AWAITING_REMOVE_CONFIRM = "awaiting_remove_confirm"
 TRADER_AWAITING_PRICE_SELECT = "awaiting_price_select"
 TRADER_AWAITING_PRICE_VALUE = "awaiting_price_value"
 

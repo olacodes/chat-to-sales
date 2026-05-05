@@ -305,7 +305,7 @@ def trader_menu() -> tuple[str, str, list[dict]]:
 
 
 def catalogue_list(catalogue: dict[str, int], business_name: str) -> str:
-    """Format the trader's catalogue as a readable list."""
+    """Format the trader's catalogue as a readable list (empty catalogue only)."""
     if not catalogue:
         return (
             f"*{business_name}* — Your catalogue is empty.\n\n"
@@ -326,8 +326,48 @@ def catalogue_list(catalogue: dict[str, int], business_name: str) -> str:
     )
 
 
+def catalogue_picker(
+    catalogue: dict[str, int], business_name: str, page: int = 1
+) -> tuple[str, str, list[dict]]:
+    """
+    Return (body, button_label, sections) — catalogue as a list picker.
+
+    Tapping a product enters the price-update flow (PR_ prefix).
+    Body text shows the full product list for readability.
+    """
+    lines = []
+    for i, (name, price) in enumerate(sorted(catalogue.items()), 1):
+        lines.append(f"  {i}. {name} — {_naira(price)}")
+    body = (
+        f"*{business_name}* — {len(catalogue)} products:\n\n"
+        + "\n".join(lines)
+        + "\n\nTap a product below to update its price."
+    )
+    # Truncate body to WhatsApp's 1024-char limit for list messages
+    if len(body) > 1024:
+        body = (
+            f"*{business_name}* — {len(catalogue)} products.\n\n"
+            "Tap a product below to update its price."
+        )
+    button_label = "Edit price"
+    products = sorted(catalogue.items())
+    rows, _ = _paginate_product_rows(
+        products, page, id_prefix="PR", show_price=False
+    )
+    sections = [{"title": "Your products", "rows": rows}]
+    return body, button_label, sections
+
+
 def product_added(name: str, price: int) -> str:
     return f"\u2705 Added *{name}* at {_naira(price)} to your catalogue."
+
+
+def products_added_batch(items: list[tuple[str, int]]) -> str:
+    lines = "\n".join(f"  {name} — {_naira(price)}" for name, price in items)
+    return (
+        f"\u2705 Added {len(items)} products to your catalogue:\n\n"
+        f"{lines}"
+    )
 
 
 def product_removed(name: str) -> str:
@@ -350,8 +390,9 @@ def product_not_found(name: str) -> str:
 def add_product_prompt() -> str:
     return (
         "Type the product name and price. For example:\n\n"
-        "_Milo 3500_\n"
-        "_Peak Milk Tin 1200_"
+        "_Milo 3500_\n\n"
+        "Or add many at once:\n"
+        "_Milo 3500, Garri 2500, Rice 63000_"
     )
 
 
@@ -383,17 +424,6 @@ def price_product_list(
     button_label = "Select product"
     sections = [{"title": "Your products", "rows": rows}]
     return body, button_label, sections
-
-
-def confirm_remove_prompt(name: str, price: int) -> str:
-    return (
-        f"Remove *{name}* ({_naira(price)}) from your catalogue?\n\n"
-        "Reply *YES* to confirm or *NO* to cancel."
-    )
-
-
-def remove_cancelled(name: str) -> str:
-    return f"No wahala, *{name}* stays in your catalogue."
 
 
 def price_enter_prompt(name: str, current_price: int) -> str:

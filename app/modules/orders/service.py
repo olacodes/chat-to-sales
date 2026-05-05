@@ -1067,13 +1067,25 @@ class OrderService:
         store_slug: str = trader.get("store_slug", "")
 
         if tap == "MENU_CATALOGUE":
-            await self._reply(
-                phone=trader_phone,
-                tenant_id=tenant_id,
-                event_id=f"trader.catalogue.{message_id}",
-                text=wa.catalogue_list(catalogue, trader_name),
-                channel_tenant_id=channel_tenant_id,
-            )
+            if not catalogue:
+                await self._reply(
+                    phone=trader_phone,
+                    tenant_id=tenant_id,
+                    event_id=f"trader.catalogue.{message_id}",
+                    text=wa.catalogue_list(catalogue, trader_name),
+                    channel_tenant_id=channel_tenant_id,
+                )
+            else:
+                body, btn, sections = wa.catalogue_picker(catalogue, trader_name)
+                await self._reply_list(
+                    phone=trader_phone,
+                    tenant_id=tenant_id,
+                    event_id=f"trader.catalogue.{message_id}",
+                    body_text=body,
+                    button_label=btn,
+                    sections=sections,
+                    channel_tenant_id=channel_tenant_id,
+                )
         elif tap == "MENU_ADD":
             await set_trader_session(trader_phone, {"state": TRADER_AWAITING_ADD})
             await self._reply(
@@ -1158,60 +1170,37 @@ class OrderService:
             clear_trader_session,
             TRADER_AWAITING_ADD,
             TRADER_AWAITING_PRICE_VALUE,
-            TRADER_AWAITING_REMOVE_CONFIRM,
         )
 
         state = tsession.get("state", "")
 
-        if state == TRADER_AWAITING_REMOVE_CONFIRM:
+        if state == TRADER_AWAITING_ADD:
             await clear_trader_session(trader_phone)
-            product_name = tsession.get("product_name", "")
-            answer = message.strip().upper()
-            if answer == "YES":
-                await self._do_remove_product(
+            # Parse single or batch: "Milo 3500" or "Milo 3500, Garri 2500"
+            from app.modules.orders.nlp import _parse_add_items
+            # Prepend "ADD " so the parser can handle it uniformly
+            items = _parse_add_items(f"ADD {message}")
+            if items:
+                await self._do_add_products(
                     trader_phone=trader_phone,
-                    product_name=product_name,
+                    items=items,
                     message_id=message_id,
                     trader=trader,
                     tenant_id=tenant_id,
                     channel_tenant_id=channel_tenant_id,
                 )
-            else:
-                await self._reply(
-                    phone=trader_phone,
-                    tenant_id=tenant_id,
-                    event_id=f"trader.remove_cancel.{message_id}",
-                    text=wa.remove_cancelled(product_name),
-                    channel_tenant_id=channel_tenant_id,
-                )
-            return True
-
-        if state == TRADER_AWAITING_ADD:
-            await clear_trader_session(trader_phone)
-            # Parse "Milo 3500" or "Peak Milk Tin 1,200"
-            text = message.strip()
-            cleaned = _re.sub(r"(\d),(\d)", r"\1\2", text)
-            m = _re.match(r"^(.+?)\s+(\d+)\s*$", cleaned)
-            if m:
-                name = m.group(1).strip()
-                price = int(m.group(2))
-                if name and price > 0:
-                    await self._do_add_product(
-                        trader_phone=trader_phone,
-                        product_name=name,
-                        price=price,
-                        message_id=message_id,
-                        trader=trader,
-                        tenant_id=tenant_id,
-                        channel_tenant_id=channel_tenant_id,
-                    )
-                    return True
+                return True
             # Could not parse — prompt again
             await self._reply(
                 phone=trader_phone,
                 tenant_id=tenant_id,
                 event_id=f"trader.add_invalid.{message_id}",
-                text="I no understand that. Type product name and price like:\n\n_Milo 3500_",
+                text=(
+                    "I no understand that. Type product name and price like:\n\n"
+                    "_Milo 3500_\n\n"
+                    "Or add many at once:\n"
+                    "_Milo 3500, Garri 2500, Rice 63000_"
+                ),
                 channel_tenant_id=channel_tenant_id,
             )
             return True
@@ -1245,25 +1234,34 @@ class OrderService:
 
         return False
 
-    async def _do_add_product(
+    async def _do_add_products(
         self,
         *,
         trader_phone: str,
-        product_name: str,
-        price: int,
+        items: list[dict[str, Any]],
         message_id: str,
         trader: dict[str, Any],
         tenant_id: str,
         channel_tenant_id: str | None = None,
     ) -> None:
+        """Add one or more products to the catalogue in a single persist + reply."""
         catalogue: dict[str, int] = dict(trader.get("catalogue", {}))
-        catalogue[product_name] = price
+        added: list[tuple[str, int]] = []
+        for item in items:
+            name = item["name"]
+            price = item["unit_price"]
+            catalogue[name] = price
+            added.append((name, price))
         await self._persist_catalogue(trader_phone, catalogue)
+        if len(added) == 1:
+            text = wa.product_added(added[0][0], added[0][1])
+        else:
+            text = wa.products_added_batch(added)
         await self._reply(
             phone=trader_phone,
             tenant_id=tenant_id,
             event_id=f"trader.added.{message_id}",
-            text=wa.product_added(product_name, price),
+            text=text,
             channel_tenant_id=channel_tenant_id,
         )
 
@@ -1300,48 +1298,6 @@ class OrderService:
             tenant_id=tenant_id,
             event_id=f"trader.removed.{message_id}",
             text=wa.product_removed(matched_key),
-            channel_tenant_id=channel_tenant_id,
-        )
-
-    async def _request_remove_confirmation(
-        self,
-        *,
-        trader_phone: str,
-        product_name: str,
-        message_id: str,
-        catalogue: dict[str, int],
-        tenant_id: str,
-        channel_tenant_id: str | None = None,
-    ) -> None:
-        """Ask the trader to confirm product removal before deleting."""
-        from app.modules.orders.session import set_trader_session, TRADER_AWAITING_REMOVE_CONFIRM
-
-        # Case-insensitive lookup to find actual key and price
-        matched_key: str | None = None
-        matched_price: int = 0
-        for key, val in catalogue.items():
-            if key.lower() == product_name.lower():
-                matched_key = key
-                matched_price = val
-                break
-        if matched_key is None:
-            await self._reply(
-                phone=trader_phone,
-                tenant_id=tenant_id,
-                event_id=f"trader.remove_notfound.{message_id}",
-                text=wa.product_not_found(product_name),
-                channel_tenant_id=channel_tenant_id,
-            )
-            return
-        await set_trader_session(trader_phone, {
-            "state": TRADER_AWAITING_REMOVE_CONFIRM,
-            "product_name": matched_key,
-        })
-        await self._reply(
-            phone=trader_phone,
-            tenant_id=tenant_id,
-            event_id=f"trader.remove_confirm.{message_id}",
-            text=wa.confirm_remove_prompt(matched_key, matched_price),
             channel_tenant_id=channel_tenant_id,
         )
 
@@ -1665,12 +1621,12 @@ class OrderService:
                     channel_tenant_id=channel_tenant_id,
                 )
                 return
-            # Product tap — ask for confirmation
-            await self._request_remove_confirmation(
+            # Product tap — remove directly
+            await self._do_remove_product(
                 trader_phone=trader_phone,
                 product_name=suffix,
                 message_id=message_id,
-                catalogue=catalogue,
+                trader=trader,
                 tenant_id=tenant_id,
                 channel_tenant_id=channel_tenant_id,
             )
@@ -1729,11 +1685,9 @@ class OrderService:
 
         # ── Catalogue commands (typed) ────────────────────────────────────────
         if result.intent == TRADER_ADD:
-            item = result.items[0]
-            await self._do_add_product(
+            await self._do_add_products(
                 trader_phone=trader_phone,
-                product_name=item["name"],
-                price=item["unit_price"],
+                items=result.items,
                 message_id=message_id,
                 trader=trader,
                 tenant_id=tenant_id,
@@ -1742,11 +1696,11 @@ class OrderService:
             return
 
         if result.intent == TRADER_REMOVE:
-            await self._request_remove_confirmation(
+            await self._do_remove_product(
                 trader_phone=trader_phone,
                 product_name=result.items[0]["name"],
                 message_id=message_id,
-                catalogue=catalogue,
+                trader=trader,
                 tenant_id=tenant_id,
                 channel_tenant_id=channel_tenant_id,
             )
@@ -1766,13 +1720,25 @@ class OrderService:
             return
 
         if result.intent == TRADER_CATALOGUE:
-            await self._reply(
-                phone=trader_phone,
-                tenant_id=tenant_id,
-                event_id=f"trader.catalogue.{message_id}",
-                text=wa.catalogue_list(catalogue, trader_name),
-                channel_tenant_id=channel_tenant_id,
-            )
+            if not catalogue:
+                await self._reply(
+                    phone=trader_phone,
+                    tenant_id=tenant_id,
+                    event_id=f"trader.catalogue.{message_id}",
+                    text=wa.catalogue_list(catalogue, trader_name),
+                    channel_tenant_id=channel_tenant_id,
+                )
+            else:
+                body, btn, sections = wa.catalogue_picker(catalogue, trader_name)
+                await self._reply_list(
+                    phone=trader_phone,
+                    tenant_id=tenant_id,
+                    event_id=f"trader.catalogue.{message_id}",
+                    body_text=body,
+                    button_label=btn,
+                    sections=sections,
+                    channel_tenant_id=channel_tenant_id,
+                )
             return
 
         if result.intent == TRADER_MENU:

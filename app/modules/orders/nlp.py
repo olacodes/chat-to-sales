@@ -112,10 +112,13 @@ _TRADER_VERB_MAP = {
 
 # Catalogue management commands
 # ADD <product name> <price>  e.g. "ADD Milo 3500", "add Peak Milk Tin 1200"
+# Also supports batch: "ADD Milo 3500, Garri 2500, Rice 63000"
 _ADD_RE = re.compile(
     r"^add\s+(.+?)\s+(\d[\d,]*)\s*$",
     re.IGNORECASE,
 )
+_ADD_PREFIX_RE = re.compile(r"^add[\s\n]", re.IGNORECASE)
+_ADD_ITEM_RE = re.compile(r"^(.+?)\s+(\d[\d,]*)\s*$")
 # REMOVE <product name>  e.g. "REMOVE Garri", "remove Peak Milk"
 _REMOVE_RE = re.compile(
     r"^(?:remove|delete)\s+(.+)$",
@@ -182,6 +185,45 @@ def _extract_items(tokens: list[str]) -> list[dict[str, Any]]:
     return items
 
 
+def _parse_add_items(message: str) -> list[dict[str, Any]]:
+    """
+    Parse single or batch ADD commands.
+
+    Accepts:
+        ADD Milo 3500
+        ADD Milo 3500, Garri 2500, Rice 63000
+        ADD Milo 3,500, Garri 2,500
+        ADD
+        Milo 3500
+        Garri 2500
+
+    Returns list of {name, qty, unit_price} dicts, or empty list on failure.
+    """
+    # Strip the leading "ADD" keyword
+    body = re.sub(r"^add\s*", "", message.strip(), flags=re.IGNORECASE)
+    if not body:
+        return []
+
+    # Remove commas inside numbers FIRST (e.g. "3,500" -> "3500")
+    # so they don't interfere with the comma delimiter split.
+    body = re.sub(r"(\d),(\d)", r"\1\2", body)
+
+    # Split by comma or newline
+    parts = re.split(r"[,\n]", body)
+    items: list[dict[str, Any]] = []
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+        m = _ADD_ITEM_RE.match(part)
+        if m:
+            name = m.group(1).strip()
+            price = int(m.group(2))
+            if name and price > 0:
+                items.append({"name": name, "qty": 1, "unit_price": price})
+    return items
+
+
 # ── Layer-1 entry point ───────────────────────────────────────────────────────
 
 def _layer1(message: str) -> ParseResult:
@@ -207,15 +249,14 @@ def _layer1(message: str) -> ParseResult:
         )
 
     # ── Catalogue management commands ────────────────────────────────────────
-    m = _ADD_RE.match(stripped)
-    if m:
-        product = m.group(1).strip()
-        price = int(m.group(2).replace(",", ""))
-        return ParseResult(
-            intent=TRADER_ADD,
-            items=[{"name": product, "qty": 1, "unit_price": price}],
-            confidence=1.0,
-        )
+    if _ADD_PREFIX_RE.match(stripped):
+        items = _parse_add_items(stripped)
+        if items:
+            return ParseResult(
+                intent=TRADER_ADD,
+                items=items,
+                confidence=1.0,
+            )
 
     m = _PRICE_RE.match(stripped)
     if m:
