@@ -2619,6 +2619,9 @@ class OrderService:
                         currency=order.currency or "NGN",
                     )
                     cs_session.add(credit_sale)
+                # Mark the order as credit
+                order.is_credit = True
+                await self._db.commit()
             except Exception as exc:
                 await self._reply(
                     phone=trader_phone,
@@ -2855,6 +2858,7 @@ class OrderService:
                 conversation_id=order.conversation_id,
                 customer_id=order.customer_id,
                 customer_phone=order.customer_phone,
+                is_credit=order.is_credit,
                 state=order.state,
                 amount=order.amount,
                 currency=order.currency,
