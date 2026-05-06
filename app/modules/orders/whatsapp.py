@@ -712,6 +712,15 @@ def debt_reminder_to_trader(customer_name: str, amount: int, days_ago: int) -> s
     )
 
 
+def debt_customer_reminded_notification(customer_name: str, amount: int, reminders_sent: int) -> str:
+    """Notify the trader that an automated reminder was sent to the customer."""
+    return (
+        f"\U0001f514 I sent a friendly reminder to *{customer_name}* "
+        f"about their outstanding balance of {_naira(amount)}.\n\n"
+        f"This is reminder #{reminders_sent}."
+    )
+
+
 def debt_list(debts: list[dict], total: int) -> str:
     if not debts:
         return (

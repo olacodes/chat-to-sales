@@ -224,8 +224,33 @@ async def _send_debt_reminders() -> None:
                 async with async_session_factory.begin() as session:
                     svc = CreditSaleService(session)
                     await svc.send_reminder(cs.id, tenant_id=cs.tenant_id)
+
+                # Notify the trader that we sent the reminder
+                trader_data = await get_trader_by_tenant_cache(cs.tenant_id)
+                if not trader_data:
+                    async with async_session_factory() as session:
+                        repo = TraderRepository(session)
+                        trader = await repo.get_by_tenant(cs.tenant_id)
+                    trader_phone = trader.phone_number if trader else ""
+                else:
+                    trader_phone = trader_data.get("phone_number", "")
+
+                if trader_phone:
+                    async with async_session_factory.begin() as session:
+                        notify_svc = NotificationService(session)
+                        await notify_svc.send_message(
+                            tenant_id=platform_tenant_id,
+                            event_id=f"debt.reminder_notify.{cs.id}.{cs.reminders_sent}",
+                            recipient=trader_phone,
+                            message_text=wa.debt_customer_reminded_notification(
+                                cs.customer_name, int(cs.amount), cs.reminders_sent,
+                            ),
+                            channel="whatsapp",
+                            channel_tenant_id=platform_tenant_id,
+                        )
+
                 logger.info(
-                    "Debt reminder sent to customer: credit_sale=%s customer=%s",
+                    "Debt reminder sent to customer + trader notified: credit_sale=%s customer=%s",
                     cs.id, cs.customer_name,
                 )
             else:
