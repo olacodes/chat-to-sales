@@ -43,6 +43,7 @@ from app.modules.orders.nlp import (
     TRADER_CATALOGUE,
     TRADER_CATEGORY,
     TRADER_CONFIRM,
+    TRADER_CREDIT,
     TRADER_DEBT,
     TRADER_DELIVERED,
     TRADER_MENU,
@@ -2423,11 +2424,13 @@ class OrderService:
                     channel_tenant_id=channel_tenant_id,
                 )
                 return
-            await self._reply(
+            body_text, buttons = wa.order_confirmed_to_trader(ref)
+            await self._reply_interactive(
                 phone=trader_phone,
                 tenant_id=tenant_id,
                 event_id=f"order.confirmed_trader.{order.id}",
-                text=wa.order_confirmed_to_trader(ref),
+                body_text=body_text,
+                buttons=buttons,
                 channel_tenant_id=channel_tenant_id,
             )
             if customer_phone:
@@ -2493,6 +2496,43 @@ class OrderService:
                 channel_tenant_id=channel_tenant_id,
             )
             logger.info("Trader marked order PAID order_id=%s ref=%s", order.id, ref)
+
+        elif result.intent == TRADER_CREDIT:
+            # Create a credit sale linked to this order
+            from decimal import Decimal as D
+            from app.modules.credit_sales.models import CreditSale
+
+            total = int(order.amount or 0)
+            cust_phone = order.customer_phone or "unknown"
+
+            try:
+                async with async_session_factory.begin() as cs_session:
+                    credit_sale = CreditSale(
+                        tenant_id=order.tenant_id,
+                        order_id=order.id,
+                        customer_name=f"+{cust_phone}" if cust_phone != "unknown" else "Unknown",
+                        amount=D(str(total)),
+                        currency=order.currency or "NGN",
+                    )
+                    cs_session.add(credit_sale)
+            except Exception as exc:
+                await self._reply(
+                    phone=trader_phone,
+                    tenant_id=tenant_id,
+                    event_id=f"order.credit_err.{message_id}",
+                    text=f"Cannot create credit for order {ref}: {exc}",
+                    channel_tenant_id=channel_tenant_id,
+                )
+                return
+
+            await self._reply(
+                phone=trader_phone,
+                tenant_id=tenant_id,
+                event_id=f"order.credit_trader.{order.id}",
+                text=wa.order_credit_to_trader(ref, cust_phone, total),
+                channel_tenant_id=channel_tenant_id,
+            )
+            logger.info("Trader marked order CREDIT order_id=%s ref=%s", order.id, ref)
 
         elif result.intent == TRADER_DELIVERED:
             # Accept CONFIRMED -> COMPLETED or PAID -> COMPLETED

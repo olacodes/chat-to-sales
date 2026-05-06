@@ -234,10 +234,18 @@ def order_received_interactive(
     return body, buttons
 
 
-def order_confirmed_to_trader(order_ref: str) -> str:
-    return (
-        f"\u2705 Order {order_ref} confirmed. Customer don hear about am."
+def order_confirmed_to_trader(order_ref: str) -> tuple[str, list[dict[str, str]]]:
+    """Return (body_text, buttons) for post-confirm payment options."""
+    body = (
+        f"\u2705 Order {order_ref} confirmed. Customer don hear about am.\n\n"
+        "When they pay, tap *Paid*.\n"
+        "If na credit (pay later), tap *Credit*."
     )
+    buttons = [
+        {"id": f"PAID {order_ref}", "title": "\U0001f4b0 Paid"},
+        {"id": f"CREDIT {order_ref}", "title": "\U0001f4dd Credit"},
+    ]
+    return body, buttons
 
 
 def order_cancelled_to_trader(order_ref: str) -> str:
@@ -581,6 +589,15 @@ def pricelist_empty() -> str:
 
 
 # ── Debt tracker templates ───────────────────────────────────────────────────
+
+
+def order_credit_to_trader(order_ref: str, customer_phone: str, amount: int) -> str:
+    return (
+        f"\U0001f4dd Order {order_ref} marked as credit.\n\n"
+        f"Customer: +{customer_phone}\n"
+        f"Amount: {_naira(amount)}\n\n"
+        "I go track this for you. Type _WHO OWES ME_ to see your debt book."
+    )
 
 
 def debt_created(customer_name: str, amount: int) -> str:
