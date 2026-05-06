@@ -1784,14 +1784,18 @@ class OrderService:
         tenant_id: str,
         channel_tenant_id: str | None = None,
     ) -> None:
-        """List all confirmed (unpaid) orders for the trader."""
+        """List all active (non-terminal) orders for the trader."""
         from sqlalchemy import select
 
         async with async_session_factory() as session:
             result = await session.execute(
                 select(Order).where(
                     Order.trader_phone == trader_phone,
-                    Order.state == OrderState.CONFIRMED,
+                    Order.state.in_([
+                        OrderState.INQUIRY,
+                        OrderState.CONFIRMED,
+                        OrderState.PAID,
+                    ]),
                 ).order_by(Order.created_at.desc())
             )
             orders = list(result.scalars().all())
@@ -1813,6 +1817,8 @@ class OrderService:
                 "customer_phone": o.customer_phone or "",
                 "amount": int(o.amount or 0),
                 "date": o.created_at.strftime("%b %d") if o.created_at else "",
+                "state": o.state,
+                "is_credit": o.is_credit,
             })
 
         result_tuple = wa.pending_orders_list(order_data)
@@ -2299,24 +2305,52 @@ class OrderService:
         if stripped.startswith("ORDACT_"):
             order_ref = message.strip()[7:]  # preserve case
             order = await self._repo.get_by_ref_prefix(ref_prefix=order_ref.lower())
-            if order and order.state == OrderState.CONFIRMED:
-                total = int(order.amount or 0)
-                cust_phone = order.customer_phone or "unknown"
-                body, buttons = wa.pending_order_actions(order_ref.lower(), cust_phone, total)
-                await self._reply_interactive(
-                    phone=trader_phone,
-                    tenant_id=tenant_id,
-                    event_id=f"trader.ordact.{message_id}",
-                    body_text=body,
-                    buttons=buttons,
-                    channel_tenant_id=channel_tenant_id,
-                )
-            else:
+            if not order:
                 await self._reply(
                     phone=trader_phone,
                     tenant_id=tenant_id,
                     event_id=f"trader.ordact_notfound.{message_id}",
                     text=wa.order_not_found_to_trader(order_ref),
+                    channel_tenant_id=channel_tenant_id,
+                )
+                return
+            total = int(order.amount or 0)
+            cust_phone = order.customer_phone or "unknown"
+            ref_lower = order_ref.lower()
+            # Show context-appropriate buttons based on order state
+            if order.state == OrderState.INQUIRY:
+                body, buttons = wa.order_action_buttons(
+                    ref_lower, cust_phone, total, order.state, order.is_credit
+                )
+                await self._reply_interactive(
+                    phone=trader_phone, tenant_id=tenant_id,
+                    event_id=f"trader.ordact.{message_id}",
+                    body_text=body, buttons=buttons,
+                    channel_tenant_id=channel_tenant_id,
+                )
+            elif order.state == OrderState.CONFIRMED:
+                body, buttons = wa.pending_order_actions(ref_lower, cust_phone, total)
+                await self._reply_interactive(
+                    phone=trader_phone, tenant_id=tenant_id,
+                    event_id=f"trader.ordact.{message_id}",
+                    body_text=body, buttons=buttons,
+                    channel_tenant_id=channel_tenant_id,
+                )
+            elif order.state == OrderState.PAID:
+                body, buttons = wa.order_action_buttons(
+                    ref_lower, cust_phone, total, order.state, order.is_credit
+                )
+                await self._reply_interactive(
+                    phone=trader_phone, tenant_id=tenant_id,
+                    event_id=f"trader.ordact.{message_id}",
+                    body_text=body, buttons=buttons,
+                    channel_tenant_id=channel_tenant_id,
+                )
+            else:
+                await self._reply(
+                    phone=trader_phone, tenant_id=tenant_id,
+                    event_id=f"trader.ordact_done.{message_id}",
+                    text=f"Order {order_ref} is already {order.state}.",
                     channel_tenant_id=channel_tenant_id,
                 )
             return

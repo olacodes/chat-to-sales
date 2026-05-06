@@ -592,30 +592,42 @@ def pricelist_empty() -> str:
 # ── Debt tracker templates ───────────────────────────────────────────────────
 
 
+_STATE_LABELS: dict[str, str] = {
+    "inquiry": "New",
+    "confirmed": "Confirmed",
+    "paid": "Paid",
+    "completed": "Done",
+    "failed": "Cancelled",
+}
+
+
 def pending_orders_list(
     orders: list[dict],
 ) -> tuple[str, str, list[dict]] | None:
     """
-    Return (body, button_label, sections) for a list picker of unpaid orders.
+    Return (body, button_label, sections) for a list picker of active orders.
 
-    Each order dict: {ref, customer_phone, amount, date}
+    Each order dict: {ref, customer_phone, amount, date, state, is_credit}
     Returns None if no orders.
     """
     if not orders:
         return None
     body = (
-        f"You have *{len(orders)} unpaid order{'s' if len(orders) != 1 else ''}*.\n\n"
-        "Tap an order to mark it as Paid or Credit."
+        f"You have *{len(orders)} active order{'s' if len(orders) != 1 else ''}*.\n\n"
+        "Tap an order to see actions."
     )
     button_label = "View orders"
     rows = []
     for o in orders[:10]:  # WhatsApp max 10 rows
+        state_label = _STATE_LABELS.get(o.get("state", ""), o.get("state", ""))
+        credit_tag = " | Credit" if o.get("is_credit") else ""
+        desc = f"{_naira(o['amount'])} — {state_label}{credit_tag} — {o['date']}"
         rows.append({
             "id": f"ORDACT_{o['ref']}",
             "title": f"+{o['customer_phone']}"[:24] if o.get("customer_phone") else o["ref"],
-            "description": f"{_naira(o['amount'])} — {o['date']}",
+            "description": desc[:72],
         })
-    sections = [{"title": "Unpaid orders", "rows": rows}]
+    sections = [{"title": "Active orders", "rows": rows}]
     return body, button_label, sections
 
 
@@ -635,8 +647,33 @@ def pending_order_actions(
     return body, buttons
 
 
+def order_action_buttons(
+    order_ref: str, customer_phone: str, amount: int, state: str, is_credit: bool,
+) -> tuple[str, list[dict[str, str]]]:
+    """Return (body, buttons) with context-appropriate actions per order state."""
+    credit_tag = " | Credit" if is_credit else ""
+    state_label = _STATE_LABELS.get(state, state)
+    body = (
+        f"Order *{order_ref}*\n"
+        f"Customer: +{customer_phone}\n"
+        f"Amount: {_naira(amount)}\n"
+        f"Status: {state_label}{credit_tag}"
+    )
+    buttons: list[dict[str, str]] = []
+    if state == "inquiry":
+        buttons = [
+            {"id": f"CONFIRM {order_ref}", "title": "\u2705 Confirm"},
+            {"id": f"CANCEL {order_ref}", "title": "\u274c Cancel"},
+        ]
+    elif state == "paid":
+        buttons = [
+            {"id": f"DELIVERED {order_ref}", "title": "\U0001f680 Complete"},
+        ]
+    return body, buttons
+
+
 def no_pending_orders() -> str:
-    return "You have no unpaid orders right now. \U0001f389"
+    return "You have no active orders right now. \U0001f389"
 
 
 def order_credit_to_trader(order_ref: str, customer_phone: str, amount: int) -> str:
