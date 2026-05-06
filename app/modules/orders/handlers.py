@@ -302,6 +302,7 @@ async def handle_order_intent(event: Event) -> None:
         return
 
     sender_phone: str = payload.get("sender_identifier") or payload.get("customer_identifier", "")
+    sender_name: str | None = payload.get("sender_name")
     content: str = payload.get("content", "")
     message_id: str = payload.get("id", "")
     conversation_id: str = payload.get("conversation_id", "")
@@ -458,6 +459,7 @@ async def handle_order_intent(event: Event) -> None:
                 trader=store_trader,
                 cart_items=cart_items,
                 channel_tenant_id=platform_tenant_id,
+                customer_name=sender_name,
             )
         return
 
@@ -492,6 +494,7 @@ async def handle_order_intent(event: Event) -> None:
                     media_id=media_id,
                     trader=store_trader,
                     channel_tenant_id=platform_tenant_id,
+                    customer_name=sender_name,
                 )
             else:
                 await svc.handle_inbound_customer_message(
@@ -502,6 +505,7 @@ async def handle_order_intent(event: Event) -> None:
                     message_id=message_id,
                     trader=store_trader,
                     channel_tenant_id=platform_tenant_id,
+                    customer_name=sender_name,
                 )
         return
 
@@ -526,6 +530,7 @@ async def handle_order_intent(event: Event) -> None:
                     image_bytes=image_bytes,
                     media_id=media_id,
                     trader=store_trader,
+                    customer_name=sender_name,
                 )
             else:
                 await svc.handle_inbound_customer_message(
@@ -535,6 +540,7 @@ async def handle_order_intent(event: Event) -> None:
                     message=message,
                     message_id=message_id,
                     trader=store_trader,
+                    customer_name=sender_name,
                 )
         return
 

@@ -84,6 +84,7 @@ class OrderListItem(BaseModel):
     conversation_id: str | None
     customer_id: str | None
     customer_phone: str | None = None
+    customer_name: str | None = None
     is_credit: bool = False
     state: OrderState
     amount: Decimal | None

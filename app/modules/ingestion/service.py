@@ -49,6 +49,7 @@ class IngestionService:
             is_empty=len(stripped) == 0,
             media_id=request.media_id,
             media_type=request.media_type,
+            sender_name=request.sender_name,
         )
 
     # ── Event publishing ──────────────────────────────────────────────────────
@@ -72,6 +73,7 @@ class IngestionService:
             message_id=request.message_id,
             media_id=normalized.media_id,
             media_type=normalized.media_type,
+            sender_name=normalized.sender_name,
         )
 
         event = Event(

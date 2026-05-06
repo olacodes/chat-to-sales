@@ -37,6 +37,8 @@ class Order(TenantModel):
     # Stored here so trader-command handlers can notify the customer without
     # an extra join back through conversations.
     customer_phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # WhatsApp profile name of the customer (extracted from Meta webhook contacts)
+    customer_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     # E.164 phone number of the trader (store owner) who owns this order.
     # Used to migrate orders from the shared platform tenant to the trader's
     # dedicated tenant on first dashboard login.

@@ -95,6 +95,7 @@ async def receive_whatsapp_message(
     # Status/delivery webhooks have a `statuses` array instead of `messages`;
     # they are silently ignored here.
     sender_id = ""
+    sender_name: str | None = None
     content = ""
     external_id = ""
     media_id: str | None = None
@@ -110,10 +111,17 @@ async def receive_whatsapp_message(
     }
 
     try:
-        first_msg = raw["entry"][0]["changes"][0]["value"]["messages"][0]
+        value = raw["entry"][0]["changes"][0]["value"]
+        first_msg = value["messages"][0]
         msg_type = first_msg.get("type", "")
         sender_id = first_msg.get("from", "")
         external_id = first_msg.get("id", "")
+
+        # Extract WhatsApp profile name from contacts array
+        contacts = value.get("contacts") or []
+        if contacts:
+            profile = contacts[0].get("profile") or {}
+            sender_name = profile.get("name") or None
 
         if msg_type == "text":
             content = (first_msg.get("text") or {}).get("body", "")
@@ -166,6 +174,7 @@ async def receive_whatsapp_message(
             message_id=external_id or None,
             media_id=media_id or None,
             media_type=media_type or None,
+            sender_name=sender_name,
         )
         svc = IngestionService()
         await svc.process(inbound)

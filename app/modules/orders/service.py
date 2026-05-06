@@ -451,6 +451,7 @@ class OrderService:
         message_id: str,
         trader: dict[str, Any],
         channel_tenant_id: str | None = None,
+        customer_name: str | None = None,
     ) -> None:
         """
         Process an inbound customer message and advance the order conversation.
@@ -730,6 +731,7 @@ class OrderService:
             tenant_id=tenant_id,
             conversation_id=conversation_id,
             customer_phone=customer_phone,
+            customer_name=customer_name,
             trader_phone=trader.get("phone_number"),
             amount=Decimal(str(total)),
         )
@@ -780,6 +782,7 @@ class OrderService:
         message: str,
         message_id: str,
         image_bytes: bytes,
+        customer_name: str | None = None,
         media_id: str,
         trader: dict[str, Any],
         channel_tenant_id: str | None = None,
@@ -1991,6 +1994,7 @@ class OrderService:
         trader: dict[str, Any],
         product_name: str,
         price: int,
+        customer_name: str | None = None,
         trader_name: str,
         channel_tenant_id: str | None = None,
         media_id: str | None = None,
@@ -2006,6 +2010,7 @@ class OrderService:
             tenant_id=tenant_id,
             conversation_id=conversation_id,
             customer_phone=customer_phone,
+            customer_name=customer_name,
             trader_phone=trader.get("phone_number"),
             amount=Decimal(str(price)),
         )
@@ -2060,6 +2065,7 @@ class OrderService:
         message_id: str,
         trader: dict[str, Any],
         cart_items: list[dict[str, Any]],
+        customer_name: str | None = None,
         channel_tenant_id: str | None = None,
     ) -> None:
         """
@@ -2109,6 +2115,7 @@ class OrderService:
             tenant_id=tenant_id,
             conversation_id=conversation_id,
             customer_phone=customer_phone,
+            customer_name=customer_name,
             trader_phone=trader.get("phone_number"),
             amount=Decimal(str(total)),
         )
@@ -2899,6 +2906,7 @@ class OrderService:
                 conversation_id=order.conversation_id,
                 customer_id=order.customer_id,
                 customer_phone=order.customer_phone,
+                customer_name=order.customer_name,
                 is_credit=order.is_credit,
                 state=order.state,
                 amount=order.amount,

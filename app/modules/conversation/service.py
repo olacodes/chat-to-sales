@@ -59,6 +59,7 @@ class ConversationService:
         content: str,
         external_id: str | None = None,
         customer_id: str | None = None,
+        sender_name: str | None = None,
     ) -> tuple[Conversation, Message | None]:
         """
         Persist an inbound message, creating the conversation if needed.
@@ -74,6 +75,10 @@ class ConversationService:
             channel=channel,
             customer_id=customer_id,
         )
+
+        # Update customer_name from WhatsApp profile if available
+        if sender_name and (not conv.customer_name or conv.customer_name != sender_name):
+            conv.customer_name = sender_name
 
         if created:
             logger.info(

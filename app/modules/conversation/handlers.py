@@ -64,6 +64,7 @@ async def handle_message_received(event: Event) -> None:
     external_id: str | None = payload.get("message_id") or payload.get("external_id")
     media_id: str | None = payload.get("media_id")
     media_type: str | None = payload.get("media_type")
+    sender_name: str | None = payload.get("sender_name")
 
     if not (tenant_id and channel and sender_id and content):
         logger.warning(
@@ -85,6 +86,7 @@ async def handle_message_received(event: Event) -> None:
             sender_id=sender_id,
             content=content,
             external_id=external_id,
+            sender_name=sender_name,
         )
 
     if msg is None:
@@ -124,6 +126,7 @@ async def handle_message_received(event: Event) -> None:
                     # Consumed by the onboarding handler for Paths A and B.
                     "media_id": media_id,
                     "media_type": media_type,
+                    "sender_name": sender_name,
                 },
             )
         )
