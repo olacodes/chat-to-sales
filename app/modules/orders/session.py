@@ -160,38 +160,97 @@ async def clear_customer_routing(phone: str) -> None:
     await get_redis().delete(_customer_routing_key(phone))
 
 
-# ── Pending image inquiry (trader hasn't replied yet) ────────────────────────
+# ── Pending image inquiries (per-customer, supports concurrent photos) ────
 
 _IMAGE_INQUIRY_PREFIX = "image:inquiry"
+_IMAGE_INQUIRY_INDEX = "image:inquiries"
 _IMAGE_INQUIRY_TTL = 24 * 60 * 60  # 24 hours
 
 
-def _image_inquiry_key(trader_phone: str) -> str:
-    return f"{_IMAGE_INQUIRY_PREFIX}:{trader_phone}"
+def _image_inquiry_key(trader_phone: str, customer_phone: str) -> str:
+    return f"{_IMAGE_INQUIRY_PREFIX}:{trader_phone}:{customer_phone}"
+
+
+def _image_inquiry_index_key(trader_phone: str) -> str:
+    return f"{_IMAGE_INQUIRY_INDEX}:{trader_phone}"
 
 
 async def get_pending_image_inquiry(trader_phone: str) -> dict[str, Any] | None:
     """
-    Return the pending image inquiry awaiting this trader's reply, or None.
+    Return the most recent pending image inquiry for this trader, or None.
 
-    Dict keys: customer_phone, description, tenant_id, channel_tenant_id
+    When multiple customers have sent photos, returns the latest one
+    (the one the trader is most likely replying to).
     """
-    raw = await get_redis().get(_image_inquiry_key(trader_phone))
-    return json.loads(raw) if raw else None
+    redis = get_redis()
+    index_key = _image_inquiry_index_key(trader_phone)
+    members = await redis.smembers(index_key)
+    if not members:
+        return None
+
+    # Find the most recent inquiry that still has data
+    for customer_phone in sorted(members, reverse=True):
+        cp = customer_phone if isinstance(customer_phone, str) else customer_phone.decode()
+        raw = await redis.get(_image_inquiry_key(trader_phone, cp))
+        if raw:
+            return json.loads(raw)
+        # Stale index entry — clean it up
+        await redis.srem(index_key, customer_phone)
+
+    return None
 
 
 async def set_pending_image_inquiry(
     trader_phone: str, data: dict[str, Any]
 ) -> None:
-    """Store a pending image inquiry so the trader's reply can be linked back."""
-    await get_redis().setex(
-        _image_inquiry_key(trader_phone), _IMAGE_INQUIRY_TTL, json.dumps(data)
-    )
+    """
+    Store a pending image inquiry keyed by trader + customer phone.
+
+    Multiple customers can have concurrent pending inquiries for the
+    same trader — each gets its own Redis key.
+    """
+    customer_phone: str = data.get("customer_phone", "")
+    if not customer_phone:
+        return
+
+    redis = get_redis()
+    key = _image_inquiry_key(trader_phone, customer_phone)
+    index_key = _image_inquiry_index_key(trader_phone)
+
+    await redis.setex(key, _IMAGE_INQUIRY_TTL, json.dumps(data))
+    await redis.sadd(index_key, customer_phone)
+    await redis.expire(index_key, _IMAGE_INQUIRY_TTL)
 
 
-async def clear_pending_image_inquiry(trader_phone: str) -> None:
-    """Remove the pending image inquiry after the trader replies."""
-    await get_redis().delete(_image_inquiry_key(trader_phone))
+async def clear_pending_image_inquiry(
+    trader_phone: str, customer_phone: str | None = None
+) -> None:
+    """
+    Remove a pending image inquiry after the trader replies.
+
+    If customer_phone is given, removes only that customer's inquiry.
+    If None, removes the most recent one (backwards compat).
+    """
+    redis = get_redis()
+    index_key = _image_inquiry_index_key(trader_phone)
+
+    if customer_phone:
+        await redis.delete(_image_inquiry_key(trader_phone, customer_phone))
+        await redis.srem(index_key, customer_phone)
+    else:
+        # Legacy: clear the most recent
+        members = await redis.smembers(index_key)
+        if members:
+            cp = sorted(members, reverse=True)[0]
+            cp_str = cp if isinstance(cp, str) else cp.decode()
+            await redis.delete(_image_inquiry_key(trader_phone, cp_str))
+            await redis.srem(index_key, cp)
+
+
+async def count_pending_image_inquiries(trader_phone: str) -> int:
+    """Return the number of pending image inquiries for this trader."""
+    redis = get_redis()
+    return await redis.scard(_image_inquiry_index_key(trader_phone))
 
 
 # ── Trader command session (multi-step catalogue flows) ──────────────────────

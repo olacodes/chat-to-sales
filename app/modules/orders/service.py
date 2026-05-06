@@ -936,6 +936,7 @@ class OrderService:
         from app.modules.orders.session import (
             get_pending_image_inquiry,
             clear_pending_image_inquiry,
+            count_pending_image_inquiries,
         )
 
         pending = await get_pending_image_inquiry(trader_phone)
@@ -1020,14 +1021,26 @@ class OrderService:
             )
 
         await self._db.commit()
-        await clear_pending_image_inquiry(trader_phone)
+        await clear_pending_image_inquiry(trader_phone, customer_phone=customer_phone)
+
+        # Notify trader if more inquiries are waiting
+        remaining = await count_pending_image_inquiries(trader_phone)
+        if remaining > 0:
+            await self._reply(
+                phone=trader_phone,
+                tenant_id=tenant_id,
+                event_id=f"order.image_more_pending.{message_id}",
+                text=wa.image_inquiry_more_pending(remaining),
+                channel_tenant_id=channel_tenant_id,
+            )
 
         logger.info(
-            "Image inquiry learned: trader=%s product=%s price=%d customer=%s",
+            "Image inquiry learned: trader=%s product=%s price=%d customer=%s remaining=%d",
             trader_phone,
             product_name,
             price,
             customer_phone,
+            remaining,
         )
         return True
 

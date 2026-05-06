@@ -662,6 +662,14 @@ def image_inquiry_price_to_customer(
     )
 
 
+def image_inquiry_more_pending(remaining: int) -> str:
+    return (
+        f"\U0001f4f8 You still have {remaining} more product "
+        f"{'inquiry' if remaining == 1 else 'inquiries'} waiting.\n\n"
+        "Reply with the product name and price for each one."
+    )
+
+
 def image_processing_failed() -> str:
     return (
         "I no fit see that photo well well. \U0001f605\n\n"
