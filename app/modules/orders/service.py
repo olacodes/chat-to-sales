@@ -1762,9 +1762,12 @@ class OrderService:
         tenant_id: str,
         channel_tenant_id: str | None = None,
     ) -> None:
-        """List all active debts for the trader."""
+        """List all active debts for the trader as an interactive picker."""
         from app.modules.credit_sales.models import CreditSale, CreditSaleStatus
         from sqlalchemy import select
+        from datetime import datetime, timezone as tz
+
+        now = datetime.now(tz=tz.utc)
 
         async with async_session_factory() as session:
             result = await session.execute(
@@ -1775,16 +1778,180 @@ class OrderService:
             )
             debts = list(result.scalars().all())
 
-        debt_list_data = [{"name": d.customer_name, "amount": int(d.amount)} for d in debts]
+        if not debts:
+            await self._reply(
+                phone=trader_phone,
+                tenant_id=tenant_id,
+                event_id=f"trader.debt_list.{message_id}",
+                text=wa.debt_list_empty(),
+                channel_tenant_id=channel_tenant_id,
+            )
+            return
+
+        debt_list_data = []
+        for d in debts:
+            days_ago = max(1, int((now - d.created_at).total_seconds() / 86400)) if d.created_at else 0
+            debt_list_data.append({
+                "id": d.id,
+                "name": d.customer_name,
+                "amount": int(d.amount),
+                "days_ago": days_ago,
+            })
         total = sum(d["amount"] for d in debt_list_data)
+
+        body, btn, sections = wa.debt_list_picker(debt_list_data, total)
+        await self._reply_list(
+            phone=trader_phone,
+            tenant_id=tenant_id,
+            event_id=f"trader.debt_list.{message_id}",
+            body_text=body,
+            button_label=btn,
+            sections=sections,
+            channel_tenant_id=channel_tenant_id,
+        )
+
+    async def _handle_debt_action(
+        self,
+        *,
+        credit_sale_id: str,
+        trader_phone: str,
+        message_id: str,
+        tenant_id: str,
+        channel_tenant_id: str | None = None,
+    ) -> None:
+        """Show Settled/Remind buttons for a specific debt."""
+        from app.modules.credit_sales.models import CreditSale, CreditSaleStatus
+        from datetime import datetime, timezone as tz
+
+        now = datetime.now(tz=tz.utc)
+        async with async_session_factory() as session:
+            from sqlalchemy import select
+            result = await session.execute(
+                select(CreditSale).where(
+                    CreditSale.id == credit_sale_id,
+                    CreditSale.tenant_id == tenant_id,
+                )
+            )
+            cs = result.scalar_one_or_none()
+
+        if not cs or cs.status != CreditSaleStatus.ACTIVE:
+            await self._reply(
+                phone=trader_phone,
+                tenant_id=tenant_id,
+                event_id=f"trader.debtact_notfound.{message_id}",
+                text="This debt has already been settled or could not be found.",
+                channel_tenant_id=channel_tenant_id,
+            )
+            return
+
+        days_ago = max(1, int((now - cs.created_at).total_seconds() / 86400)) if cs.created_at else 0
+        body, buttons = wa.debt_action_buttons(
+            cs.customer_name, int(cs.amount), days_ago, cs.id,
+        )
+        await self._reply_interactive(
+            phone=trader_phone,
+            tenant_id=tenant_id,
+            event_id=f"trader.debtact.{message_id}",
+            body_text=body,
+            buttons=buttons,
+            channel_tenant_id=channel_tenant_id,
+        )
+
+    async def _handle_debt_settle(
+        self,
+        *,
+        credit_sale_id: str,
+        trader_phone: str,
+        message_id: str,
+        tenant_id: str,
+        channel_tenant_id: str | None = None,
+    ) -> None:
+        """Settle a debt from a button tap."""
+        from app.modules.credit_sales.models import CreditSale, CreditSaleStatus
+        from app.infra.event_bus import Event, publish_event
+
+        async with async_session_factory.begin() as session:
+            from sqlalchemy import select
+            result = await session.execute(
+                select(CreditSale).where(
+                    CreditSale.id == credit_sale_id,
+                    CreditSale.tenant_id == tenant_id,
+                )
+            )
+            cs = result.scalar_one_or_none()
+            if not cs or cs.status != CreditSaleStatus.ACTIVE:
+                await self._reply(
+                    phone=trader_phone,
+                    tenant_id=tenant_id,
+                    event_id=f"trader.settle_notfound.{message_id}",
+                    text="This debt has already been settled or could not be found.",
+                    channel_tenant_id=channel_tenant_id,
+                )
+                return
+            customer_name = cs.customer_name
+            amount = int(cs.amount)
+            cs.status = CreditSaleStatus.SETTLED
+
+        # Emit event so linked order auto-completes
+        await publish_event(Event(
+            event_name="credit_sale.status_changed",
+            tenant_id=tenant_id,
+            payload={
+                "credit_sale_id": credit_sale_id,
+                "order_id": cs.order_id,
+                "new_status": "settled",
+            },
+        ))
 
         await self._reply(
             phone=trader_phone,
             tenant_id=tenant_id,
-            event_id=f"trader.debt_list.{message_id}",
-            text=wa.debt_list(debt_list_data, total),
+            event_id=f"trader.debt_settled.{message_id}",
+            text=wa.debt_settled(customer_name, amount),
             channel_tenant_id=channel_tenant_id,
         )
+        logger.info("Debt settled via button: credit_sale=%s customer=%s", credit_sale_id, customer_name)
+
+    async def _handle_debt_remind(
+        self,
+        *,
+        credit_sale_id: str,
+        trader_phone: str,
+        message_id: str,
+        tenant_id: str,
+        channel_tenant_id: str | None = None,
+    ) -> None:
+        """Send a manual reminder for a debt from a button tap."""
+        from app.modules.credit_sales.service import CreditSaleService
+
+        try:
+            async with async_session_factory.begin() as session:
+                svc = CreditSaleService(session)
+                result = await svc.send_reminder(credit_sale_id, tenant_id=tenant_id)
+            await self._reply(
+                phone=trader_phone,
+                tenant_id=tenant_id,
+                event_id=f"trader.debt_remind.{message_id}",
+                text=wa.debt_remind_sent(result.message_sent.split(",")[0] if "," in result.message_sent else "the customer"),
+                channel_tenant_id=channel_tenant_id,
+            )
+        except ValueError:
+            # No conversation or max reminders reached
+            async with async_session_factory() as session:
+                from app.modules.credit_sales.models import CreditSale
+                from sqlalchemy import select
+                cs_result = await session.execute(
+                    select(CreditSale).where(CreditSale.id == credit_sale_id)
+                )
+                cs = cs_result.scalar_one_or_none()
+            name = cs.customer_name if cs else "this customer"
+            await self._reply(
+                phone=trader_phone,
+                tenant_id=tenant_id,
+                event_id=f"trader.debt_remind_fail.{message_id}",
+                text=wa.debt_remind_failed(name),
+                channel_tenant_id=channel_tenant_id,
+            )
 
     async def _do_list_pending_orders(
         self,
@@ -2313,6 +2480,40 @@ class OrderService:
                     text=wa.product_not_found(product_name),
                     channel_tenant_id=channel_tenant_id,
                 )
+            return
+
+        # ── Handle debt action taps (DEBTACT_*, SETTLE_*, REMIND_*) ──────
+        if stripped.startswith("DEBTACT_"):
+            credit_sale_id = message.strip()[8:]
+            await self._handle_debt_action(
+                credit_sale_id=credit_sale_id,
+                trader_phone=trader_phone,
+                message_id=message_id,
+                tenant_id=tenant_id,
+                channel_tenant_id=channel_tenant_id,
+            )
+            return
+
+        if stripped.startswith("SETTLE_"):
+            credit_sale_id = message.strip()[7:]
+            await self._handle_debt_settle(
+                credit_sale_id=credit_sale_id,
+                trader_phone=trader_phone,
+                message_id=message_id,
+                tenant_id=tenant_id,
+                channel_tenant_id=channel_tenant_id,
+            )
+            return
+
+        if stripped.startswith("REMIND_"):
+            credit_sale_id = message.strip()[7:]
+            await self._handle_debt_remind(
+                credit_sale_id=credit_sale_id,
+                trader_phone=trader_phone,
+                message_id=message_id,
+                tenant_id=tenant_id,
+                channel_tenant_id=channel_tenant_id,
+            )
             return
 
         # ── Handle order action tap (ORDACT_*) ────────────────────────────

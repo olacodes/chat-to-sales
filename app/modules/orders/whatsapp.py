@@ -721,20 +721,62 @@ def debt_customer_reminded_notification(customer_name: str, amount: int, reminde
     )
 
 
-def debt_list(debts: list[dict], total: int) -> str:
-    if not debts:
-        return (
-            "Your debt book is clean — nobody owes you right now! \U0001f389\n\n"
-            "To track a debt, type:\n_DEBT Iya Bimpe 5000_"
-        )
-    lines = []
-    for i, d in enumerate(debts, 1):
-        lines.append(f"  {i}. {d['name']} — {_naira(d['amount'])}")
+def debt_list_empty() -> str:
     return (
+        "Your debt book is clean — nobody owes you right now! \U0001f389\n\n"
+        "To track a debt, type:\n_DEBT Iya Bimpe 5000_"
+    )
+
+
+def debt_list_picker(
+    debts: list[dict], total: int,
+) -> tuple[str, str, list[dict]]:
+    """
+    Return (body, button_label, sections) for an interactive debt list.
+
+    Each debt dict: {id, name, amount, days_ago}
+    """
+    body = (
         f"\U0001f4d6 *Who owes you* ({len(debts)} debtor{'s' if len(debts) != 1 else ''}):\n\n"
-        + "\n".join(lines)
-        + f"\n\n*Total outstanding: {_naira(total)}*\n\n"
-        "To settle, type:\n_PAID Iya Bimpe 5000_"
+        f"*Total outstanding: {_naira(total)}*\n\n"
+        "Tap a name to settle or send a reminder."
+    )
+    button_label = "View debtors"
+    rows = []
+    for d in debts[:10]:  # WhatsApp max 10 rows
+        days_label = f"{d['days_ago']}d ago" if d.get("days_ago") else ""
+        rows.append({
+            "id": f"DEBTACT_{d['id']}"[:72],
+            "title": d["name"][:24],
+            "description": f"{_naira(d['amount'])} — {days_label}"[:72],
+        })
+    sections = [{"title": "Outstanding debts", "rows": rows}]
+    return body, button_label, sections
+
+
+def debt_action_buttons(
+    customer_name: str, amount: int, days_ago: int, credit_sale_id: str,
+) -> tuple[str, list[dict[str, str]]]:
+    """Return (body, buttons) for Settled/Remind actions on a debt."""
+    body = (
+        f"*{customer_name}* owes you {_naira(amount)}"
+        f" ({days_ago} day{'s' if days_ago != 1 else ''} ago)"
+    )
+    buttons = [
+        {"id": f"SETTLE_{credit_sale_id}", "title": "\u2705 Settled"},
+        {"id": f"REMIND_{credit_sale_id}", "title": "\U0001f514 Remind"},
+    ]
+    return body, buttons
+
+
+def debt_remind_sent(customer_name: str) -> str:
+    return f"\U0001f514 Reminder sent to *{customer_name}*."
+
+
+def debt_remind_failed(customer_name: str) -> str:
+    return (
+        f"Could not send a reminder for *{customer_name}*.\n\n"
+        "This debt has no linked conversation. Please follow up with them directly."
     )
 
 
