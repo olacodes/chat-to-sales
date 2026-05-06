@@ -2546,6 +2546,7 @@ class OrderService:
                 id=order.id,
                 conversation_id=order.conversation_id,
                 customer_id=order.customer_id,
+                customer_phone=order.customer_phone,
                 state=order.state,
                 amount=order.amount,
                 currency=order.currency,

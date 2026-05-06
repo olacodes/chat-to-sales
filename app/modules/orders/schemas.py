@@ -83,6 +83,7 @@ class OrderListItem(BaseModel):
     id: str
     conversation_id: str | None
     customer_id: str | None
+    customer_phone: str | None = None
     state: OrderState
     amount: Decimal | None
     currency: str
