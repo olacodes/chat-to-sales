@@ -2508,7 +2508,7 @@ class OrderService:
 
         # ── Order commands ────────────────────────────────────────────────────
         if result.intent not in (
-            TRADER_CONFIRM, TRADER_CANCEL, TRADER_PAID, TRADER_DELIVERED
+            TRADER_CONFIRM, TRADER_CANCEL, TRADER_PAID, TRADER_CREDIT, TRADER_DELIVERED
         ):
             # Check if trader is replying to a pending image inquiry
             handled = await self._handle_image_inquiry_reply(
