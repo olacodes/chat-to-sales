@@ -60,35 +60,35 @@ _WELCOME_BACK_GAP = 6 * 3600  # 6 hours
 _ONBOARDING_TRIGGERS: frozenset[str] = frozenset({"start", "register", "join", "hi", "hello", "hey"})
 
 _NOT_TRIGGERED = (
-    "Hi! To get started as a trader on ChatToSales, send *START* and I go guide you. 👋"
+    "Hi! To get started as a trader on ChatToSales, send *START* and I'll guide you. \U0001f44b"
 )
 
 # ── Q&A checkpoint interval (send a progress note every N items) ───────────────
 _QA_CHECKPOINT_EVERY = 5
 
 
-# ── Copy blocks (Nigerian English / Pidgin) ────────────────────────────────────
+# ── Copy blocks (proper English, warm tone) ──────────────────────────────────
 
 _WELCOME = (
-    "E kaabo! Welcome to ChatToSales! 🎉\n\n"
-    "I go help you sell better, track your customers, know who owes you money, "
+    "Welcome to ChatToSales! \U0001f389\n\n"
+    "I'll help you sell better, track your customers, know who owes you money, "
     "and understand your business — all from WhatsApp. No app to download!\n\n"
-    "To start, wetin be your business name?\n"
+    "To get started, what's your business name?\n"
     "(e.g. *Mama Caro Provisions* or *Iya Taiwo Fabrics*)"
 )
 
 _WELCOME_BACK = (
-    "Welcome back! You were setting up your store — make we continue from where we stop! 👋"
+    "Welcome back! You were setting up your store — let's continue where we left off! \U0001f44b"
 )
 
 _NAME_TOO_SHORT = (
-    "Hmm, that name dey too short o! Abeg type your full business name "
-    "(at least 2 letters)."
+    "That name is too short. Please type your full business name "
+    "(at least 2 characters)."
 )
 
 _CATEGORY_MENU = (
-    "*{name}* — I like am! 🔥\n\n"
-    "Wetin you mainly sell? Reply with a number:\n\n"
+    "*{name}* — great choice! \U0001f525\n\n"
+    "What do you mainly sell? Reply with a number:\n\n"
     "1 - Provisions and groceries\n"
     "2 - Fabric and clothing\n"
     "3 - Food and cooked meals\n"
@@ -99,65 +99,65 @@ _CATEGORY_MENU = (
 )
 
 _CATEGORY_OTHER_PROMPT = (
-    "Got it! Abeg tell me brief brief wetin you sell."
+    "Got it! Please briefly describe what you sell."
 )
 
 _CATALOGUE_MENU = (
     "{category_confirmation}\n\n"
-    "Now — you get price list wey I fit read?\n\n"
-    "1 - Send me photo of your price list\n"
-    "   (handwritten or printed, I fit read am)\n"
-    "2 - Send me voice note with your prices\n"
-    "3 - Answer small small questions with me\n"
-    "4 - Skip for now — I go learn as orders come in"
+    "Now — do you have a price list I can read?\n\n"
+    "1 - Send me a photo of your price list\n"
+    "   (handwritten or printed, I can read it)\n"
+    "2 - Send me a voice note with your prices\n"
+    "3 - Answer a few quick questions with me\n"
+    "4 - Skip for now — I'll learn as orders come in"
 )
 
 _AWAIT_PHOTO = (
-    "Oya! Send me the photo of your price list now.\n\n"
-    "Any quality fine — handwritten, printed, whiteboard — as long as the "
-    "writing dey legible. If the photo blur I go tell you."
+    "Send me the photo of your price list now.\n\n"
+    "Any quality works — handwritten, printed, whiteboard — as long as the "
+    "writing is legible. If the photo is blurry, I'll let you know."
 )
 
 _AWAIT_VOICE = (
-    "Oya! Record voice note and list your products with their prices.\n\n"
-    "Just talk like you dey tell your assistant — e.g. 'Indomie carton na eight "
-    "thousand five hundred, rice fifty kg na sixty-three thousand...'"
+    "Record a voice note and list your products with their prices.\n\n"
+    "Just speak naturally — e.g. 'Indomie carton is eight "
+    "thousand five hundred, rice fifty kg is sixty-three thousand...'"
 )
 
 _PROCESSING_PHOTO = (
-    "Reading your price list now...\n(give me small time ⏳)"
+    "Reading your price list now... \u23f3"
 )
 
 _PROCESSING_VOICE = (
-    "I don receive your voice note, transcribing now...\n(give me small time ⏳)"
+    "Voice note received, transcribing now... \u23f3"
 )
 
 _MEDIA_EXTRACTED = (
-    "I found these items — check them:\n\n"
+    "I found these items — please check them:\n\n"
     "{numbered_list}\n\n"
-    "Reply *YES* to add all, or tell me wetin to fix\n"
-    "(e.g. 'number 2 na Rice 50kg = 63000')"
+    "Reply *YES* to add all, or tell me what to fix\n"
+    "(e.g. 'number 2 is Rice 50kg = 63000')"
 )
 
 _MEDIA_NOTHING_FOUND = (
-    "Hmm, I no fit read this {media_label} well enough.\n\n"
-    "No wahala! Choose another way:\n\n"
-    "3 - Answer small small questions with me\n"
-    "4 - Skip for now, I go learn as orders come in"
+    "I couldn't read this {media_label} well enough.\n\n"
+    "No problem! Choose another way:\n\n"
+    "3 - Answer a few quick questions with me\n"
+    "4 - Skip for now, I'll learn as orders come in"
 )
 
 _MEDIA_CONFIRMED = (
-    "Done! All {count} items added to your store. ✅"
+    "Done! All {count} items added to your store. \u2705"
 )
 
 _WRONG_MEDIA_TYPE = (
-    "I dey wait for {expected} o — abeg send {expected} or "
+    "I'm waiting for a {expected} — please send a {expected} or "
     "type *3* to answer questions instead."
 )
 
 _QA_QUESTION = (
-    "*{item}* — wetin be your price? "
-    "(type number e.g. *8500*, or type *skip* to pass)"
+    "*{item}* — what's your price? "
+    "(type a number e.g. *8500*, or type *skip* to pass)"
 )
 
 _QA_CHECKPOINT = (
@@ -166,33 +166,33 @@ _QA_CHECKPOINT = (
 )
 
 _QA_DONE_EARLY = (
-    "No problem, we go skip the rest. Your store dey almost ready! 👍"
+    "No problem, we'll skip the rest. Your store is almost ready! \U0001f44d"
 )
 
 # Message 1: admin confirmation — store link, ordering info, commands
 _COMPLETE_ADMIN = (
-    "Your ChatToSales store don ready! 🎉\n\n"
+    "Your ChatToSales store is ready! \U0001f389\n\n"
     "*{name}* is now live at:\n"
     "https://chattosales.com/stores/{slug}\n\n"
     "*HOW YOUR CUSTOMERS ORDER:*\n"
-    "- Them go message this number directly\n"
-    "- Add me to your customer WhatsApp groups — I go collect orders quietly\n"
-    "- Them go visit your store link\n\n"
+    "- They can message this number directly\n"
+    "- Add me to your customer WhatsApp groups — I'll collect orders quietly\n"
+    "- They can visit your store link\n\n"
     "*YOUR COMMANDS:*\n"
     "DEBT [name] [amount] — track who owes you\n"
     "PAID [name] [amount] — clear a debt\n"
     "WHO OWES ME — see your full debt book\n"
-    "ORDERS — see all pending orders\n"
+    "ORDERS — see all active orders\n"
     "HELP — see all commands\n\n"
-    "Welcome to ChatToSales, *{name}*! 🚀"
+    "Welcome to ChatToSales, *{name}*! \U0001f680"
 )
 
 # Message 2: ready-to-forward — trader can long-press → forward to customer groups
 _COMPLETE_SHARE = (
-    "I dey sell on ChatToSales now! 🛒\n\n"
-    "Check out my store and place your order here 👉\n"
+    "I'm now selling on ChatToSales! \U0001f6d2\n\n"
+    "Check out my store and place your order here \U0001f449\n"
     "https://chattosales.com/stores/{slug}\n\n"
-    "Just click the link, pick wetin you want, and order straight to my WhatsApp.\n\n"
+    "Just click the link, pick what you want, and order straight to my WhatsApp.\n\n"
     "— *{name}*"
 )
 
@@ -370,7 +370,7 @@ class OnboardingService:
                 OnboardingStep.AWAITING_CATALOGUE,
                 data,
                 _CATALOGUE_MENU.format(
-                    category_confirmation="Noted! I done set up your store."
+                    category_confirmation="Noted! Your store is set up."
                 ),
                 tenant_id,
                 message_id,
@@ -383,7 +383,7 @@ class OnboardingService:
                 phone_number=phone_number,
                 tenant_id=tenant_id,
                 message_id=message_id,
-                text="Abeg reply with a number from 1 to 7.",
+                text="Please reply with a number from 1 to 7.",
             )
             return
 
@@ -409,7 +409,7 @@ class OnboardingService:
         if item_count > 0:
             confirmation = (
                 f"{short_name}! Good choice. 👍\n"
-                f"I don load {item_count} common items for you as a starting point."
+                f"I've loaded {item_count} common items for you as a starting point."
             )
         else:
             confirmation = f"{short_name}! Good choice. 👍"
@@ -480,7 +480,7 @@ class OnboardingService:
                     phone_number=phone_number,
                     tenant_id=tenant_id,
                     message_id=message_id,
-                    text="Abeg reply with 1, 2, 3, or 4.",
+                    text="Please reply with 1, 2, 3, or 4.",
                 )
 
     # ── Path A: Photo / OCR ───────────────────────────────────────────────────
@@ -714,8 +714,8 @@ class OnboardingService:
             tenant_id=tenant_id,
             message_id=message_id,
             text=(
-                "Reply *YES* to add all these items, or tell me wetin to fix\n"
-                "(e.g. 'number 2 na Rice 50kg = 63000')"
+                "Reply *YES* to add all these items, or tell me what to fix\n"
+                "(e.g. 'number 2 is Rice 50kg = 63000')"
             ),
         )
 

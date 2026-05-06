@@ -1289,7 +1289,7 @@ class OrderService:
                         phone=trader_phone,
                         tenant_id=tenant_id,
                         event_id=f"trader.pricelist_ocr_fail.{message_id}",
-                        text="I no fit read that photo. \U0001f914 Try a clearer one or send another.",
+                        text="Couldn't read that photo. \U0001f914 Try a clearer one or send another.",
                         channel_tenant_id=channel_tenant_id,
                     )
                     return True
@@ -1426,7 +1426,7 @@ class OrderService:
                 tenant_id=tenant_id,
                 event_id=f"trader.add_invalid.{message_id}",
                 text=(
-                    "I no understand that. Type product name and price like:\n\n"
+                    "I didn't understand that. Type product name and price like:\n\n"
                     "_Milo 3500_\n\n"
                     "Or add many at once:\n"
                     "_Milo 3500, Garri 2500, Rice 63000_"
@@ -1457,7 +1457,7 @@ class OrderService:
                 phone=trader_phone,
                 tenant_id=tenant_id,
                 event_id=f"trader.price_invalid.{message_id}",
-                text="I no understand that. Just type the new price like:\n\n_9000_",
+                text="I didn't understand that. Just type the new price like:\n\n_9000_",
                 channel_tenant_id=channel_tenant_id,
             )
             return True
@@ -1563,7 +1563,7 @@ class OrderService:
             else:
                 text = wa.products_removed_batch(removed)
             if not_found:
-                text += f"\n\nI no fit find: {', '.join(not_found)}"
+                text += f"\n\nCould not find: {', '.join(not_found)}"
             await self._reply(
                 phone=trader_phone,
                 tenant_id=tenant_id,
@@ -1654,7 +1654,7 @@ class OrderService:
             else:
                 text = wa.prices_updated_batch(updated)
             if not_found:
-                text += f"\n\nI no fit find: {', '.join(not_found)}"
+                text += f"\n\nCould not find: {', '.join(not_found)}"
             await self._reply(
                 phone=trader_phone,
                 tenant_id=tenant_id,

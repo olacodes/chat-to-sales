@@ -1,12 +1,11 @@
 """
 app/modules/orders/whatsapp.py
 
-Nigerian-English WhatsApp message templates for order management.
+WhatsApp message templates for order management.
 
-Every string here is written to pass the Bodija Test:
-  "Can a fabric seller in Bodija Market understand this without instructions?"
-
-Copy is warm, concise, and uses light Pidgin where it feels natural.
+Copy is warm, professional, and in proper English. The app still
+understands Nigerian Pidgin, Yoruba numbers, and informal text as input —
+only the output is in standard English.
 """
 
 import math
@@ -131,22 +130,22 @@ def order_summary_interactive(
 def order_pending_to_customer(trader_name: str) -> str:
     return (
         f"Your order has been sent to *{trader_name}*! "
-        "I will let you know once they confirm it. Please hold on. \U0001f64f"
+        "I'll let you know once they confirm it. Please hold on. \U0001f64f"
     )
 
 
 def order_confirmed_to_customer(trader_name: str, total: int) -> str:
     return (
-        f"\u2705 *{trader_name}* don confirm your order!\n\n"
+        f"\u2705 *{trader_name}* has confirmed your order!\n\n"
         f"Total: {_naira(total)}\n\n"
-        "They go reach out to you for delivery or pickup details. Thank you! \U0001f64f"
+        "They will reach out to you for delivery or pickup details. Thank you! \U0001f64f"
     )
 
 
 def order_cancelled_to_customer(trader_name: str) -> str:
     return (
-        f"Your order with *{trader_name}* don cancel.\n\n"
-        "If you want to order something else, just message me anytime. \U0001f44d"
+        f"Your order with *{trader_name}* has been cancelled.\n\n"
+        "If you'd like to order something else, just message me anytime. \U0001f44d"
     )
 
 
@@ -156,7 +155,7 @@ def ask_clarification(question: str) -> str:
 
 def unknown_order_prompt() -> str:
     return (
-        "I no understand wetin you want o. \U0001f914\n\n"
+        "I didn't understand that. \U0001f914\n\n"
         "To place an order, just tell me what you need. For example:\n"
         "_I want 2 cartons of Indomie and 1 bag of rice_"
     )
@@ -172,17 +171,17 @@ def store_order_prompt() -> str:
 
 def voice_transcription_failed() -> str:
     return (
-        "I no fit hear that voice note well well. \U0001f605\n\n"
-        "Abeg type your order or send a clearer voice note."
+        "I couldn't understand that voice note. \U0001f605\n\n"
+        "Please type your order or send a clearer voice note."
     )
 
 
 def price_missing_prompt(item_names: list[str]) -> str:
     lines = "\n".join(f"  - {n}" for n in item_names)
     return (
-        "I see these items in your order but I no have their prices:\n\n"
+        "I found these items in your order but I don't have their prices:\n\n"
         f"{lines}\n\n"
-        "Abeg type the quantities and prices. For example:\n"
+        "Please type the quantities and prices. For example:\n"
         "_2 cartons Indomie = 8500, 1 bag rice = 63000_"
     )
 
@@ -237,9 +236,9 @@ def order_received_interactive(
 def order_confirmed_to_trader(order_ref: str) -> tuple[str, list[dict[str, str]]]:
     """Return (body_text, buttons) for post-confirm payment options."""
     body = (
-        f"\u2705 Order {order_ref} confirmed. Customer don hear about am.\n\n"
+        f"\u2705 Order {order_ref} confirmed. The customer has been notified.\n\n"
         "When they pay, tap *Paid*.\n"
-        "If na credit (pay later), tap *Credit*."
+        "If it's on credit (pay later), tap *Credit*."
     )
     buttons = [
         {"id": f"PAID {order_ref}", "title": "\U0001f4b0 Paid"},
@@ -249,20 +248,20 @@ def order_confirmed_to_trader(order_ref: str) -> tuple[str, list[dict[str, str]]
 
 
 def order_cancelled_to_trader(order_ref: str) -> str:
-    return f"\u274c Order {order_ref} cancelled. Customer don hear about am."
+    return f"\u274c Order {order_ref} cancelled. The customer has been notified."
 
 
 def order_paid_to_trader(order_ref: str) -> str:
-    return f"\U0001f4b0 Payment recorded for order {order_ref}. Order don mark as PAID."
+    return f"\U0001f4b0 Payment recorded for order {order_ref}. Marked as PAID."
 
 
 def order_delivered_to_trader(order_ref: str) -> str:
-    return f"\U0001f680 Order {order_ref} mark as delivered. Well done! \U0001f4aa"
+    return f"\U0001f680 Order {order_ref} marked as delivered. Well done! \U0001f4aa"
 
 
 def order_not_found_to_trader(ref: str) -> str:
     return (
-        f"I no fit find order with ref {ref}.\n\n"
+        f"Could not find an order with ref {ref}.\n\n"
         "Check the exact ref code from the order notification and try again."
     )
 
@@ -302,7 +301,7 @@ def trader_command_guide() -> str:
 
 def trader_menu() -> tuple[str, str, list[dict]]:
     """Return (body, button_label, sections) for the trader main menu list message."""
-    body = "What you wan do? \U0001f4cb"
+    body = "What would you like to do? \U0001f4cb"
     button_label = "Open menu"
     sections = [
         {
@@ -428,7 +427,7 @@ def prices_updated_batch(items: list[tuple[str, int, int]]) -> str:
 
 def product_not_found(name: str) -> str:
     return (
-        f"I no fit find *{name}* in your catalogue. \U0001f914\n\n"
+        f"Could not find *{name}* in your catalogue. \U0001f914\n\n"
         "Type _CATALOGUE_ to see all your products."
     )
 
@@ -451,7 +450,7 @@ def remove_product_list(
         products, page, id_prefix="RM", show_price=True
     )
     page_label = f" (page {page}/{total_pages})" if total_pages > 1 else ""
-    body = f"Which product you wan remove?{page_label}"
+    body = f"Which product would you like to remove?{page_label}"
     button_label = "Select product"
     sections = [{"title": "Your products", "rows": rows}]
     return body, button_label, sections
@@ -466,7 +465,7 @@ def price_product_list(
         products, page, id_prefix="PR", show_price=False
     )
     page_label = f" (page {page}/{total_pages})" if total_pages > 1 else ""
-    body = f"Which product you wan update?{page_label}"
+    body = f"Which product would you like to update?{page_label}"
     button_label = "Select product"
     sections = [{"title": "Your products", "rows": rows}]
     return body, button_label, sections
@@ -520,10 +519,10 @@ def category_changed(new_category_display: str) -> str:
 def pricelist_prompt() -> tuple[str, list[dict[str, str]]]:
     """Return (body_text, buttons) for the pricelist upload prompt."""
     body = (
-        "Send me *photos of your price list* and I go update your catalogue. \U0001f4f7\n\n"
-        "You fit send *multiple photos* — I go read all of them.\n"
-        "You fit also send a *voice note* reading out your products and prices.\n\n"
-        "When you done sending, tap the button below."
+        "Send me *photos of your price list* and I'll update your catalogue. \U0001f4f7\n\n"
+        "You can send *multiple photos* — I'll read all of them.\n"
+        "You can also send a *voice note* reading out your products and prices.\n\n"
+        "When you're done sending, tap the button below."
     )
     buttons = [{"id": "PRICELIST_DONE", "title": "\u2705 Done sending"}]
     return body, buttons
@@ -579,13 +578,13 @@ def pricelist_confirmed(new_count: int, updated_count: int, total: int) -> str:
 
 
 def pricelist_cancelled() -> str:
-    return "No wahala, your catalogue stays the same. \U0001f44d"
+    return "No problem, your catalogue stays the same. \U0001f44d"
 
 
 def pricelist_empty() -> str:
     return (
-        "I no fit find any products in that. \U0001f914\n\n"
-        "Make sure the price list show product names and prices clearly.\n"
+        "Couldn't find any products in that. \U0001f914\n\n"
+        "Make sure the price list shows product names and prices clearly.\n"
         "Try again or type _MENU_ for other options."
     )
 
@@ -682,7 +681,7 @@ def order_credit_to_trader(order_ref: str, customer_phone: str, amount: int) -> 
         f"\U0001f4dd Order {order_ref} marked as credit.\n\n"
         f"Customer: +{customer_phone}\n"
         f"Amount: {_naira(amount)}\n\n"
-        "I go track this for you. Type _WHO OWES ME_ to see your debt book."
+        "I'll track this for you. Type _WHO OWES ME_ to see your debt book."
     )
 
 
@@ -699,7 +698,7 @@ def debt_settled(customer_name: str, amount: int) -> str:
 
 def debt_not_found(customer_name: str) -> str:
     return (
-        f"I no fit find any active debt for *{customer_name}*. \U0001f914\n\n"
+        f"Could not find any active debt for *{customer_name}*. \U0001f914\n\n"
         "Type _WHO OWES ME_ to see your debt book."
     )
 
@@ -728,10 +727,10 @@ def image_inquiry_matched(
     product_name: str, price: int, trader_name: str
 ) -> str:
     return (
-        f"This look like *{product_name}* from *{trader_name}*! \U0001f4f8\n\n"
+        f"This looks like *{product_name}* from *{trader_name}*! \U0001f4f8\n\n"
         f"Price: {_naira(price)}\n\n"
-        "You want order am? Tell me the quantity (e.g. _I want 2_) "
-        "or reply *NO* if na different thing."
+        "Would you like to order it? Tell me the quantity (e.g. _I want 2_) "
+        "or reply *NO* if it's something different."
     )
 
 
@@ -746,7 +745,7 @@ def image_inquiry_matched_list(
     They can also type freely (e.g. 'I want 7') — NLP handles that.
     """
     body = (
-        f"This look like *{product_name}* from *{trader_name}*! \U0001f4f8\n\n"
+        f"This looks like *{product_name}* from *{trader_name}*! \U0001f4f8\n\n"
         f"Price: {_naira(price)} each\n\n"
         "Select quantity below, or type how many you want (e.g. _I want 7_)."
     )
@@ -774,22 +773,22 @@ def image_inquiry_matched_list(
 def image_inquiry_forwarded(trader_name: str) -> str:
     return (
         f"I see the item! Let me ask *{trader_name}* about the price. \U0001f4f8\n\n"
-        "I go get back to you once they reply. Small time! \U0001f64f"
+        "I'll get back to you once they reply. One moment! \U0001f64f"
     )
 
 
 def image_inquiry_to_trader(customer_phone: str) -> str:
     return (
-        f"\U0001f4f8 Customer +{customer_phone} dey ask about this item.\n\n"
+        f"\U0001f4f8 Customer +{customer_phone} is asking about this item.\n\n"
         "Reply with the product name and price (e.g. _iPhone 8500_)\n"
-        "or just the price if no name (e.g. _8500_)."
+        "or just the price if there's no name (e.g. _8500_)."
     )
 
 
 def image_inquiry_price_saved(product_name: str, price: int) -> str:
     return (
-        f"\u2705 Got it! I don save *{product_name}* at {_naira(price)}.\n\n"
-        "Next time a customer send photo of this product, I go answer them automatically. \U0001f4aa"
+        f"\u2705 Got it! Saved *{product_name}* at {_naira(price)}.\n\n"
+        "Next time a customer sends a photo of this product, I'll answer them automatically. \U0001f4aa"
     )
 
 
@@ -797,9 +796,9 @@ def image_inquiry_price_to_customer(
     product_name: str, price: int, trader_name: str
 ) -> str:
     return (
-        f"*{trader_name}* say this na *{product_name}*! \U0001f4f8\n\n"
+        f"*{trader_name}* says this is *{product_name}*! \U0001f4f8\n\n"
         f"Price: {_naira(price)}\n\n"
-        "You want order am? Reply *YES* to confirm or *NO* to cancel."
+        "Would you like to order it? Reply *YES* to confirm or *NO* to cancel."
     )
 
 
@@ -813,6 +812,6 @@ def image_inquiry_more_pending(remaining: int) -> str:
 
 def image_processing_failed() -> str:
     return (
-        "I no fit see that photo well well. \U0001f605\n\n"
-        "Abeg send a clearer photo, or just tell me wetin you want to buy!"
+        "I couldn't process that photo. \U0001f605\n\n"
+        "Please send a clearer photo, or just tell me what you'd like to buy!"
     )
