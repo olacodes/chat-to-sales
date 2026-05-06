@@ -70,8 +70,8 @@ async def _fire_due_messages() -> None:
                 logger.exception("Scheduler: failed to send scheduled message %s", sm.id)
 
 
-_REMINDER_DELAY_HOURS = 2
-_REMINDER_INTERVAL_MINUTES = 30
+_REMINDER_DELAY_HOURS = 0.01  # TODO: revert to 2 after testing
+_REMINDER_INTERVAL_MINUTES = 1  # TODO: revert to 30 after testing
 
 
 async def _send_order_reminders() -> None:

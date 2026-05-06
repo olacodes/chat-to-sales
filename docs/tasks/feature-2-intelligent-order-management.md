@@ -40,11 +40,12 @@
 
 | # | Task | Description | MVP |
 |---|------|-------------|-----|
-| ⬜ | Order timeout | Auto-cancel INQUIRY orders after X hours if trader doesn't confirm — prevents stale orders piling up | ✅ Yes |
-| ⬜ | Dashboard order management | Trader can confirm/cancel orders from the web dashboard — not everyone has WhatsApp open all day | ✅ Yes |
+| ✅ | Dashboard order management | Trader can confirm/cancel orders from the web dashboard — not everyone has WhatsApp open all day | ✅ Yes |
+| ✅ | Automated trader follow-up | If trader hasn't confirmed in 2h, auto-send a reminder — reduces order abandonment | ✅ Yes |
+| ⬜ | Smart reorder | "Order same as last time" — repeat a previous order with one tap | ⬜ No |
 | ⬜ | Order history for customers | Customer types "my orders" or "status" → sees list of recent orders with current state | ✅ Yes |
 | ⬜ | Receipt generation | Auto-generate and send a receipt (image or formatted text) after order completion or payment | ✅ Yes |
-| ⬜ | Automated trader follow-up | If trader hasn't confirmed in 2h, auto-send a reminder — reduces order abandonment | ✅ Yes |
+| ⬜ | Order timeout | Auto-cancel INQUIRY orders after X hours if trader doesn't confirm — prevents stale orders piling up | ✅ Yes |
 | ⬜ | Payment integration (Paystack) | Auto-generate Paystack payment link for confirmed orders, customer pays inline (Feature 6) | ✅ Yes |
 | ⬜ | Order editing | Allow customer or trader to modify items/quantities after order creation (currently must cancel and re-order) | ⬜ No |
 | ⬜ | Group order collection | ChatToSales joins a WhatsApp group, collects orders from members, sends consolidated sheet to trader | ⬜ No |

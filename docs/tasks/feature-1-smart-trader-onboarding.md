@@ -35,12 +35,14 @@
 |---|------|-------------|-----|
 | ✅ | Catalogue editing via WhatsApp | Let traders add/remove/update products after onboarding through chat commands (e.g., "ADD Milo 3500", "REMOVE Garri", "PRICE Indomie 9000") | ✅ Yes |
 | ✅ | Onboarding re-entry | Allow completed traders to re-run onboarding to rebuild their catalogue from scratch | ✅ Yes |
-| ⬜ | Category change command | `CATEGORY` command to let trader switch business category after onboarding | ✅ Yes |
-| ⬜ | Photo gallery during onboarding | Let traders send multiple photos (e.g., 3 pages of a price list) and combine the OCR results | ✅ Yes |
-| ⬜ | Onboarding analytics | Track completion rates per path, drop-off points, average time to complete in the admin dashboard | ✅ Yes |
-| ⬜ | Web-based onboarding | Allow traders to sign up and set up their store via the website instead of WhatsApp only | ⬜ No |
-| ⬜ | Multi-language support | Onboarding copy in Yoruba, Igbo, or Hausa — auto-detect from phone locale or let trader choose | ⬜ No |
+| ✅ | Category change command | `CATEGORY` command to let trader switch business category after onboarding | ✅ Yes |
+| ✅ | Photo gallery during onboarding | Let traders send multiple photos (e.g., 3 pages of a price list) and combine the OCR results | ✅ Yes |
+| ✅ | Onboarding analytics | Track completion rates per path, drop-off points, average time to complete in the admin dashboard | ✅ Yes |
+| ✅ | Web-based onboarding | Allow traders to sign up and set up their store via the website instead of WhatsApp only | ⬜ No |
+| ⬜ | Onboarding video tutorial | Auto-send a short WhatsApp video guide after the store link is created | ⬜ No |
+| ⬜ | Tier upgrade prompt | After 30 days on Ofe tier, suggest upgrading to Oja with feature comparison | ⬜ No |
 | ⬜ | Bulk product import | CSV/Excel upload via dashboard for traders with large catalogues (100+ items) | ⬜ No |
+| ⬜ | Multi-language support | Onboarding copy in Yoruba, Igbo, or Hausa — auto-detect from phone locale or let trader choose | ⬜ No |
 | ⬜ | Onboarding flow testing tool | Admin tool to simulate the onboarding conversation without a real WhatsApp number (for QA) | ⬜ No |
 
 ## Nice to Have
@@ -53,7 +55,5 @@
 | 💡 | Referral onboarding | "Mama Caro referred you" — pre-fill category from referrer's store, track referral chains | ⬜ No |
 | 💡 | Voice-first onboarding | Let the entire onboarding happen via voice notes (not just catalogue path B) — speak name, speak category | ⬜ No |
 | 💡 | Handwriting OCR improvement | Fine-tune Claude prompt for common Nigerian handwriting styles and market shorthand | ⬜ No |
-| 💡 | Onboarding video tutorial | Auto-send a short WhatsApp video guide after the store link is created | ⬜ No |
-| 💡 | Tier upgrade prompt | After 30 days on Ofe tier, suggest upgrading to Oja with feature comparison | ⬜ No |
 | 💡 | Business verification | Optional NIN/CAC number entry for "verified trader" badge on store page | ⬜ No |
 | 💡 | Onboarding A/B testing | Test different welcome messages, category orders, or default paths to optimize completion rate | ⬜ No |
