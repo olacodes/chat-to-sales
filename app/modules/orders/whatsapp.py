@@ -264,16 +264,20 @@ def order_reminder_to_trader(
     total: int,
     order_ref: str,
     hours_ago: int,
-) -> str:
+) -> tuple[str, list[dict[str, str]]]:
+    """Return (body_text, buttons) for an interactive order reminder."""
     time_label = f"{hours_ago} hour{'s' if hours_ago != 1 else ''}"
-    return (
+    body = (
         f"\u23f0 Reminder: You have an unconfirmed order from +{customer_phone} "
         f"({time_label} ago).\n\n"
         f"*Total: {_naira(total)}*\n"
-        f"Ref: {order_ref}\n\n"
-        f"Reply *CONFIRM {order_ref}* to accept\n"
-        f"Reply *CANCEL {order_ref}* to decline"
+        f"Ref: {order_ref}"
     )
+    buttons = [
+        {"id": f"CONFIRM {order_ref}", "title": "\u2705 Confirm"},
+        {"id": f"CANCEL {order_ref}", "title": "\u274c Decline"},
+    ]
+    return body, buttons
 
 
 def trader_command_guide() -> str:

@@ -70,8 +70,8 @@ async def _fire_due_messages() -> None:
                 logger.exception("Scheduler: failed to send scheduled message %s", sm.id)
 
 
-_REMINDER_DELAY_HOURS = 0.01  # TODO: revert to 2 after testing
-_REMINDER_INTERVAL_MINUTES = 1  # TODO: revert to 30 after testing
+_REMINDER_DELAY_HOURS = 2
+_REMINDER_INTERVAL_MINUTES = 30
 
 
 async def _send_order_reminders() -> None:
@@ -111,7 +111,7 @@ async def _send_order_reminders() -> None:
         customer_phone = order.customer_phone or "unknown"
         trader_phone = order.trader_phone
 
-        text = wa.order_reminder_to_trader(
+        body_text, buttons = wa.order_reminder_to_trader(
             customer_phone=customer_phone,
             total=total,
             order_ref=order_ref,
@@ -121,11 +121,12 @@ async def _send_order_reminders() -> None:
         try:
             async with async_session_factory.begin() as session:
                 svc = NotificationService(session)
-                await svc.send_message(
+                await svc.send_interactive(
                     tenant_id=platform_tenant_id,
                     event_id=f"order.reminder.{order.id}",
                     recipient=trader_phone,
-                    message_text=text,
+                    body_text=body_text,
+                    buttons=buttons,
                     channel="whatsapp",
                     channel_tenant_id=platform_tenant_id,
                 )
