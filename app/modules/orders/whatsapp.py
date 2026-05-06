@@ -736,11 +736,22 @@ def debt_list_picker(
 
     Each debt dict: {id, name, amount, days_ago}
     """
+    lines = []
+    for d in debts:
+        days_label = f"({d['days_ago']}d ago)" if d.get("days_ago") else ""
+        lines.append(f"  {d['name']} — {_naira(d['amount'])} {days_label}")
     body = (
         f"\U0001f4d6 *Who owes you* ({len(debts)} debtor{'s' if len(debts) != 1 else ''}):\n\n"
-        f"*Total outstanding: {_naira(total)}*\n\n"
-        "Tap a name to settle or send a reminder."
+        + "\n".join(lines)
+        + f"\n\n*Total outstanding: {_naira(total)}*\n\n"
+        "Tap a name below to settle or send a reminder."
     )
+    if len(body) > 1024:
+        body = (
+            f"\U0001f4d6 *Who owes you* ({len(debts)} debtor{'s' if len(debts) != 1 else ''})\n\n"
+            f"*Total outstanding: {_naira(total)}*\n\n"
+            "Tap a name below to settle or send a reminder."
+        )
     button_label = "View debtors"
     rows = []
     for d in debts[:10]:  # WhatsApp max 10 rows
