@@ -73,12 +73,27 @@ async def _fire_due_messages() -> None:
 _REMINDER_DELAY_HOURS = 1
 _REMINDER_INTERVAL_MINUTES = 30
 
+# WAT (West Africa Time) = UTC+1. Only send reminders 8am–8pm.
+_WAT_OFFSET_HOURS = 1
+_BUSINESS_HOUR_START = 8
+_BUSINESS_HOUR_END = 20
+
+
+def _is_business_hours(now: datetime) -> bool:
+    """Return True if the current time is within business hours in WAT."""
+    wat_hour = (now.hour + _WAT_OFFSET_HOURS) % 24
+    return _BUSINESS_HOUR_START <= wat_hour < _BUSINESS_HOUR_END
+
 
 async def _send_order_reminders() -> None:
     """Find stale INQUIRY orders and send a single reminder to the trader."""
     from app.modules.notifications.service import NotificationService
     from app.modules.orders.models import Order, OrderState
     import app.modules.orders.whatsapp as wa
+
+    now = datetime.now(tz=timezone.utc)
+    if not _is_business_hours(now):
+        return
 
     now = datetime.now(tz=timezone.utc)
     cutoff = now - timedelta(hours=_REMINDER_DELAY_HOURS)
@@ -170,6 +185,8 @@ async def _send_debt_reminders() -> None:
     import app.modules.orders.whatsapp as wa
 
     now = datetime.now(tz=timezone.utc)
+    if not _is_business_hours(now):
+        return
     settings = get_settings()
     platform_tenant_id = settings.TENANT_ID
 
