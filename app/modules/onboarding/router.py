@@ -91,6 +91,63 @@ async def list_stores(db: DBSessionDep) -> StoreListOut:
     return StoreListOut(items=items, total=len(items))
 
 
+@router.get("/catalogue", summary="Get trader's catalogue")
+async def get_catalogue(
+    user: CurrentUserDep,
+    db: DBSessionDep,
+) -> list[CatalogueItem]:
+    """Return the authenticated trader's product catalogue."""
+    from app.core.models.user import User
+    from sqlalchemy import select
+
+    db_user = (
+        await db.execute(select(User).where(User.id == user.user_id))
+    ).scalar_one_or_none()
+    phone = db_user.phone_number if db_user else None
+    if not phone:
+        return []
+
+    repo = TraderRepository(db)
+    trader = await repo.get_by_phone(phone)
+    if not trader:
+        return []
+
+    return normalize_catalogue(trader.onboarding_catalogue)
+
+
+@router.put("/catalogue", summary="Replace trader's catalogue")
+async def update_catalogue(
+    body: list[CatalogueItem],
+    user: CurrentUserDep,
+    db: DBSessionDep,
+) -> list[CatalogueItem]:
+    """Replace the entire catalogue with the provided products."""
+    from app.core.models.user import User
+    from sqlalchemy import select
+    from app.modules.orders.session import cache_trader_by_phone, get_trader_by_phone_cache
+
+    db_user = (
+        await db.execute(select(User).where(User.id == user.user_id))
+    ).scalar_one_or_none()
+    phone = db_user.phone_number if db_user else None
+    if not phone:
+        raise HTTPException(status_code=400, detail="Phone number required.")
+
+    catalogue_dict = {item.name: item.price for item in body}
+
+    repo = TraderRepository(db)
+    await repo.update_catalogue(phone_number=phone, catalogue=catalogue_dict)
+    await db.commit()
+
+    # Bust Redis cache
+    cached = await get_trader_by_phone_cache(phone)
+    if cached and isinstance(cached, dict) and cached:
+        cached["catalogue"] = catalogue_dict
+        await cache_trader_by_phone(phone, cached)
+
+    return [CatalogueItem(name=k, price=v) for k, v in catalogue_dict.items()]
+
+
 @router.get("/{slug}", summary="Get public store by slug")
 async def get_store(slug: str, db: DBSessionDep) -> TraderStoreOut:
     """
@@ -160,63 +217,6 @@ async def get_setup_status(
     if trader and trader.onboarding_status == "complete":
         return {"has_store": True, "store_slug": trader.store_slug}
     return {"has_store": False, "store_slug": None}
-
-
-@router.get("/catalogue", summary="Get trader's catalogue")
-async def get_catalogue(
-    user: CurrentUserDep,
-    db: DBSessionDep,
-) -> list[CatalogueItem]:
-    """Return the authenticated trader's product catalogue."""
-    from app.core.models.user import User
-    from sqlalchemy import select
-
-    db_user = (
-        await db.execute(select(User).where(User.id == user.user_id))
-    ).scalar_one_or_none()
-    phone = db_user.phone_number if db_user else None
-    if not phone:
-        return []
-
-    repo = TraderRepository(db)
-    trader = await repo.get_by_phone(phone)
-    if not trader:
-        return []
-
-    return normalize_catalogue(trader.onboarding_catalogue)
-
-
-@router.put("/catalogue", summary="Replace trader's catalogue")
-async def update_catalogue(
-    body: list[CatalogueItem],
-    user: CurrentUserDep,
-    db: DBSessionDep,
-) -> list[CatalogueItem]:
-    """Replace the entire catalogue with the provided products."""
-    from app.core.models.user import User
-    from sqlalchemy import select
-    from app.modules.orders.session import cache_trader_by_phone, get_trader_by_phone_cache
-
-    db_user = (
-        await db.execute(select(User).where(User.id == user.user_id))
-    ).scalar_one_or_none()
-    phone = db_user.phone_number if db_user else None
-    if not phone:
-        raise HTTPException(status_code=400, detail="Phone number required.")
-
-    catalogue_dict = {item.name: item.price for item in body}
-
-    repo = TraderRepository(db)
-    await repo.update_catalogue(phone_number=phone, catalogue=catalogue_dict)
-    await db.commit()
-
-    # Bust Redis cache
-    cached = await get_trader_by_phone_cache(phone)
-    if cached and isinstance(cached, dict) and cached:
-        cached["catalogue"] = catalogue_dict
-        await cache_trader_by_phone(phone, cached)
-
-    return [CatalogueItem(name=k, price=v) for k, v in catalogue_dict.items()]
 
 
 @router.post("/setup", summary="Web-based store setup")
