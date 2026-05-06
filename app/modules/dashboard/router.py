@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import AuthenticatedUser, CurrentUserDep, DBSessionDep
 from app.modules.conversation.models import Conversation, ConversationStatus, Message
+from app.modules.credit_sales.models import CreditSale, CreditSaleStatus
 from app.modules.orders.models import Order, OrderItem, OrderState
 from app.modules.payments.models import Payment, PaymentStatus
 
@@ -51,6 +52,9 @@ class DashboardMetrics(BaseModel):
     total_revenue: Decimal
     active_conversations: int
     conversion_rate: float
+    total_outstanding: Decimal = Decimal("0")
+    active_debts_count: int = 0
+    overdue_debts_count: int = 0
 
 
 # ── Query ─────────────────────────────────────────────────────────────────────
@@ -125,11 +129,33 @@ async def _fetch_metrics(db: AsyncSession, tenant_id: str | None) -> DashboardMe
         else 0.0
     )
 
+    # ── Debt metrics ────────────────────────────────────────────────────────
+    now = datetime.now(tz=timezone.utc)
+    debt_filters = [CreditSale.status == CreditSaleStatus.ACTIVE]
+    if tenant_id is not None:
+        debt_filters.append(CreditSale.tenant_id == tenant_id)
+
+    debt_stmt = select(
+        func.count(CreditSale.id).label("active_debts_count"),
+        func.coalesce(func.sum(CreditSale.amount), Decimal("0")).label("total_outstanding"),
+        func.count(
+            case(
+                (CreditSale.due_date < now.date(), CreditSale.id),
+                else_=None,
+            )
+        ).label("overdue_debts_count"),
+    ).where(*debt_filters)
+
+    debt_row = (await db.execute(debt_stmt)).one()
+
     return DashboardMetrics(
         total_orders=int(row.total_orders),
         total_revenue=Decimal(str(row.total_revenue)),
         active_conversations=int(row.active_conversations),
         conversion_rate=conversion_rate,
+        total_outstanding=Decimal(str(debt_row.total_outstanding)),
+        active_debts_count=int(debt_row.active_debts_count),
+        overdue_debts_count=int(debt_row.overdue_debts_count),
     )
 
 
