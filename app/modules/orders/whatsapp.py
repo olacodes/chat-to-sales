@@ -308,6 +308,7 @@ def trader_menu() -> tuple[str, str, list[dict]]:
         {
             "title": "Orders",
             "rows": [
+                {"id": "MENU_ORDERS", "title": "\U0001f4cb Unpaid Orders", "description": "View and manage unpaid orders"},
                 {"id": "MENU_HELP", "title": "\u2753 Help", "description": "See order commands"},
             ],
         },
@@ -589,6 +590,53 @@ def pricelist_empty() -> str:
 
 
 # ── Debt tracker templates ───────────────────────────────────────────────────
+
+
+def pending_orders_list(
+    orders: list[dict],
+) -> tuple[str, str, list[dict]] | None:
+    """
+    Return (body, button_label, sections) for a list picker of unpaid orders.
+
+    Each order dict: {ref, customer_phone, amount, date}
+    Returns None if no orders.
+    """
+    if not orders:
+        return None
+    body = (
+        f"You have *{len(orders)} unpaid order{'s' if len(orders) != 1 else ''}*.\n\n"
+        "Tap an order to mark it as Paid or Credit."
+    )
+    button_label = "View orders"
+    rows = []
+    for o in orders[:10]:  # WhatsApp max 10 rows
+        rows.append({
+            "id": f"ORDACT_{o['ref']}",
+            "title": f"+{o['customer_phone']}"[:24] if o.get("customer_phone") else o["ref"],
+            "description": f"{_naira(o['amount'])} — {o['date']}",
+        })
+    sections = [{"title": "Unpaid orders", "rows": rows}]
+    return body, button_label, sections
+
+
+def pending_order_actions(
+    order_ref: str, customer_phone: str, amount: int,
+) -> tuple[str, list[dict[str, str]]]:
+    """Return (body, buttons) for Paid/Credit action on a specific order."""
+    body = (
+        f"Order *{order_ref}*\n"
+        f"Customer: +{customer_phone}\n"
+        f"Amount: {_naira(amount)}"
+    )
+    buttons = [
+        {"id": f"PAID {order_ref}", "title": "\U0001f4b0 Paid"},
+        {"id": f"CREDIT {order_ref}", "title": "\U0001f4dd Credit"},
+    ]
+    return body, buttons
+
+
+def no_pending_orders() -> str:
+    return "You have no unpaid orders right now. \U0001f389"
 
 
 def order_credit_to_trader(order_ref: str, customer_phone: str, amount: int) -> str:

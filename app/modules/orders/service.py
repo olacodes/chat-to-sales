@@ -45,6 +45,7 @@ from app.modules.orders.nlp import (
     TRADER_CONFIRM,
     TRADER_CREDIT,
     TRADER_DEBT,
+    TRADER_ORDERS,
     TRADER_DELIVERED,
     TRADER_MENU,
     TRADER_PAID,
@@ -1191,6 +1192,13 @@ class OrderService:
                 sections=sections,
                 channel_tenant_id=channel_tenant_id,
             )
+        elif tap == "MENU_ORDERS":
+            await self._do_list_pending_orders(
+                trader_phone=trader_phone,
+                message_id=message_id,
+                tenant_id=tenant_id,
+                channel_tenant_id=channel_tenant_id,
+            )
         elif tap == "MENU_HELP":
             await self._reply(
                 phone=trader_phone,
@@ -1768,6 +1776,67 @@ class OrderService:
             channel_tenant_id=channel_tenant_id,
         )
 
+    async def _do_list_pending_orders(
+        self,
+        *,
+        trader_phone: str,
+        message_id: str,
+        tenant_id: str,
+        channel_tenant_id: str | None = None,
+    ) -> None:
+        """List all confirmed (unpaid) orders for the trader."""
+        from sqlalchemy import select
+
+        async with async_session_factory() as session:
+            result = await session.execute(
+                select(Order).where(
+                    Order.trader_phone == trader_phone,
+                    Order.state == OrderState.CONFIRMED,
+                ).order_by(Order.created_at.desc())
+            )
+            orders = list(result.scalars().all())
+
+        if not orders:
+            await self._reply(
+                phone=trader_phone,
+                tenant_id=tenant_id,
+                event_id=f"trader.orders_empty.{message_id}",
+                text=wa.no_pending_orders(),
+                channel_tenant_id=channel_tenant_id,
+            )
+            return
+
+        order_data = []
+        for o in orders:
+            order_data.append({
+                "ref": o.id[:8],
+                "customer_phone": o.customer_phone or "",
+                "amount": int(o.amount or 0),
+                "date": o.created_at.strftime("%b %d") if o.created_at else "",
+            })
+
+        result_tuple = wa.pending_orders_list(order_data)
+        if result_tuple is None:
+            await self._reply(
+                phone=trader_phone,
+                tenant_id=tenant_id,
+                event_id=f"trader.orders_empty.{message_id}",
+                text=wa.no_pending_orders(),
+                channel_tenant_id=channel_tenant_id,
+            )
+            return
+
+        body, btn, sections = result_tuple
+        await self._reply_list(
+            phone=trader_phone,
+            tenant_id=tenant_id,
+            event_id=f"trader.orders_list.{message_id}",
+            body_text=body,
+            button_label=btn,
+            sections=sections,
+            channel_tenant_id=channel_tenant_id,
+        )
+
     async def _process_pricelist_texts(
         self,
         *,
@@ -2226,6 +2295,32 @@ class OrderService:
                 )
             return
 
+        # ── Handle order action tap (ORDACT_*) ────────────────────────────
+        if stripped.startswith("ORDACT_"):
+            order_ref = message.strip()[7:]  # preserve case
+            order = await self._repo.get_by_ref_prefix(ref_prefix=order_ref.lower())
+            if order and order.state == OrderState.CONFIRMED:
+                total = int(order.amount or 0)
+                cust_phone = order.customer_phone or "unknown"
+                body, buttons = wa.pending_order_actions(order_ref.lower(), cust_phone, total)
+                await self._reply_interactive(
+                    phone=trader_phone,
+                    tenant_id=tenant_id,
+                    event_id=f"trader.ordact.{message_id}",
+                    body_text=body,
+                    buttons=buttons,
+                    channel_tenant_id=channel_tenant_id,
+                )
+            else:
+                await self._reply(
+                    phone=trader_phone,
+                    tenant_id=tenant_id,
+                    event_id=f"trader.ordact_notfound.{message_id}",
+                    text=wa.order_not_found_to_trader(order_ref),
+                    channel_tenant_id=channel_tenant_id,
+                )
+            return
+
         # ── Handle category list tap (CAT_*) ────────────────────────────────
         if stripped.startswith("CAT_"):
             new_category = message.strip()[4:]  # preserve original case
@@ -2352,6 +2447,15 @@ class OrderService:
 
         if result.intent == TRADER_WHO_OWES_ME:
             await self._do_list_debts(
+                trader_phone=trader_phone,
+                message_id=message_id,
+                tenant_id=tenant_id,
+                channel_tenant_id=channel_tenant_id,
+            )
+            return
+
+        if result.intent == TRADER_ORDERS:
+            await self._do_list_pending_orders(
                 trader_phone=trader_phone,
                 message_id=message_id,
                 tenant_id=tenant_id,

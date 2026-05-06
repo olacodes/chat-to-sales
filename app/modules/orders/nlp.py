@@ -48,6 +48,7 @@ TRADER_PRICELIST = "trader_pricelist"
 TRADER_DEBT = "trader_debt"
 TRADER_PAID_DEBT = "trader_paid_debt"
 TRADER_WHO_OWES_ME = "trader_who_owes_me"
+TRADER_ORDERS = "trader_orders"
 TRADER_MENU = "trader_menu"
 UNKNOWN = "unknown"
 
@@ -168,6 +169,11 @@ _PAID_DEBT_RE = re.compile(
 # WHO OWES ME / DEBTS / MY DEBTS
 _WHO_OWES_ME_RE = re.compile(
     r"^(?:who\s*owes?\s*me|debts?|my\s*debts?|debt\s*book|owe\s*me)$",
+    re.IGNORECASE,
+)
+# ORDERS / MY ORDERS / PENDING ORDERS
+_ORDERS_RE = re.compile(
+    r"^(?:orders?|my\s*orders?|pending\s*orders?|unpaid\s*orders?)$",
     re.IGNORECASE,
 )
 # MENU / HELP
@@ -350,6 +356,9 @@ def _layer1(message: str) -> ParseResult:
 
     if _WHO_OWES_ME_RE.match(stripped):
         return ParseResult(intent=TRADER_WHO_OWES_ME, confidence=1.0)
+
+    if _ORDERS_RE.match(stripped):
+        return ParseResult(intent=TRADER_ORDERS, confidence=1.0)
 
     if _MENU_RE.match(stripped):
         return ParseResult(intent=TRADER_MENU, confidence=1.0)
