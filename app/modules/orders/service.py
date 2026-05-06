@@ -1199,6 +1199,13 @@ class OrderService:
                 tenant_id=tenant_id,
                 channel_tenant_id=channel_tenant_id,
             )
+        elif tap == "MENU_DEBTS":
+            await self._do_list_debts(
+                trader_phone=trader_phone,
+                message_id=message_id,
+                tenant_id=tenant_id,
+                channel_tenant_id=channel_tenant_id,
+            )
         elif tap == "MENU_HELP":
             await self._reply(
                 phone=trader_phone,
