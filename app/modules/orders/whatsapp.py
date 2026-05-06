@@ -703,6 +703,15 @@ def debt_not_found(customer_name: str) -> str:
     )
 
 
+def debt_reminder_to_trader(customer_name: str, amount: int, days_ago: int) -> str:
+    """Remind the trader about an outstanding debt they need to follow up on."""
+    return (
+        f"\U0001f4ac Reminder: *{customer_name}* still owes you {_naira(amount)} "
+        f"({days_ago} day{'s' if days_ago != 1 else ''} ago).\n\n"
+        "Please follow up with them when you can."
+    )
+
+
 def debt_list(debts: list[dict], total: int) -> str:
     if not debts:
         return (
