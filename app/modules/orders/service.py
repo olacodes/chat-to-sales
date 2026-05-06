@@ -43,12 +43,15 @@ from app.modules.orders.nlp import (
     TRADER_CATALOGUE,
     TRADER_CATEGORY,
     TRADER_CONFIRM,
+    TRADER_DEBT,
     TRADER_DELIVERED,
     TRADER_MENU,
     TRADER_PAID,
+    TRADER_PAID_DEBT,
     TRADER_PRICE,
     TRADER_PRICELIST,
     TRADER_REMOVE,
+    TRADER_WHO_OWES_ME,
     UNKNOWN,
     parse_message,
 )
@@ -1649,6 +1652,121 @@ class OrderService:
                 channel_tenant_id=channel_tenant_id,
             )
 
+    # ── Debt tracker helpers ────────────────────────────────────────────────
+
+    async def _do_create_debt(
+        self,
+        *,
+        trader_phone: str,
+        customer_name: str,
+        amount: int,
+        message_id: str,
+        tenant_id: str,
+        channel_tenant_id: str | None = None,
+    ) -> None:
+        """Create a credit sale (debt) from a WhatsApp DEBT command."""
+        from decimal import Decimal as D
+        from app.modules.credit_sales.models import CreditSale
+
+        async with async_session_factory.begin() as session:
+            credit_sale = CreditSale(
+                tenant_id=tenant_id,
+                customer_name=customer_name,
+                amount=D(str(amount)),
+                currency="NGN",
+            )
+            session.add(credit_sale)
+
+        await self._reply(
+            phone=trader_phone,
+            tenant_id=tenant_id,
+            event_id=f"trader.debt_created.{message_id}",
+            text=wa.debt_created(customer_name, amount),
+            channel_tenant_id=channel_tenant_id,
+        )
+        logger.info("Debt created: trader=%s customer=%s amount=%d", trader_phone, customer_name, amount)
+
+    async def _do_settle_debt(
+        self,
+        *,
+        trader_phone: str,
+        customer_name: str,
+        amount: int,
+        message_id: str,
+        tenant_id: str,
+        channel_tenant_id: str | None = None,
+    ) -> None:
+        """Settle a debt by customer name (case-insensitive fuzzy match)."""
+        from app.modules.credit_sales.models import CreditSale, CreditSaleStatus
+        from sqlalchemy import select, func
+
+        async with async_session_factory.begin() as session:
+            # Find active debts for this customer name (case-insensitive)
+            result = await session.execute(
+                select(CreditSale).where(
+                    CreditSale.tenant_id == tenant_id,
+                    CreditSale.status == CreditSaleStatus.ACTIVE,
+                    func.lower(CreditSale.customer_name) == customer_name.lower(),
+                )
+            )
+            debts = list(result.scalars().all())
+
+            if not debts:
+                await self._reply(
+                    phone=trader_phone,
+                    tenant_id=tenant_id,
+                    event_id=f"trader.debt_notfound.{message_id}",
+                    text=wa.debt_not_found(customer_name),
+                    channel_tenant_id=channel_tenant_id,
+                )
+                return
+
+            # Settle the first matching debt
+            debt = debts[0]
+            debt.status = CreditSaleStatus.SETTLED
+
+        settled_amount = int(debt.amount)
+        await self._reply(
+            phone=trader_phone,
+            tenant_id=tenant_id,
+            event_id=f"trader.debt_settled.{message_id}",
+            text=wa.debt_settled(debt.customer_name, settled_amount),
+            channel_tenant_id=channel_tenant_id,
+        )
+        logger.info("Debt settled: trader=%s customer=%s amount=%d", trader_phone, customer_name, settled_amount)
+
+    async def _do_list_debts(
+        self,
+        *,
+        trader_phone: str,
+        message_id: str,
+        tenant_id: str,
+        channel_tenant_id: str | None = None,
+    ) -> None:
+        """List all active debts for the trader."""
+        from app.modules.credit_sales.models import CreditSale, CreditSaleStatus
+        from sqlalchemy import select
+
+        async with async_session_factory() as session:
+            result = await session.execute(
+                select(CreditSale).where(
+                    CreditSale.tenant_id == tenant_id,
+                    CreditSale.status == CreditSaleStatus.ACTIVE,
+                ).order_by(CreditSale.created_at.desc())
+            )
+            debts = list(result.scalars().all())
+
+        debt_list_data = [{"name": d.customer_name, "amount": int(d.amount)} for d in debts]
+        total = sum(d["amount"] for d in debt_list_data)
+
+        await self._reply(
+            phone=trader_phone,
+            tenant_id=tenant_id,
+            event_id=f"trader.debt_list.{message_id}",
+            text=wa.debt_list(debt_list_data, total),
+            channel_tenant_id=channel_tenant_id,
+        )
+
     async def _process_pricelist_texts(
         self,
         *,
@@ -2203,6 +2321,39 @@ class OrderService:
                 event_id=f"trader.pricelist_prompt.{message_id}",
                 body_text=body,
                 buttons=buttons,
+                channel_tenant_id=channel_tenant_id,
+            )
+            return
+
+        if result.intent == TRADER_DEBT:
+            item = result.items[0]
+            await self._do_create_debt(
+                trader_phone=trader_phone,
+                customer_name=item["name"],
+                amount=item["unit_price"],
+                message_id=message_id,
+                tenant_id=tenant_id,
+                channel_tenant_id=channel_tenant_id,
+            )
+            return
+
+        if result.intent == TRADER_PAID_DEBT:
+            item = result.items[0]
+            await self._do_settle_debt(
+                trader_phone=trader_phone,
+                customer_name=item["name"],
+                amount=item["unit_price"],
+                message_id=message_id,
+                tenant_id=tenant_id,
+                channel_tenant_id=channel_tenant_id,
+            )
+            return
+
+        if result.intent == TRADER_WHO_OWES_ME:
+            await self._do_list_debts(
+                trader_phone=trader_phone,
+                message_id=message_id,
+                tenant_id=tenant_id,
                 channel_tenant_id=channel_tenant_id,
             )
             return

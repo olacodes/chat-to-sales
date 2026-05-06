@@ -31,10 +31,11 @@ class CreditSale(TenantModel):
     )
 
     # ── Links ─────────────────────────────────────────────────────────────────
-    order_id: Mapped[str] = mapped_column(
+    # Nullable: WhatsApp DEBT command creates credit sales without an order link
+    order_id: Mapped[str | None] = mapped_column(
         String(36),
         ForeignKey("orders.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
     )
     conversation_id: Mapped[str | None] = mapped_column(
         String(36),

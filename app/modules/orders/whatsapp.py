@@ -580,6 +580,44 @@ def pricelist_empty() -> str:
     )
 
 
+# ── Debt tracker templates ───────────────────────────────────────────────────
+
+
+def debt_created(customer_name: str, amount: int) -> str:
+    return (
+        f"\u2705 Recorded: *{customer_name}* owes you {_naira(amount)}.\n\n"
+        "Type _WHO OWES ME_ to see your full debt book."
+    )
+
+
+def debt_settled(customer_name: str, amount: int) -> str:
+    return f"\u2705 *{customer_name}* debt of {_naira(amount)} settled! Debt cleared."
+
+
+def debt_not_found(customer_name: str) -> str:
+    return (
+        f"I no fit find any active debt for *{customer_name}*. \U0001f914\n\n"
+        "Type _WHO OWES ME_ to see your debt book."
+    )
+
+
+def debt_list(debts: list[dict], total: int) -> str:
+    if not debts:
+        return (
+            "Your debt book is clean — nobody owes you right now! \U0001f389\n\n"
+            "To track a debt, type:\n_DEBT Iya Bimpe 5000_"
+        )
+    lines = []
+    for i, d in enumerate(debts, 1):
+        lines.append(f"  {i}. {d['name']} — {_naira(d['amount'])}")
+    return (
+        f"\U0001f4d6 *Who owes you* ({len(debts)} debtor{'s' if len(debts) != 1 else ''}):\n\n"
+        + "\n".join(lines)
+        + f"\n\n*Total outstanding: {_naira(total)}*\n\n"
+        "To settle, type:\n_PAID Iya Bimpe 5000_"
+    )
+
+
 # ── Image inquiry ────────────────────────────────────────────────────────────
 
 

@@ -45,6 +45,9 @@ TRADER_PRICE = "trader_price"
 TRADER_CATALOGUE = "trader_catalogue"
 TRADER_CATEGORY = "trader_category"
 TRADER_PRICELIST = "trader_pricelist"
+TRADER_DEBT = "trader_debt"
+TRADER_PAID_DEBT = "trader_paid_debt"
+TRADER_WHO_OWES_ME = "trader_who_owes_me"
 TRADER_MENU = "trader_menu"
 UNKNOWN = "unknown"
 
@@ -146,6 +149,22 @@ _CATEGORY_RE = re.compile(
 # PRICELIST / PRICE LIST / UPLOAD PRICELIST
 _PRICELIST_RE = re.compile(
     r"^(?:price\s*list|upload\s*price\s*list|new\s*price\s*list|update\s*price\s*list)$",
+    re.IGNORECASE,
+)
+# DEBT <name> <amount>  e.g. "DEBT Iya Bimpe 5000"
+_DEBT_RE = re.compile(
+    r"^debt\s+(.+?)\s+(\d[\d,]*)\s*$",
+    re.IGNORECASE,
+)
+# PAID <name> <amount>  (debt settlement) e.g. "PAID Iya Bimpe 5000"
+# Note: this is different from PAID <order_ref> (order command) — detected by name vs hex ref
+_PAID_DEBT_RE = re.compile(
+    r"^paid\s+([A-Za-z].+?)\s+(\d[\d,]*)\s*$",
+    re.IGNORECASE,
+)
+# WHO OWES ME / DEBTS / MY DEBTS
+_WHO_OWES_ME_RE = re.compile(
+    r"^(?:who\s*owes?\s*me|debts?|my\s*debts?|debt\s*book|owe\s*me)$",
     re.IGNORECASE,
 )
 # MENU / HELP
@@ -303,6 +322,31 @@ def _layer1(message: str) -> ParseResult:
 
     if _PRICELIST_RE.match(stripped):
         return ParseResult(intent=TRADER_PRICELIST, confidence=1.0)
+
+    # DEBT <name> <amount>
+    m = _DEBT_RE.match(stripped)
+    if m:
+        name = m.group(1).strip()
+        amount = int(m.group(2).replace(",", ""))
+        return ParseResult(
+            intent=TRADER_DEBT,
+            items=[{"name": name, "qty": 1, "unit_price": amount}],
+            confidence=1.0,
+        )
+
+    # PAID <name> <amount> (debt settlement — name starts with letter, not hex ref)
+    m = _PAID_DEBT_RE.match(stripped)
+    if m:
+        name = m.group(1).strip()
+        amount = int(m.group(2).replace(",", ""))
+        return ParseResult(
+            intent=TRADER_PAID_DEBT,
+            items=[{"name": name, "qty": 1, "unit_price": amount}],
+            confidence=1.0,
+        )
+
+    if _WHO_OWES_ME_RE.match(stripped):
+        return ParseResult(intent=TRADER_WHO_OWES_ME, confidence=1.0)
 
     if _MENU_RE.match(stripped):
         return ParseResult(intent=TRADER_MENU, confidence=1.0)
