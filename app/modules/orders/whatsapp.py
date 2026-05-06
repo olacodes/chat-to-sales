@@ -259,6 +259,23 @@ def order_not_found_to_trader(ref: str) -> str:
     )
 
 
+def order_reminder_to_trader(
+    customer_phone: str,
+    total: int,
+    order_ref: str,
+    hours_ago: int,
+) -> str:
+    time_label = f"{hours_ago} hour{'s' if hours_ago != 1 else ''}"
+    return (
+        f"\u23f0 Reminder: You have an unconfirmed order from +{customer_phone} "
+        f"({time_label} ago).\n\n"
+        f"*Total: {_naira(total)}*\n"
+        f"Ref: {order_ref}\n\n"
+        f"Reply *CONFIRM {order_ref}* to accept\n"
+        f"Reply *CANCEL {order_ref}* to decline"
+    )
+
+
 def trader_command_guide() -> str:
     return (
         "To manage your orders, use these commands:\n\n"

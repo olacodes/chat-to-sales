@@ -1,7 +1,8 @@
+from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
 
-from sqlalchemy import ForeignKey, Index, Numeric, String
+from sqlalchemy import DateTime, ForeignKey, Index, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.models.base import BaseModel, TenantModel
@@ -46,6 +47,11 @@ class Order(TenantModel):
     # Nullable so an order can be created before the amount is known
     amount: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     currency: Mapped[str] = mapped_column(String(3), nullable=False, default="NGN")
+
+    # Set when a follow-up reminder is sent to the trader. NULL = not yet reminded.
+    reminder_sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     items: Mapped[list["OrderItem"]] = relationship(
         "OrderItem", back_populates="order", lazy="selectin"
