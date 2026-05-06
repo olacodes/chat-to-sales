@@ -70,7 +70,7 @@ async def _fire_due_messages() -> None:
                 logger.exception("Scheduler: failed to send scheduled message %s", sm.id)
 
 
-_REMINDER_DELAY_HOURS = 2
+_REMINDER_DELAY_HOURS = 1
 _REMINDER_INTERVAL_MINUTES = 30
 
 
