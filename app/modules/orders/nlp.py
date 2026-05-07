@@ -49,6 +49,7 @@ TRADER_DEBT = "trader_debt"
 TRADER_PAID_DEBT = "trader_paid_debt"
 TRADER_WHO_OWES_ME = "trader_who_owes_me"
 TRADER_ORDERS = "trader_orders"
+NEGOTIATION = "negotiation"
 TRADER_MENU = "trader_menu"
 UNKNOWN = "unknown"
 
@@ -95,6 +96,24 @@ _YES_RE = re.compile(
 _NO_RE = re.compile(
     r"^(no|nope|nah|cancel|stop|na|forget(?: am| it)?|"
     r"don'?t(?: bother)?|abeg cancel|na lie|wrong)$",
+    re.IGNORECASE,
+)
+
+# Negotiation: customer offers a specific price
+_NEGOTIATE_PRICE_RE = re.compile(
+    r"(?:can you do|how about|make it|do it for|accept|take it for|"
+    r"i['\u2019]?ll pay|last price is|final price|what about|"
+    r"i['\u2019]?ll give you|sell (?:it |am )?for)\s*"
+    r"(?:N|₦)?\s*(\d[\d,]*)",
+    re.IGNORECASE,
+)
+
+# Negotiation: general haggling (no specific price)
+_NEGOTIATE_GENERAL_RE = re.compile(
+    r"\b(?:too expensive|too much|too costly|any discount|reduce|cheaper|"
+    r"best price|last price|final price|lower the price|bring down|come down|"
+    r"na better price|e too cost|e too dear|too dear|discount|"
+    r"bargain|negotiate|overpriced|not affordable)\b",
     re.IGNORECASE,
 )
 
@@ -368,6 +387,20 @@ def _layer1(message: str) -> ParseResult:
         return ParseResult(intent=CONFIRM, confidence=1.0)
     if _NO_RE.match(stripped):
         return ParseResult(intent=CANCEL, confidence=1.0)
+
+    # ── Negotiation detection ───────────────────────────────────────────────
+    m = _NEGOTIATE_PRICE_RE.search(stripped)
+    if m:
+        offered_price = int(m.group(1).replace(",", ""))
+        if offered_price > 0:
+            return ParseResult(
+                intent=NEGOTIATION,
+                items=[{"name": "", "qty": 1, "unit_price": offered_price}],
+                confidence=1.0,
+            )
+
+    if _NEGOTIATE_GENERAL_RE.search(stripped):
+        return ParseResult(intent=NEGOTIATION, confidence=1.0)
 
     # ── Order intent ──────────────────────────────────────────────────────────
     if not _ORDER_TRIGGER_RE.search(stripped):

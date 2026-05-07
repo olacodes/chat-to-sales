@@ -186,6 +186,59 @@ def price_missing_prompt(item_names: list[str]) -> str:
     )
 
 
+def negotiation_hold_customer() -> str:
+    return (
+        "Let me check with the trader about the price. One moment! \U0001f64f"
+    )
+
+
+def negotiation_to_trader_with_price(
+    customer_phone: str, customer_name: str | None,
+    product_name: str, original_price: int, offered_price: int,
+) -> tuple[str, list[dict[str, str]]]:
+    """Return (body, buttons) for a negotiation escalation with a specific offer."""
+    display = customer_name or f"+{customer_phone}"
+    body = (
+        f"\U0001f4ac *{display}* wants to negotiate:\n\n"
+        f"Product: {product_name}\n"
+        f"Your price: {_naira(original_price)}\n"
+        f"Their offer: {_naira(offered_price)}\n\n"
+        "Would you like to accept their price?"
+    )
+    buttons = [
+        {"id": f"NEGACCEPT_{customer_phone}", "title": "\u2705 Accept"},
+        {"id": f"NEGDECLINE_{customer_phone}", "title": "\u274c Decline"},
+    ]
+    return body, buttons
+
+
+def negotiation_to_trader_general(
+    customer_phone: str, customer_name: str | None,
+    product_name: str, price: int,
+) -> str:
+    """Notify trader that customer is asking for a discount (no specific price)."""
+    display = customer_name or f"+{customer_phone}"
+    return (
+        f"\U0001f4ac *{display}* is asking for a better price on "
+        f"*{product_name}* ({_naira(price)}).\n\n"
+        "You can message them directly to negotiate."
+    )
+
+
+def negotiation_accepted_to_customer(trader_name: str, accepted_price: int) -> str:
+    return (
+        f"Great news! *{trader_name}* accepted {_naira(accepted_price)}. \U0001f389\n\n"
+        "Would you like to confirm your order? Reply *YES* to proceed."
+    )
+
+
+def negotiation_declined_to_customer(trader_name: str, original_price: int) -> str:
+    return (
+        f"Sorry, *{trader_name}* can't go below {_naira(original_price)} for this item.\n\n"
+        f"Would you like to order at {_naira(original_price)}? Reply *YES* or *NO*."
+    )
+
+
 def no_active_session() -> str:
     return (
         "No active order to cancel.\n\n"

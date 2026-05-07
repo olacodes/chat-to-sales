@@ -60,9 +60,11 @@ from app.modules.orders.nlp import (
 from app.modules.onboarding.repository import TraderRepository
 from app.modules.orders.repository import OrderRepository
 from app.modules.orders.schemas import OrderCreate, OrderItemCreate, OrderListResponse
+from app.modules.orders.nlp import NEGOTIATION
 from app.modules.orders.session import (
     AWAITING_CLARIFICATION,
     AWAITING_CUSTOMER_CONFIRMATION,
+    AWAITING_NEGOTIATION,
     clear_order_session,
     get_order_session,
     set_order_session,
@@ -636,6 +638,18 @@ class OrderService:
             )
             return
 
+        # ── Existing session: customer held during negotiation ──────────────
+        if session and session.get("state") == AWAITING_NEGOTIATION:
+            # Customer is being held while trader decides. Re-hold them.
+            await self._reply(
+                phone=customer_phone,
+                tenant_id=tenant_id,
+                event_id=f"order.neg_rehold.{message_id}",
+                text="Still waiting for the trader to respond about the price. One moment! \U0001f64f",
+                channel_tenant_id=channel_tenant_id,
+            )
+            return
+
         # ── Existing session: waiting for clarification answer ────────────────
         if session and session.get("state") == AWAITING_CLARIFICATION:
             # Append the clarification answer to the original message and re-parse
@@ -666,6 +680,75 @@ class OrderService:
                 text=wa.no_active_session(),
                 channel_tenant_id=channel_tenant_id,
             )
+            return
+
+        # ── Negotiation detected ────────────────────────────────────────────
+        if result.intent == NEGOTIATION:
+            offered_price = result.items[0]["unit_price"] if result.items else None
+            trader_phone: str = trader.get("phone_number", "")
+
+            # Hold the customer
+            await self._reply(
+                phone=customer_phone,
+                tenant_id=tenant_id,
+                event_id=f"order.neg_hold.{message_id}",
+                text=wa.negotiation_hold_customer(),
+                channel_tenant_id=channel_tenant_id,
+            )
+
+            # Find the product being negotiated (last discussed or from catalogue)
+            # Use the session's items if available, otherwise best guess from catalogue
+            product_name = "the item"
+            original_price = 0
+            if session and session.get("items"):
+                first_item = session["items"][0]
+                product_name = first_item.get("name", "the item")
+                original_price = first_item.get("unit_price", 0)
+
+            if offered_price and original_price and trader_phone:
+                # Specific price offer — send interactive to trader
+                body, buttons = wa.negotiation_to_trader_with_price(
+                    customer_phone=customer_phone,
+                    customer_name=customer_name,
+                    product_name=product_name,
+                    original_price=original_price,
+                    offered_price=offered_price,
+                )
+                await self._reply_interactive(
+                    phone=trader_phone,
+                    tenant_id=tenant_id,
+                    event_id=f"order.neg_escalate.{message_id}",
+                    body_text=body,
+                    buttons=buttons,
+                    channel_tenant_id=channel_tenant_id,
+                )
+                # Hold customer in negotiation session
+                await set_order_session(
+                    tenant_id,
+                    customer_phone,
+                    {
+                        "state": AWAITING_NEGOTIATION,
+                        "offered_price": offered_price,
+                        "original_price": original_price,
+                        "product_name": product_name,
+                        "items": session.get("items") if session else [],
+                        "order_id": session.get("order_id") if session else None,
+                    },
+                )
+            elif trader_phone:
+                # General negotiation — notify trader (no buttons, just text)
+                await self._reply(
+                    phone=trader_phone,
+                    tenant_id=tenant_id,
+                    event_id=f"order.neg_general.{message_id}",
+                    text=wa.negotiation_to_trader_general(
+                        customer_phone=customer_phone,
+                        customer_name=customer_name,
+                        product_name=product_name,
+                        price=original_price,
+                    ),
+                    channel_tenant_id=channel_tenant_id,
+                )
             return
 
         if result.intent == UNKNOWN or (result.intent == ORDER and not result.items):
@@ -1671,6 +1754,103 @@ class OrderService:
                 channel_tenant_id=channel_tenant_id,
             )
 
+    # ── Negotiation helpers ─────────────────────────────────────────────────
+
+    async def _handle_negotiation_response(
+        self,
+        *,
+        is_accept: bool,
+        customer_phone: str,
+        trader_phone: str,
+        trader: dict[str, Any],
+        message_id: str,
+        tenant_id: str,
+        channel_tenant_id: str | None = None,
+    ) -> None:
+        """Handle trader's Accept/Decline response to a negotiation."""
+        trader_name = trader.get("business_name", "the trader")
+
+        # Find the customer's negotiation session
+        # The customer_phone in the button ID is the key to look up their session
+        neg_session = await get_order_session(tenant_id, customer_phone)
+        if not neg_session or neg_session.get("state") != AWAITING_NEGOTIATION:
+            await self._reply(
+                phone=trader_phone,
+                tenant_id=tenant_id,
+                event_id=f"order.neg_expired.{message_id}",
+                text="This negotiation has expired or already been resolved.",
+                channel_tenant_id=channel_tenant_id,
+            )
+            return
+
+        offered_price = neg_session.get("offered_price", 0)
+        original_price = neg_session.get("original_price", 0)
+        items = neg_session.get("items", [])
+
+        if is_accept:
+            # Update the items with the accepted price
+            if items and offered_price:
+                items[0]["unit_price"] = offered_price
+
+            # Set session to confirmation with the negotiated price
+            total = offered_price if offered_price else original_price
+            await set_order_session(
+                tenant_id,
+                customer_phone,
+                {
+                    "state": AWAITING_CUSTOMER_CONFIRMATION,
+                    "items": items,
+                    "total": total,
+                    "order_id": neg_session.get("order_id"),
+                },
+            )
+            await self._reply(
+                phone=customer_phone,
+                tenant_id=tenant_id,
+                event_id=f"order.neg_accepted.{message_id}",
+                text=wa.negotiation_accepted_to_customer(trader_name, total),
+                channel_tenant_id=channel_tenant_id,
+            )
+            await self._reply(
+                phone=trader_phone,
+                tenant_id=tenant_id,
+                event_id=f"order.neg_accepted_trader.{message_id}",
+                text=f"\u2705 You accepted {wa._naira(offered_price)}. Waiting for customer to confirm.",
+                channel_tenant_id=channel_tenant_id,
+            )
+        else:
+            # Decline — offer original price
+            await set_order_session(
+                tenant_id,
+                customer_phone,
+                {
+                    "state": AWAITING_CUSTOMER_CONFIRMATION,
+                    "items": items,
+                    "total": original_price,
+                    "order_id": neg_session.get("order_id"),
+                },
+            )
+            await self._reply(
+                phone=customer_phone,
+                tenant_id=tenant_id,
+                event_id=f"order.neg_declined.{message_id}",
+                text=wa.negotiation_declined_to_customer(trader_name, original_price),
+                channel_tenant_id=channel_tenant_id,
+            )
+            await self._reply(
+                phone=trader_phone,
+                tenant_id=tenant_id,
+                event_id=f"order.neg_declined_trader.{message_id}",
+                text=f"\u274c Offer declined. Customer has been offered the original price of {wa._naira(original_price)}.",
+                channel_tenant_id=channel_tenant_id,
+            )
+
+        logger.info(
+            "Negotiation %s: trader=%s customer=%s offered=%s original=%s",
+            "accepted" if is_accept else "declined",
+            trader_phone, customer_phone, offered_price, original_price,
+        )
+
     # ── Debt tracker helpers ────────────────────────────────────────────────
 
     async def _do_create_debt(
@@ -2521,6 +2701,21 @@ class OrderService:
                     text=wa.product_not_found(product_name),
                     channel_tenant_id=channel_tenant_id,
                 )
+            return
+
+        # ── Handle negotiation response taps (NEGACCEPT_*, NEGDECLINE_*) ──
+        if stripped.startswith("NEGACCEPT_") or stripped.startswith("NEGDECLINE_"):
+            customer_phone_from_tap = message.strip().split("_", 1)[1] if "_" in message else ""
+            is_accept = stripped.startswith("NEGACCEPT_")
+            await self._handle_negotiation_response(
+                is_accept=is_accept,
+                customer_phone=customer_phone_from_tap,
+                trader_phone=trader_phone,
+                trader=trader,
+                message_id=message_id,
+                tenant_id=tenant_id,
+                channel_tenant_id=channel_tenant_id,
+            )
             return
 
         # ── Handle debt action taps (DEBTACT_*, SETTLE_*, REMIND_*) ──────

@@ -29,6 +29,7 @@ _TRADER_TTL = 60 * 60             # 1 hour, refreshed on each cache hit
 
 AWAITING_CUSTOMER_CONFIRMATION = "awaiting_customer_confirmation"
 AWAITING_CLARIFICATION = "awaiting_clarification"
+AWAITING_NEGOTIATION = "awaiting_negotiation"
 
 # ── Customer order session ────────────────────────────────────────────────────
 
