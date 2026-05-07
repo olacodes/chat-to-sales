@@ -207,6 +207,7 @@ def negotiation_to_trader_with_price(
     )
     buttons = [
         {"id": f"NEGACCEPT_{customer_phone}", "title": "\u2705 Accept"},
+        {"id": f"NEGCOUNTER_{customer_phone}", "title": "\U0001f4b0 Counter-offer"},
         {"id": f"NEGDECLINE_{customer_phone}", "title": "\u274c Decline"},
     ]
     return body, buttons
@@ -229,6 +230,24 @@ def negotiation_accepted_to_customer(trader_name: str, accepted_price: int) -> s
     return (
         f"Great news! *{trader_name}* accepted {_naira(accepted_price)}. \U0001f389\n\n"
         "Would you like to confirm your order? Reply *YES* to proceed."
+    )
+
+
+def negotiation_counter_prompt(original_price: int, offered_price: int) -> str:
+    """Ask the trader to type their counter-offer price."""
+    return (
+        f"Your price: {_naira(original_price)}\n"
+        f"Their offer: {_naira(offered_price)}\n\n"
+        "Type your counter-offer price (e.g. _7500_):"
+    )
+
+
+def negotiation_counter_to_customer(
+    trader_name: str, counter_price: int,
+) -> str:
+    return (
+        f"*{trader_name}* can do {_naira(counter_price)}.\n\n"
+        "Would you like to proceed? Reply *YES* to confirm or *NO* to cancel."
     )
 
 

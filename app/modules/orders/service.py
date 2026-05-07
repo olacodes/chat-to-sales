@@ -1322,9 +1322,83 @@ class OrderService:
             TRADER_AWAITING_PRICE_VALUE,
             TRADER_AWAITING_PRICELIST_PHOTO,
             TRADER_AWAITING_PRICELIST_CONFIRM,
+            TRADER_AWAITING_COUNTER_PRICE,
         )
 
         state = tsession.get("state", "")
+
+        if state == TRADER_AWAITING_COUNTER_PRICE:
+            await clear_trader_session(trader_phone)
+            # Parse the counter-offer price from trader's message
+            cleaned = _re.sub(r"(\d),(\d)", r"\1\2", message.strip())
+            numbers = _re.findall(r"\d+", cleaned)
+            if not numbers:
+                await self._reply(
+                    phone=trader_phone,
+                    tenant_id=tenant_id,
+                    event_id=f"trader.neg_counter_invalid.{message_id}",
+                    text="I didn't understand that. Just type the price (e.g. _7500_):",
+                    channel_tenant_id=channel_tenant_id,
+                )
+                return True
+
+            counter_price = int(numbers[0])
+            if counter_price <= 0:
+                await self._reply(
+                    phone=trader_phone,
+                    tenant_id=tenant_id,
+                    event_id=f"trader.neg_counter_invalid.{message_id}",
+                    text="Price must be greater than 0. Type the price (e.g. _7500_):",
+                    channel_tenant_id=channel_tenant_id,
+                )
+                return True
+
+            customer_phone_for_neg = tsession.get("customer_phone", "")
+            if not customer_phone_for_neg:
+                return True
+
+            trader_name = trader.get("business_name", "the trader")
+
+            # Find the customer's negotiation session and update it
+            neg_session = await get_order_session(tenant_id, customer_phone_for_neg)
+            items = neg_session.get("items", []) if neg_session else []
+            if items:
+                items[0]["unit_price"] = counter_price
+
+            await set_order_session(
+                tenant_id,
+                customer_phone_for_neg,
+                {
+                    "state": AWAITING_CUSTOMER_CONFIRMATION,
+                    "items": items,
+                    "total": counter_price,
+                    "order_id": neg_session.get("order_id") if neg_session else None,
+                },
+            )
+
+            # Notify customer
+            await self._reply(
+                phone=customer_phone_for_neg,
+                tenant_id=tenant_id,
+                event_id=f"order.neg_counter.{message_id}",
+                text=wa.negotiation_counter_to_customer(trader_name, counter_price),
+                channel_tenant_id=channel_tenant_id,
+            )
+
+            # Confirm to trader
+            await self._reply(
+                phone=trader_phone,
+                tenant_id=tenant_id,
+                event_id=f"order.neg_counter_sent.{message_id}",
+                text=f"\u2705 Counter-offer of {wa._naira(counter_price)} sent. Waiting for customer to respond.",
+                channel_tenant_id=channel_tenant_id,
+            )
+
+            logger.info(
+                "Negotiation counter-offer: trader=%s customer=%s price=%d",
+                trader_phone, customer_phone_for_neg, counter_price,
+            )
+            return True
 
         if state == TRADER_AWAITING_PRICELIST_PHOTO:
             _MAX_PRICELIST_PHOTOS = 10
@@ -2703,7 +2777,7 @@ class OrderService:
                 )
             return
 
-        # ── Handle negotiation response taps (NEGACCEPT_*, NEGDECLINE_*) ──
+        # ── Handle negotiation response taps (NEGACCEPT_*, NEGCOUNTER_*, NEGDECLINE_*) ──
         if stripped.startswith("NEGACCEPT_") or stripped.startswith("NEGDECLINE_"):
             customer_phone_from_tap = message.strip().split("_", 1)[1] if "_" in message else ""
             is_accept = stripped.startswith("NEGACCEPT_")
@@ -2714,6 +2788,30 @@ class OrderService:
                 trader=trader,
                 message_id=message_id,
                 tenant_id=tenant_id,
+                channel_tenant_id=channel_tenant_id,
+            )
+            return
+
+        if stripped.startswith("NEGCOUNTER_"):
+            from app.modules.orders.session import (
+                set_trader_session,
+                TRADER_AWAITING_COUNTER_PRICE,
+            )
+            customer_phone_from_tap = message.strip().split("_", 1)[1] if "_" in message else ""
+            # Look up the customer's negotiation session for context
+            neg_session = await get_order_session(tenant_id, customer_phone_from_tap)
+            original_price = neg_session.get("original_price", 0) if neg_session else 0
+            offered_price = neg_session.get("offered_price", 0) if neg_session else 0
+
+            await set_trader_session(trader_phone, {
+                "state": TRADER_AWAITING_COUNTER_PRICE,
+                "customer_phone": customer_phone_from_tap,
+            })
+            await self._reply(
+                phone=trader_phone,
+                tenant_id=tenant_id,
+                event_id=f"trader.neg_counter_prompt.{message_id}",
+                text=wa.negotiation_counter_prompt(original_price, offered_price),
                 channel_tenant_id=channel_tenant_id,
             )
             return
