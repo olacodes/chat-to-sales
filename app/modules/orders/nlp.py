@@ -443,8 +443,9 @@ async def _layer2_claude(
         f"Trader catalogue:\n{cat_lines}\n\n"
         f"Customer message: {json.dumps(message)}\n\n"
         "Return ONLY a JSON object — no markdown, no commentary.\n\n"
-        'Format: {"intent":"order"|"confirm"|"cancel"|"unknown",'
+        'Format: {"intent":"order"|"confirm"|"cancel"|"negotiation"|"unknown",'
         '"items":[{"name":"product name","qty":2,"unit_price":8500}],'
+        '"offered_price":null,'
         '"clarification_needed":false,"clarification_question":null}\n\n'
         "Rules:\n"
         "- Match product names loosely to catalogue (Indomie -> Indomie Carton).\n"
@@ -454,6 +455,11 @@ async def _layer2_claude(
         "- Pidgin: abeg=please, oya=let's go, na=is/it is.\n"
         "- If order but items are unclear, set clarification_needed=true and ask ONE "
         "specific question in clarification_question.\n"
+        "- If the customer is complaining about price, asking for a discount, expressing "
+        "that something is too expensive, stating a budget, or making a counter-offer: "
+        "intent=negotiation. If they mention a specific price, set offered_price to that number.\n"
+        "- Examples of negotiation: 'that's too much', 'I can't afford that', "
+        "'my budget is 5000', 'seriously? 8500 for indomie?', 'any discount?'\n"
         "JSON:"
     )
 
@@ -496,6 +502,17 @@ async def _layer2_claude(
         except (ValueError, TypeError):
             unit_price = None
         items.append({"name": name, "qty": qty, "unit_price": unit_price})
+
+    # For negotiation intent, extract offered_price into items
+    if intent == NEGOTIATION:
+        raw_offered = data.get("offered_price")
+        if raw_offered is not None:
+            try:
+                offered = int(float(str(raw_offered)))
+                if offered > 0:
+                    items = [{"name": "", "qty": 1, "unit_price": offered}]
+            except (ValueError, TypeError):
+                pass
 
     return ParseResult(
         intent=intent,
