@@ -818,9 +818,9 @@ def debt_list_picker(
     Each debt dict: {id, name, amount, days_ago}
     """
     lines = []
-    for d in debts:
+    for i, d in enumerate(debts, 1):
         days_label = f"({d['days_ago']}d ago)" if d.get("days_ago") else ""
-        lines.append(f"  {d['name']} — {_naira(d['amount'])} {days_label}")
+        lines.append(f"  {i}. {d['name']} — {_naira(d['amount'])} {days_label}")
     body = (
         f"\U0001f4d6 *Who owes you* ({len(debts)} debtor{'s' if len(debts) != 1 else ''}):\n\n"
         + "\n".join(lines)
