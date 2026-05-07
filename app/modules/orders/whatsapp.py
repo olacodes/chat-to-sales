@@ -693,7 +693,14 @@ def debt_created(customer_name: str, amount: int) -> str:
 
 
 def debt_settled(customer_name: str, amount: int) -> str:
-    return f"\u2705 *{customer_name}* debt of {_naira(amount)} settled! Debt cleared."
+    return f"\u2705 *{customer_name}* debt of {_naira(amount)} fully settled! Debt cleared."
+
+
+def debt_partial_payment(customer_name: str, paid: int, remaining: int) -> str:
+    return (
+        f"\U0001f4b0 Received {_naira(paid)} from *{customer_name}*.\n\n"
+        f"Remaining balance: *{_naira(remaining)}*"
+    )
 
 
 def debt_not_found(customer_name: str) -> str:

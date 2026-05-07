@@ -1753,19 +1753,46 @@ class OrderService:
                 )
                 return
 
-            # Settle the single matching debt
+            # Settle or partially pay the single matching debt
+            from decimal import Decimal as D
             debt = debts[0]
-            debt.status = CreditSaleStatus.SETTLED
+            debt_amount = int(debt.amount)
+            display_name = debt.customer_name
 
-        settled_amount = int(debt.amount)
-        await self._reply(
-            phone=trader_phone,
-            tenant_id=tenant_id,
-            event_id=f"trader.debt_settled.{message_id}",
-            text=wa.debt_settled(debt.customer_name, settled_amount),
-            channel_tenant_id=channel_tenant_id,
-        )
-        logger.info("Debt settled: trader=%s customer=%s amount=%d", trader_phone, customer_name, settled_amount)
+            if amount <= 0:
+                return
+
+            if amount >= debt_amount:
+                # Full settlement
+                debt.status = CreditSaleStatus.SETTLED
+                is_partial = False
+            else:
+                # Partial payment — reduce balance
+                debt.amount = D(str(debt_amount - amount))
+                is_partial = True
+
+        if is_partial:
+            remaining = debt_amount - amount
+            await self._reply(
+                phone=trader_phone,
+                tenant_id=tenant_id,
+                event_id=f"trader.debt_partial.{message_id}",
+                text=wa.debt_partial_payment(display_name, amount, remaining),
+                channel_tenant_id=channel_tenant_id,
+            )
+            logger.info(
+                "Debt partial payment: trader=%s customer=%s paid=%d remaining=%d",
+                trader_phone, customer_name, amount, remaining,
+            )
+        else:
+            await self._reply(
+                phone=trader_phone,
+                tenant_id=tenant_id,
+                event_id=f"trader.debt_settled.{message_id}",
+                text=wa.debt_settled(display_name, debt_amount),
+                channel_tenant_id=channel_tenant_id,
+            )
+            logger.info("Debt settled: trader=%s customer=%s amount=%d", trader_phone, customer_name, debt_amount)
 
     async def _do_list_debts(
         self,
