@@ -6,21 +6,22 @@ Detects when a customer is negotiating on price (e.g. "can you do 7000?", "too e
 
 ## Done
 
-Nothing built yet. Feature 5 is entirely planned.
+| # | Task | Description |
+|---|------|-------------|
+| ✅ | NLP negotiation detection (Layer 1) | Regex patterns for price offers ("can you do 7000", "make it 5000", "sell it for 3000") and general negotiation ("too expensive", "any discount", "cheaper", "na better price"). Returns `NEGOTIATION` intent with extracted offer price. |
+| ✅ | Claude negotiation detection (Layer 2) | `negotiation` intent added to Claude Haiku prompt. Catches ambiguous messages: "that's too much for this", "my budget is 5000", "seriously? 8500 for indomie?". Returns `offered_price` when present. |
+| ✅ | Negotiation session state | `AWAITING_NEGOTIATION` Redis state. Stores: offered_price, original_price, product_name, items, order_id. Customer held while trader decides. |
+| ✅ | Customer hold message | "Let me check with the trader about the price. One moment!" Customer re-messages → re-hold: "Still waiting for the trader to respond." |
+| ✅ | Trader escalation notification | Interactive message with Accept/Decline buttons: "Customer wants {product} at N7,000 (your price: N8,500)." For general negotiation (no price): text notification. |
+| ✅ | Trader Accept flow | Accept → update order items with negotiated price → customer notified: "Great news! Trader accepted N7,000. Reply YES to proceed." → resumes order confirmation flow. |
+| ✅ | Trader Decline flow | Decline → customer notified: "Sorry, trader can't go below N8,500. Would you like to order at N8,500?" → customer YES/NO → normal order flow or cancel. |
+| ✅ | WhatsApp message templates | 6 templates: hold customer, escalation with price (interactive), escalation general (text), accepted to customer, declined to customer, re-hold. |
 
 ## Not Done (MVP)
 
 | # | Task | Description | Priority |
 |---|------|-------------|----------|
-| ⬜ | NLP negotiation detection | Layer 1 regex patterns to detect negotiation language: "too expensive", "reduce", "discount", "last price", "can you do X", "cheaper", "what's your best price", "na better price", Nigerian Pidgin haggling phrases. Return `NEGOTIATION` intent with extracted offer price if present. | High |
-| ⬜ | Claude negotiation detection (Layer 2) | Add negotiation intent to Claude Haiku prompt so ambiguous messages like "that's too much for this" get classified correctly. | High |
-| ⬜ | Negotiation session state | Redis states: `AWAITING_TRADER_NEGOTIATION` — customer is held while trader decides. Store: customer_phone, original_price, offered_price, product_name, order context. | High |
-| ⬜ | Customer hold message | When negotiation detected, reply to customer: "Let me check with the trader about that price. One moment!" Prevents customer from placing order at the wrong price. | High |
-| ⬜ | Trader escalation notification | Send trader an interactive message: "Customer +234... wants {product} at N7,000 (your price: N8,500). [Accept] [Counter-offer] [Decline]" | High |
-| ⬜ | Trader Accept flow | Trader taps Accept → update the order price to customer's offer → notify customer: "Great news! The trader accepted N7,000." → resume order flow | High |
-| ⬜ | Trader Decline flow | Trader taps Decline → notify customer: "Sorry, the trader can't go below N8,500 for this item." → customer can accept original price or cancel | High |
 | ⬜ | Trader Counter-offer flow | Trader taps Counter-offer → session state: `AWAITING_COUNTER_PRICE` → trader types a price → notify customer: "The trader can do N7,500. Would you like to proceed?" → customer YES/NO | Medium |
-| ⬜ | WhatsApp message templates | Templates for: hold message, escalation to trader, accept/decline/counter notifications, counter-offer prompt | High |
 | ⬜ | Session timeout | If trader doesn't respond within 30 minutes, auto-notify customer: "The trader hasn't responded yet. You can try again later or accept the listed price." Clear session. | Medium |
 
 ## Nice to Have (Post-MVP)
