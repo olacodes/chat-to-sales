@@ -2906,6 +2906,7 @@ class OrderService:
                     credit_sale = CreditSale(
                         tenant_id=order.tenant_id,
                         order_id=order.id,
+                        conversation_id=order.conversation_id,
                         customer_name=cust_name,
                         amount=D(str(total)),
                         currency=order.currency or "NGN",
