@@ -300,6 +300,7 @@ TRADER_AWAITING_PRICE_VALUE = "awaiting_price_value"
 TRADER_AWAITING_PRICELIST_PHOTO = "awaiting_pricelist_photo"
 TRADER_AWAITING_PRICELIST_CONFIRM = "awaiting_pricelist_confirm"
 TRADER_AWAITING_COUNTER_PRICE = "awaiting_counter_price"
+TRADER_AWAITING_BANK_DETAILS = "awaiting_bank_details"
 
 
 def _trader_session_key(phone: str) -> str:

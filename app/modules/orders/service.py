@@ -48,6 +48,7 @@ from app.modules.orders.nlp import (
     TRADER_ORDERS,
     TRADER_DELIVERED,
     TRADER_MENU,
+    TRADER_BANK,
     TRADER_PAID,
     TRADER_PAID_DEBT,
     TRADER_PRICE,
@@ -1330,6 +1331,22 @@ class OrderService:
                 sections=sections,
                 channel_tenant_id=channel_tenant_id,
             )
+        elif tap == "MENU_BANK":
+            from app.modules.orders.session import set_trader_session, TRADER_AWAITING_BANK_DETAILS
+            bank_name = trader.get("bank_name", "")
+            if bank_name:
+                text = wa.bank_details_current(
+                    bank_name, trader.get("bank_account_number", ""),
+                    trader.get("bank_account_name", ""),
+                )
+            else:
+                text = wa.bank_details_not_set()
+            await self._reply(
+                phone=trader_phone, tenant_id=tenant_id,
+                event_id=f"trader.bank_menu.{message_id}",
+                text=text, channel_tenant_id=channel_tenant_id,
+            )
+            await set_trader_session(trader_phone, {"state": TRADER_AWAITING_BANK_DETAILS})
         elif tap == "MENU_ORDERS":
             await self._do_list_pending_orders(
                 trader_phone=trader_phone,
@@ -1375,9 +1392,60 @@ class OrderService:
             TRADER_AWAITING_PRICELIST_PHOTO,
             TRADER_AWAITING_PRICELIST_CONFIRM,
             TRADER_AWAITING_COUNTER_PRICE,
+            TRADER_AWAITING_BANK_DETAILS,
         )
 
         state = tsession.get("state", "")
+
+        if state == TRADER_AWAITING_BANK_DETAILS:
+            await clear_trader_session(trader_phone)
+            # Parse "GTBank 0123456789" — bank name (words) + account number (digits)
+            text = message.strip()
+            m = _re.match(r"^(.+?)\s+(\d{10})\s*$", text)
+            if not m:
+                await self._reply(
+                    phone=trader_phone,
+                    tenant_id=tenant_id,
+                    event_id=f"trader.bank_invalid.{message_id}",
+                    text=(
+                        "I didn't understand that. Type your bank name and "
+                        "10-digit account number.\n\nFor example: _GTBank 0123456789_"
+                    ),
+                    channel_tenant_id=channel_tenant_id,
+                )
+                return True
+
+            bank_name = m.group(1).strip()
+            account_number = m.group(2)
+            # Use bank name as account name for now (trader can correct)
+            account_name = trader.get("business_name", bank_name)
+
+            async with async_session_factory.begin() as session:
+                repo = TraderRepository(session)
+                await repo.update_bank_details(
+                    phone_number=trader_phone,
+                    bank_name=bank_name,
+                    bank_account_number=account_number,
+                    bank_account_name=account_name,
+                )
+
+            # Bust cache
+            from app.modules.orders.session import cache_trader_by_phone, get_trader_by_phone_cache
+            cached = await get_trader_by_phone_cache(trader_phone)
+            if cached and isinstance(cached, dict) and cached:
+                cached["bank_name"] = bank_name
+                cached["bank_account_number"] = account_number
+                cached["bank_account_name"] = account_name
+                await cache_trader_by_phone(trader_phone, cached)
+
+            await self._reply(
+                phone=trader_phone,
+                tenant_id=tenant_id,
+                event_id=f"trader.bank_saved.{message_id}",
+                text=wa.bank_details_saved(bank_name, account_number, account_name),
+                channel_tenant_id=channel_tenant_id,
+            )
+            return True
 
         if state == TRADER_AWAITING_COUNTER_PRICE:
             await clear_trader_session(trader_phone)
@@ -3157,6 +3225,29 @@ class OrderService:
             )
             return
 
+        if result.intent == TRADER_BANK:
+            from app.modules.orders.session import set_trader_session, TRADER_AWAITING_BANK_DETAILS
+            bank_name = trader.get("bank_name", "")
+            if bank_name:
+                await self._reply(
+                    phone=trader_phone, tenant_id=tenant_id,
+                    event_id=f"trader.bank_current.{message_id}",
+                    text=wa.bank_details_current(
+                        bank_name, trader.get("bank_account_number", ""),
+                        trader.get("bank_account_name", ""),
+                    ),
+                    channel_tenant_id=channel_tenant_id,
+                )
+            else:
+                await self._reply(
+                    phone=trader_phone, tenant_id=tenant_id,
+                    event_id=f"trader.bank_prompt.{message_id}",
+                    text=wa.bank_details_not_set(),
+                    channel_tenant_id=channel_tenant_id,
+                )
+            await set_trader_session(trader_phone, {"state": TRADER_AWAITING_BANK_DETAILS})
+            return
+
         if result.intent == TRADER_MENU:
             await self._send_trader_menu(
                 trader_phone=trader_phone,
@@ -3233,13 +3324,31 @@ class OrderService:
             )
             if customer_phone:
                 total = int(order.amount or 0)
-                await self._reply(
-                    phone=customer_phone,
-                    tenant_id=tenant_id,
-                    event_id=f"order.confirmed_customer.{order.id}",
-                    text=wa.order_confirmed_to_customer(trader_name, total),
-                    channel_tenant_id=channel_tenant_id,
-                )
+                bank_name = trader.get("bank_name", "")
+                bank_acct = trader.get("bank_account_number", "")
+                bank_acct_name = trader.get("bank_account_name", "")
+
+                if bank_name and bank_acct:
+                    # Send bank details to customer for payment
+                    await self._reply(
+                        phone=customer_phone,
+                        tenant_id=tenant_id,
+                        event_id=f"order.confirmed_customer.{order.id}",
+                        text=wa.payment_details_to_customer(
+                            trader_name, total, bank_name, bank_acct,
+                            bank_acct_name, ref,
+                        ),
+                        channel_tenant_id=channel_tenant_id,
+                    )
+                else:
+                    # No bank details — send regular confirmation
+                    await self._reply(
+                        phone=customer_phone,
+                        tenant_id=tenant_id,
+                        event_id=f"order.confirmed_customer.{order.id}",
+                        text=wa.order_confirmed_to_customer(trader_name, total),
+                        channel_tenant_id=channel_tenant_id,
+                    )
             logger.info("Trader confirmed order_id=%s ref=%s", order.id, ref)
 
         elif result.intent == TRADER_CANCEL:

@@ -106,6 +106,9 @@ def _trader_dict(trader) -> dict:
         "business_category": trader.business_category or "",
         "store_slug": trader.store_slug or "",
         "catalogue": _parse_catalogue(trader.onboarding_catalogue),
+        "bank_name": trader.bank_name or "",
+        "bank_account_number": trader.bank_account_number or "",
+        "bank_account_name": trader.bank_account_name or "",
     }
 
 

@@ -401,6 +401,7 @@ def trader_menu() -> tuple[str, str, list[dict]]:
             "rows": [
                 {"id": "MENU_STORE", "title": "\U0001f6cd My Store", "description": "View store link"},
                 {"id": "MENU_CATEGORY", "title": "\U0001f3f7 Change Category", "description": "Switch business category"},
+                {"id": "MENU_BANK", "title": "\U0001f3e6 Bank Details", "description": "Set or update bank account"},
             ],
         },
     ]
@@ -756,6 +757,60 @@ def order_action_buttons(
             {"id": f"DELIVERED {order_ref}", "title": "\U0001f680 Complete"},
         ]
     return body, buttons
+
+
+# ── Bank details templates ───────────────────────────────────────────────
+
+
+def bank_details_prompt() -> str:
+    return (
+        "To set up your bank details, type your bank name and account number.\n\n"
+        "For example:\n_GTBank 0123456789_"
+    )
+
+
+def bank_details_saved(bank_name: str, account_number: str, account_name: str) -> str:
+    return (
+        f"\u2705 Bank details saved!\n\n"
+        f"Bank: {bank_name}\n"
+        f"Account: {account_number}\n"
+        f"Name: {account_name}\n\n"
+        "Your bank details will be sent to customers after you confirm their orders."
+    )
+
+
+def bank_details_current(bank_name: str, account_number: str, account_name: str) -> str:
+    return (
+        f"\U0001f3e6 Your bank details:\n\n"
+        f"Bank: {bank_name}\n"
+        f"Account: {account_number}\n"
+        f"Name: {account_name}\n\n"
+        "To update, type your new bank name and account number.\n"
+        "For example: _GTBank 0123456789_"
+    )
+
+
+def bank_details_not_set() -> str:
+    return (
+        "You haven't set up your bank details yet.\n\n"
+        "Type your bank name and account number.\n"
+        "For example: _GTBank 0123456789_"
+    )
+
+
+def payment_details_to_customer(
+    trader_name: str, total: int, bank_name: str,
+    account_number: str, account_name: str, order_ref: str,
+) -> str:
+    return (
+        f"\u2705 *{trader_name}* has confirmed your order!\n\n"
+        f"*Total: {_naira(total)}*\n\n"
+        f"Pay to:\n"
+        f"\U0001f3e6 Bank: *{bank_name}*\n"
+        f"\U0001f4b3 Account: *{account_number}*\n"
+        f"\U0001f464 Name: *{account_name}*\n\n"
+        f"After payment, send your receipt here or type *PAID*."
+    )
 
 
 def no_pending_orders() -> str:

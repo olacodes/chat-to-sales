@@ -86,6 +86,25 @@ class TraderRepository:
             pass
         return {}
 
+    async def update_bank_details(
+        self,
+        *,
+        phone_number: str,
+        bank_name: str,
+        bank_account_number: str,
+        bank_account_name: str,
+    ) -> None:
+        """Update the trader's bank details."""
+        await self._db.execute(
+            update(Trader)
+            .where(Trader.phone_number == phone_number)
+            .values(
+                bank_name=bank_name,
+                bank_account_number=bank_account_number,
+                bank_account_name=bank_account_name,
+            )
+        )
+
     async def update_category(
         self, *, phone_number: str, category: str
     ) -> None:

@@ -69,6 +69,11 @@ class Trader(BaseModel):
         String(20), nullable=False, default=TraderTier.OFE
     )
 
+    # Bank details for payment — collected via BANK command or settings
+    bank_name: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    bank_account_number: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    bank_account_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+
     # Items collected during onboarding Q&A — JSON text, consumed by Feature 3
     # Format: '{"Indomie Carton": 8500, "Rice 50kg": 63000}'
     onboarding_catalogue: Mapped[str | None] = mapped_column(Text, nullable=True)
