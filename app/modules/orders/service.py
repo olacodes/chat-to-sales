@@ -64,7 +64,6 @@ from app.modules.orders.nlp import NEGOTIATION
 from app.modules.orders.session import (
     AWAITING_CLARIFICATION,
     AWAITING_CUSTOMER_CONFIRMATION,
-    AWAITING_NEGOTIATION,
     clear_order_session,
     get_order_session,
     set_order_session,
@@ -638,18 +637,6 @@ class OrderService:
             )
             return
 
-        # ── Existing session: customer held during negotiation ──────────────
-        if session and session.get("state") == AWAITING_NEGOTIATION:
-            # Customer is being held while trader decides. Re-hold them.
-            await self._reply(
-                phone=customer_phone,
-                tenant_id=tenant_id,
-                event_id=f"order.neg_rehold.{message_id}",
-                text="Still waiting for the trader to respond about the price. One moment! \U0001f64f",
-                channel_tenant_id=channel_tenant_id,
-            )
-            return
-
         # ── Existing session: waiting for clarification answer ────────────────
         if session and session.get("state") == AWAITING_CLARIFICATION:
             # Append the clarification answer to the original message and re-parse
@@ -684,10 +671,12 @@ class OrderService:
 
         # ── Negotiation detected ────────────────────────────────────────────
         if result.intent == NEGOTIATION:
+            from app.modules.orders.session import set_pending_negotiation
+
             offered_price = result.items[0]["unit_price"] if result.items else None
             trader_phone: str = trader.get("phone_number", "")
 
-            # Hold the customer
+            # Notify customer — they are FREE to keep chatting
             await self._reply(
                 phone=customer_phone,
                 tenant_id=tenant_id,
@@ -696,14 +685,17 @@ class OrderService:
                 channel_tenant_id=channel_tenant_id,
             )
 
-            # Find the product being negotiated (last discussed or from catalogue)
-            # Use the session's items if available, otherwise best guess from catalogue
+            # Find the product being negotiated
             product_name = "the item"
             original_price = 0
+            items = []
+            order_id = None
             if session and session.get("items"):
-                first_item = session["items"][0]
+                items = session["items"]
+                first_item = items[0]
                 product_name = first_item.get("name", "the item")
                 original_price = first_item.get("unit_price", 0)
+                order_id = session.get("order_id")
 
             if offered_price and original_price and trader_phone:
                 # Specific price offer — send interactive to trader
@@ -722,17 +714,18 @@ class OrderService:
                     buttons=buttons,
                     channel_tenant_id=channel_tenant_id,
                 )
-                # Hold customer in negotiation session
-                await set_order_session(
-                    tenant_id,
+                # Store as pending negotiation — does NOT block the customer
+                await set_pending_negotiation(
+                    trader_phone,
                     customer_phone,
                     {
-                        "state": AWAITING_NEGOTIATION,
                         "offered_price": offered_price,
                         "original_price": original_price,
                         "product_name": product_name,
-                        "items": session.get("items") if session else [],
-                        "order_id": session.get("order_id") if session else None,
+                        "items": items,
+                        "order_id": order_id,
+                        "tenant_id": tenant_id,
+                        "channel_tenant_id": channel_tenant_id or "",
                     },
                 )
             elif trader_phone:
@@ -749,6 +742,9 @@ class OrderService:
                     ),
                     channel_tenant_id=channel_tenant_id,
                 )
+            # Clear the customer's order session so they're free
+            if session:
+                await clear_order_session(tenant_id, customer_phone)
             return
 
         if result.intent == UNKNOWN or (result.intent == ORDER and not result.items):
@@ -1359,30 +1355,38 @@ class OrderService:
 
             trader_name = trader.get("business_name", "the trader")
 
-            # Find the customer's negotiation session and update it
-            neg_session = await get_order_session(tenant_id, customer_phone_for_neg)
-            items = neg_session.get("items", []) if neg_session else []
+            # Find the pending negotiation and resolve it
+            from app.modules.orders.session import (
+                get_pending_negotiation,
+                clear_pending_negotiation,
+            )
+            neg = await get_pending_negotiation(trader_phone, customer_phone_for_neg)
+            items = neg.get("items", []) if neg else []
+            neg_tenant_id = neg.get("tenant_id", tenant_id) if neg else tenant_id
+            neg_channel_tid = (neg.get("channel_tenant_id") or channel_tenant_id) if neg else channel_tenant_id
             if items:
                 items[0]["unit_price"] = counter_price
 
+            await clear_pending_negotiation(trader_phone, customer_phone_for_neg)
+
             await set_order_session(
-                tenant_id,
+                neg_tenant_id,
                 customer_phone_for_neg,
                 {
                     "state": AWAITING_CUSTOMER_CONFIRMATION,
                     "items": items,
                     "total": counter_price,
-                    "order_id": neg_session.get("order_id") if neg_session else None,
+                    "order_id": neg.get("order_id") if neg else None,
                 },
             )
 
             # Notify customer
             await self._reply(
                 phone=customer_phone_for_neg,
-                tenant_id=tenant_id,
+                tenant_id=neg_tenant_id,
                 event_id=f"order.neg_counter.{message_id}",
                 text=wa.negotiation_counter_to_customer(trader_name, counter_price),
-                channel_tenant_id=channel_tenant_id,
+                channel_tenant_id=neg_channel_tid,
             )
 
             # Confirm to trader
@@ -1842,12 +1846,16 @@ class OrderService:
         channel_tenant_id: str | None = None,
     ) -> None:
         """Handle trader's Accept/Decline response to a negotiation."""
+        from app.modules.orders.session import (
+            get_pending_negotiation,
+            clear_pending_negotiation,
+        )
+
         trader_name = trader.get("business_name", "the trader")
 
-        # Find the customer's negotiation session
-        # The customer_phone in the button ID is the key to look up their session
-        neg_session = await get_order_session(tenant_id, customer_phone)
-        if not neg_session or neg_session.get("state") != AWAITING_NEGOTIATION:
+        # Look up the pending negotiation (stored by trader+customer key)
+        neg = await get_pending_negotiation(trader_phone, customer_phone)
+        if not neg:
             await self._reply(
                 phone=trader_phone,
                 tenant_id=tenant_id,
@@ -1857,33 +1865,37 @@ class OrderService:
             )
             return
 
-        offered_price = neg_session.get("offered_price", 0)
-        original_price = neg_session.get("original_price", 0)
-        items = neg_session.get("items", [])
+        offered_price = neg.get("offered_price", 0)
+        original_price = neg.get("original_price", 0)
+        items = neg.get("items", [])
+        neg_tenant_id = neg.get("tenant_id", tenant_id)
+        neg_channel_tid = neg.get("channel_tenant_id") or channel_tenant_id
+
+        await clear_pending_negotiation(trader_phone, customer_phone)
 
         if is_accept:
-            # Update the items with the accepted price
+            # Update items with accepted price
             if items and offered_price:
                 items[0]["unit_price"] = offered_price
-
-            # Set session to confirmation with the negotiated price
             total = offered_price if offered_price else original_price
+
+            # Create a new order session for the customer at the negotiated price
             await set_order_session(
-                tenant_id,
+                neg_tenant_id,
                 customer_phone,
                 {
                     "state": AWAITING_CUSTOMER_CONFIRMATION,
                     "items": items,
                     "total": total,
-                    "order_id": neg_session.get("order_id"),
+                    "order_id": neg.get("order_id"),
                 },
             )
             await self._reply(
                 phone=customer_phone,
-                tenant_id=tenant_id,
+                tenant_id=neg_tenant_id,
                 event_id=f"order.neg_accepted.{message_id}",
                 text=wa.negotiation_accepted_to_customer(trader_name, total),
-                channel_tenant_id=channel_tenant_id,
+                channel_tenant_id=neg_channel_tid,
             )
             await self._reply(
                 phone=trader_phone,
@@ -1893,23 +1905,23 @@ class OrderService:
                 channel_tenant_id=channel_tenant_id,
             )
         else:
-            # Decline — offer original price
+            # Decline — offer original price to customer
             await set_order_session(
-                tenant_id,
+                neg_tenant_id,
                 customer_phone,
                 {
                     "state": AWAITING_CUSTOMER_CONFIRMATION,
                     "items": items,
                     "total": original_price,
-                    "order_id": neg_session.get("order_id"),
+                    "order_id": neg.get("order_id"),
                 },
             )
             await self._reply(
                 phone=customer_phone,
-                tenant_id=tenant_id,
+                tenant_id=neg_tenant_id,
                 event_id=f"order.neg_declined.{message_id}",
                 text=wa.negotiation_declined_to_customer(trader_name, original_price),
-                channel_tenant_id=channel_tenant_id,
+                channel_tenant_id=neg_channel_tid,
             )
             await self._reply(
                 phone=trader_phone,
@@ -2795,13 +2807,14 @@ class OrderService:
         if stripped.startswith("NEGCOUNTER_"):
             from app.modules.orders.session import (
                 set_trader_session,
+                get_pending_negotiation,
                 TRADER_AWAITING_COUNTER_PRICE,
             )
             customer_phone_from_tap = message.strip().split("_", 1)[1] if "_" in message else ""
-            # Look up the customer's negotiation session for context
-            neg_session = await get_order_session(tenant_id, customer_phone_from_tap)
-            original_price = neg_session.get("original_price", 0) if neg_session else 0
-            offered_price = neg_session.get("offered_price", 0) if neg_session else 0
+            # Look up the pending negotiation for context
+            neg = await get_pending_negotiation(trader_phone, customer_phone_from_tap)
+            original_price = neg.get("original_price", 0) if neg else 0
+            offered_price = neg.get("offered_price", 0) if neg else 0
 
             await set_trader_session(trader_phone, {
                 "state": TRADER_AWAITING_COUNTER_PRICE,

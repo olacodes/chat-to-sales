@@ -29,7 +29,6 @@ _TRADER_TTL = 60 * 60             # 1 hour, refreshed on each cache hit
 
 AWAITING_CUSTOMER_CONFIRMATION = "awaiting_customer_confirmation"
 AWAITING_CLARIFICATION = "awaiting_clarification"
-AWAITING_NEGOTIATION = "awaiting_negotiation"
 
 # ── Customer order session ────────────────────────────────────────────────────
 
@@ -252,6 +251,40 @@ async def count_pending_image_inquiries(trader_phone: str) -> int:
     """Return the number of pending image inquiries for this trader."""
     redis = get_redis()
     return await redis.scard(_image_inquiry_index_key(trader_phone))
+
+
+# ── Pending negotiation (customer free, trader decides async) ────────────────
+
+_NEGOTIATION_PREFIX = "negotiation"
+_NEGOTIATION_TTL = 24 * 60 * 60  # 24 hours
+
+
+def _negotiation_key(trader_phone: str, customer_phone: str) -> str:
+    return f"{_NEGOTIATION_PREFIX}:{trader_phone}:{customer_phone}"
+
+
+async def get_pending_negotiation(
+    trader_phone: str, customer_phone: str
+) -> dict[str, Any] | None:
+    """Return the pending negotiation for this trader+customer, or None."""
+    raw = await get_redis().get(_negotiation_key(trader_phone, customer_phone))
+    return json.loads(raw) if raw else None
+
+
+async def set_pending_negotiation(
+    trader_phone: str, customer_phone: str, data: dict[str, Any]
+) -> None:
+    """Store a pending negotiation. Customer is free to keep chatting."""
+    await get_redis().setex(
+        _negotiation_key(trader_phone, customer_phone),
+        _NEGOTIATION_TTL,
+        json.dumps(data),
+    )
+
+
+async def clear_pending_negotiation(trader_phone: str, customer_phone: str) -> None:
+    """Remove the pending negotiation after the trader responds."""
+    await get_redis().delete(_negotiation_key(trader_phone, customer_phone))
 
 
 # ── Trader command session (multi-step catalogue flows) ──────────────────────

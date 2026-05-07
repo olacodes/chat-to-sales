@@ -188,7 +188,9 @@ def price_missing_prompt(item_names: list[str]) -> str:
 
 def negotiation_hold_customer() -> str:
     return (
-        "Let me check with the trader about the price. One moment! \U0001f64f"
+        "I've asked the trader about the price. "
+        "I'll let you know when they respond! \U0001f64f\n\n"
+        "You can keep ordering in the meantime."
     )
 
 
