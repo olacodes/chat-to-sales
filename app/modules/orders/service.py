@@ -625,7 +625,63 @@ class OrderService:
                 logger.info("Customer cancelled order customer=%s", customer_phone)
                 return
 
-            # Customer sent something else — re-show the summary
+            # Customer sent something else — check if it's a new negotiation
+            from app.modules.orders.nlp import smart_parse_customer_message, NEGOTIATION as _NEG
+            counter_check = await smart_parse_customer_message(
+                message, category=category, catalogue=catalogue,
+            )
+            if counter_check.intent == _NEG:
+                # Multi-round: customer is countering. Clear confirmation, start new round.
+                from app.modules.orders.session import set_pending_negotiation
+
+                offered_price = counter_check.items[0]["unit_price"] if counter_check.items else None
+                trader_phone_str: str = trader.get("phone_number", "")
+                items_for_neg = session.get("items", [])
+                original_price = session.get("total", 0)
+
+                await clear_order_session(tenant_id, customer_phone)
+
+                await self._reply(
+                    phone=customer_phone,
+                    tenant_id=tenant_id,
+                    event_id=f"order.neg_hold.{message_id}",
+                    text=wa.negotiation_hold_customer(),
+                    channel_tenant_id=channel_tenant_id,
+                )
+
+                if offered_price and original_price and trader_phone_str:
+                    product_name = items_for_neg[0].get("name", "the item") if items_for_neg else "the item"
+                    body, buttons = wa.negotiation_to_trader_with_price(
+                        customer_phone=customer_phone,
+                        customer_name=customer_name,
+                        product_name=product_name,
+                        original_price=original_price,
+                        offered_price=offered_price,
+                    )
+                    await self._reply_interactive(
+                        phone=trader_phone_str,
+                        tenant_id=tenant_id,
+                        event_id=f"order.neg_round.{message_id}",
+                        body_text=body,
+                        buttons=buttons,
+                        channel_tenant_id=channel_tenant_id,
+                    )
+                    await set_pending_negotiation(
+                        trader_phone_str,
+                        customer_phone,
+                        {
+                            "offered_price": offered_price,
+                            "original_price": original_price,
+                            "product_name": product_name,
+                            "items": items_for_neg,
+                            "order_id": session.get("order_id"),
+                            "tenant_id": tenant_id,
+                            "channel_tenant_id": channel_tenant_id or "",
+                        },
+                    )
+                return
+
+            # Not a negotiation — re-show the summary
             items = session.get("items", [])
             total = session.get("total", 0)
             await self._reply(
