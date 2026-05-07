@@ -642,10 +642,10 @@ class OrderService:
             # Append the clarification answer to the original message and re-parse
             original = session.get("original_message", "")
             combined = f"{original}. {message}"
-            result = await parse_message(combined, category=category, catalogue=catalogue)
+            result = await self._smart_parse(combined, category, catalogue, conversation_id)
             # Fall through to handle result as a fresh order below
         else:
-            result = await parse_message(message, category=category, catalogue=catalogue)
+            result = await self._smart_parse(message, category, catalogue, conversation_id)
 
         # ── No session (or just resolved clarification): fresh order parse ────
 
@@ -1831,6 +1831,47 @@ class OrderService:
                 text=wa.product_not_found(", ".join(not_found)),
                 channel_tenant_id=channel_tenant_id,
             )
+
+    # ── Smart parse helper ────────────────────────────────────────────────
+
+    async def _smart_parse(
+        self,
+        message: str,
+        category: str,
+        catalogue: dict[str, int],
+        conversation_id: str,
+    ) -> Any:
+        """Parse customer message using Claude-first smart parser with conversation context."""
+        from app.modules.orders.nlp import smart_parse_customer_message
+
+        # Fetch last 5 messages for context
+        history: list[dict[str, str]] = []
+        try:
+            from app.modules.conversation.models import Message
+            from sqlalchemy import select
+
+            async with async_session_factory() as session:
+                result = await session.execute(
+                    select(Message)
+                    .where(Message.conversation_id == conversation_id)
+                    .order_by(Message.created_at.desc())
+                    .limit(5)
+                )
+                msgs = list(result.scalars().all())
+                for m in reversed(msgs):
+                    history.append({
+                        "role": "assistant" if m.sender_role == "assistant" else "user",
+                        "content": m.content or "",
+                    })
+        except Exception:
+            pass  # No history is fine — Claude still works without it
+
+        return await smart_parse_customer_message(
+            message,
+            category=category,
+            catalogue=catalogue,
+            conversation_history=history if history else None,
+        )
 
     # ── Negotiation helpers ─────────────────────────────────────────────────
 

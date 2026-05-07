@@ -550,3 +550,159 @@ async def parse_message(
             catalogue=catalogue or {},
         )
     return result
+
+
+# ── Smart customer parser (Claude-first) ─────────────────────────────────────
+
+
+async def smart_parse_customer_message(
+    message: str,
+    *,
+    category: str = "",
+    catalogue: dict[str, int] | None = None,
+    conversation_history: list[dict[str, str]] | None = None,
+) -> ParseResult:
+    """
+    Claude-first parser for customer messages. Uses Layer 1 only for
+    YES/NO (fast path). Everything else goes to Claude with full context.
+
+    Returns a ParseResult with:
+    - intent: order, confirm, cancel, negotiation, greeting, clarify, unknown
+    - items: matched products with prices from catalogue
+    - clarification_question: natural language follow-up if needed
+    """
+    # Fast path: YES/NO/CONFIRM/CANCEL — no need for Claude
+    l1 = _layer1(message)
+    if l1.intent in (CONFIRM, CANCEL) and l1.confidence == 1.0:
+        return l1
+
+    # Also fast-path negotiation regex (specific price offers)
+    if l1.intent == NEGOTIATION and l1.confidence == 1.0:
+        return l1
+
+    # Everything else → Claude with full context
+    if not _settings.ANTHROPIC_API_KEY:
+        logger.warning("ANTHROPIC_API_KEY not set — smart parse unavailable")
+        return l1  # fall back to Layer 1
+
+    cat = catalogue or {}
+    cat_lines = (
+        "\n".join(f"- {n}: N{p:,}" for n, p in cat.items())
+        if cat
+        else "(no catalogue available)"
+    )
+
+    # Build conversation context
+    history_text = ""
+    if conversation_history:
+        history_lines = []
+        for msg in conversation_history[-5:]:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            if content:
+                history_lines.append(f"{role}: {content}")
+        if history_lines:
+            history_text = f"\nRecent conversation:\n" + "\n".join(history_lines) + "\n"
+
+    prompt = (
+        f"You are a helpful WhatsApp shopping assistant for a {category or 'general'} store.\n\n"
+        f"Trader's catalogue:\n{cat_lines}\n"
+        f"{history_text}\n"
+        f"Customer's new message: {json.dumps(message)}\n\n"
+        "Your job: understand what the customer wants and respond helpfully.\n\n"
+        "Return ONLY a JSON object — no markdown, no commentary.\n\n"
+        'Format: {"action":"order"|"clarify"|"negotiation"|"greeting"|"unknown",'
+        '"items":[{"name":"exact catalogue product name","qty":2,"unit_price":8500}],'
+        '"offered_price":null,'
+        '"reply":"your natural language response to the customer"}\n\n'
+        "Rules:\n"
+        "- action=order: customer clearly wants to buy specific items. Match to catalogue names.\n"
+        "  Set items with exact catalogue name and price. NEVER set unit_price to 0 or null when the product is in the catalogue.\n"
+        "- action=clarify: customer wants to buy but is vague (e.g. 'iphone' when there are 20 models).\n"
+        "  List the matching options in 'reply' so they can pick. Keep it short (top 5-8 options max).\n"
+        "- action=negotiation: customer is haggling or asking for a discount.\n"
+        "  If they name a specific price, set offered_price.\n"
+        "- action=greeting: customer is just saying hi, asking about the store, or chitchat.\n"
+        "  Respond warmly in 'reply'.\n"
+        "- action=unknown: can't determine what the customer wants.\n"
+        "  Ask what they'd like to order in 'reply'.\n"
+        "- Match product names LOOSELY to catalogue: 'iphone 14' → 'UK 14 Pro Max + eSIM'.\n"
+        "- If multiple catalogue items match a vague request, use action=clarify and list options.\n"
+        "- Yoruba numbers: meji=2, meta=3, ogun=20.\n"
+        "- Pidgin/informal: understand but reply in proper English.\n"
+        "- Keep 'reply' short, warm, helpful — max 2-3 sentences.\n"
+        "JSON:"
+    )
+
+    try:
+        client = anthropic.AsyncAnthropic(api_key=_settings.ANTHROPIC_API_KEY)
+        resp = await client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=1024,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        raw = resp.content[0].text.strip()
+        if "```" in raw:
+            for part in raw.split("```"):
+                part = part.strip().lstrip("json").strip()
+                if part.startswith("{"):
+                    raw = part
+                    break
+        data = json.loads(raw)
+    except Exception as exc:
+        logger.warning("Smart parse failed: %s | message=%.100s", exc, message)
+        return l1  # fall back to Layer 1
+
+    action = data.get("action", "unknown")
+    reply = data.get("reply", "")
+    raw_items = data.get("items") or []
+
+    items: list[dict[str, Any]] = []
+    for item in raw_items:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name", "")).strip()
+        if not name:
+            continue
+        try:
+            qty = max(1, int(item.get("qty", 1)))
+        except (ValueError, TypeError):
+            qty = 1
+        raw_price = item.get("unit_price")
+        try:
+            unit_price = int(float(str(raw_price))) if raw_price is not None else None
+        except (ValueError, TypeError):
+            unit_price = None
+        items.append({"name": name, "qty": qty, "unit_price": unit_price})
+
+    # Map action to intent
+    intent_map = {
+        "order": ORDER,
+        "clarify": UNKNOWN,
+        "negotiation": NEGOTIATION,
+        "greeting": UNKNOWN,
+        "unknown": UNKNOWN,
+    }
+    intent = intent_map.get(action, UNKNOWN)
+
+    # For negotiation with offered_price
+    if intent == NEGOTIATION:
+        raw_offered = data.get("offered_price")
+        if raw_offered is not None:
+            try:
+                offered = int(float(str(raw_offered)))
+                if offered > 0:
+                    items = [{"name": "", "qty": 1, "unit_price": offered}]
+            except (ValueError, TypeError):
+                pass
+
+    # For clarify/greeting/unknown — use Claude's reply as the clarification question
+    needs_clarification = action in ("clarify", "greeting", "unknown")
+
+    return ParseResult(
+        intent=intent,
+        items=items,
+        clarification_needed=needs_clarification,
+        clarification_question=reply if needs_clarification else None,
+        confidence=0.8,
+    )
