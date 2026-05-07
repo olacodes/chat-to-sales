@@ -1740,7 +1740,20 @@ class OrderService:
                 )
                 return
 
-            # Settle the first matching debt
+            if len(debts) > 1:
+                await self._reply(
+                    phone=trader_phone,
+                    tenant_id=tenant_id,
+                    event_id=f"trader.debt_ambiguous.{message_id}",
+                    text=(
+                        f"Found {len(debts)} active debts for *{customer_name}*.\n\n"
+                        "Type _WHO OWES ME_ and tap the right one to settle."
+                    ),
+                    channel_tenant_id=channel_tenant_id,
+                )
+                return
+
+            # Settle the single matching debt
             debt = debts[0]
             debt.status = CreditSaleStatus.SETTLED
 
