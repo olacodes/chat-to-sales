@@ -2,7 +2,7 @@
 
 ## Overview
 
-Paystack-powered payment links sent to customers after order confirmation. Traders on Oja and Alatise tiers get auto-generated payment links. ChatToSales never holds money — Paystack pays directly to the trader's bank account.
+Two-tier payment system: (1) Bank details sharing for all traders — auto-sends bank account info to customers after order confirmation, zero friction. (2) Paystack payment links as optional premium upgrade for Oja/Alatise tiers. ChatToSales never holds money.
 
 ## Done
 
@@ -18,24 +18,29 @@ Paystack-powered payment links sent to customers after order confirmation. Trade
 | ✅ | Pydantic schemas | PaymentInitiateRequest, PaymentOut, PaymentListItem, PaymentListResponse, PaystackWebhookPayload. |
 | ✅ | Configuration | PAYSTACK_SECRET_KEY env var. Validated in production mode. |
 | ✅ | Module registration | Router + event handlers registered in main.py lifespan. |
+| ✅ | Trader bank details storage | Migration 026: bank_name, bank_account_number, bank_account_name on Trader model. Repository: update_bank_details(). |
+| ✅ | BANK WhatsApp command | `BANK` or menu → Bank Details: shows current bank info or prompts setup. Trader types "GTBank 0123456789" → saved. TRADER_AWAITING_BANK_DETAILS session state. |
+| ✅ | Auto-send bank details on confirm | When trader confirms an order and has bank details set, customer receives: bank name, account number, account name, total, and "send your receipt or type PAID". Falls back to regular confirmation if no bank details. |
+| ✅ | Bank details menu item | "Bank Details" in the Store section of the trader menu. |
+| ✅ | Bank details in trader cache | bank_name, bank_account_number, bank_account_name included in trader dict and Redis cache. |
 
 ## Not Done (MVP)
 
 | # | Task | Description | Priority |
 |---|------|-------------|----------|
-| ⬜ | Real Paystack API integration | Replace mock payment link (`paystack.mock/pay/...`) with actual `POST https://api.paystack.co/transaction/initialize`. Extract `authorization_url` from response. Handle API errors. | High |
-| ⬜ | Customer email capture | Paystack requires customer email. Options: ask during order flow, use phone-based email (`2348...@wa.chattosales.com`), or add email field to order. | High |
-| ⬜ | WhatsApp payment link delivery | Send payment link to customer via WhatsApp after order confirmation. Interactive button message: "Pay N85,000 for your order" [Pay Now]. | High |
-| ⬜ | Trader-initiated payment link | From dashboard or WhatsApp, trader sends a payment link to customer for a confirmed order. `PAY <ref>` command or button on order detail. | High |
-| ⬜ | Payment status on dashboard | Show payment status (pending/success/failed) on the orders page. Badge or icon next to each order. | Medium |
-| ⬜ | Failed payment handling | When Paystack webhook reports failure: update Payment status to FAILED, notify customer ("Payment didn't go through. Please try again."), allow retry. | Medium |
+| ⬜ | Customer payment receipt detection | When customer sends a screenshot after paying, acknowledge it and notify trader: "Customer says they've paid. [Payment Received]" button. | High |
+| ⬜ | Bank account name verification | Use Paystack `POST /bank/resolve` (free API, no account needed) to verify account name before saving. Trader confirms: "Is this correct? OLATUNDE SODIQ" | Medium |
+| ⬜ | Payment status on dashboard | Show payment status (pending/paid/credit) on the orders page. Badge or icon next to each order. | Medium |
+| ⬜ | Paystack subaccount (premium tier) | For Oja/Alatise traders who opt in: create Paystack subaccount with trader's bank details, send payment links alongside bank details. Auto-confirm via webhook. | Medium |
+| ⬜ | Real Paystack API integration | Replace mock payment link with actual `POST https://api.paystack.co/transaction/initialize` + subaccount. For premium tiers only. | Medium |
+| ⬜ | WhatsApp payment link delivery | Send Paystack payment link alongside bank details: "Pay to bank OR [Pay Online]". For premium tiers only. | Medium |
 
 ## Nice to Have (Post-MVP)
 
 | # | Task | Description |
 |---|------|-------------|
-| ⬜ | Automatic payment link on confirm | When trader confirms an order, auto-generate and send payment link if they're on Oja/Alatise tier. Zero trader effort. |
-| ⬜ | Payment retry | Customer can request a new payment link if the first one expired or failed. `PAY AGAIN` or re-tap button. |
+| ⬜ | Automatic payment link on confirm | For premium tiers: auto-generate Paystack link + bank details when trader confirms. Zero trader effort. |
+| ⬜ | Payment retry | Customer can request a new payment link if the first one expired or failed. |
 | ⬜ | Refund integration | `POST https://api.paystack.co/refund` when order is cancelled after payment. Track refund status. |
 | ⬜ | Tier enforcement | Only Oja (N1,500/mo) and Alatise (N3,500/mo) tiers can generate payment links. Ofe (free) tier: manual payment only. |
 | ⬜ | Payment receipt | After successful payment, send formatted WhatsApp receipt: order details, amount, payment reference, date. |
@@ -63,35 +68,45 @@ Paystack-powered payment links sent to customers after order confirmation. Trade
 
 ## Architecture Notes
 
-### Payment flow (when complete)
+### Payment flow — Bank details (MVP, all tiers)
+```
+Trader sets bank details once: BANK → "GTBank 0123456789"
+    ↓
+Customer places order → Trader taps Confirm
+    ↓
+Customer gets: "Order confirmed! Total: N85,000
+  Pay to: GTBank / 0123456789 / Mama Caro Provisions
+  Send your receipt or type PAID."
+    ↓
+Customer transfers via mobile banking → sends receipt
+    ↓
+Trader verifies → taps "Payment Received" or types PAID <ref>
+    ↓
+Order: CONFIRMED → PAID
+```
+
+### Payment flow — Paystack (premium, Oja/Alatise tiers)
 ```
 Trader confirms order
     ↓
-POST /payments/ (or auto-trigger for Oja/Alatise tier)
+POST /payments/ (auto-trigger for premium tiers)
     ↓
-Paystack API: POST /transaction/initialize
+Paystack API: POST /transaction/initialize (with subaccount)
     → returns authorization_url (payment link)
     ↓
-Payment record created (PENDING)
+Customer gets: bank details + "Or pay online: [Pay Now]"
     ↓
-Payment link sent to customer via WhatsApp: "Pay N85,000" [Pay Now]
-    ↓
-Customer taps link → Paystack checkout page → pays
+Customer taps link → Paystack checkout → pays
     ↓
 Paystack webhook: POST /payments/webhook (charge.success)
     ↓
-Payment status: PENDING → SUCCESS
-    ↓
-Event: payment.confirmed
-    ↓
-Order: CONFIRMED → PAID
-    ↓
-Customer notified: "Payment successful!"
-Trader notified: "Payment received for order {ref}."
+Order: CONFIRMED → PAID (automatic, no trader verification needed)
 ```
 
 ### Design rules
-- ChatToSales never holds money — Paystack pays directly to trader's bank
+- ChatToSales never holds money — bank transfer goes direct, Paystack pays to subaccount
+- Bank details sharing is the primary payment method (zero trust issues)
+- Paystack is an optional premium upgrade (auto-confirmation + card payments)
 - Payment links expire after 24 hours (Paystack default)
 - One active payment per order (prevent duplicate charges)
 - Webhook is idempotent — safe to receive the same event multiple times
