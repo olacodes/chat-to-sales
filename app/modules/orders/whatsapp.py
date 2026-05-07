@@ -686,10 +686,22 @@ def pending_orders_list(
     """
     if not orders:
         return None
+    lines = []
+    for i, o in enumerate(orders, 1):
+        customer = o.get("customer_name") or (f"+{o['customer_phone']}" if o.get("customer_phone") else o["ref"])
+        state_label = _STATE_LABELS.get(o.get("state", ""), o.get("state", ""))
+        credit_tag = " | Credit" if o.get("is_credit") else ""
+        lines.append(f"  {i}. {customer} — {_naira(o['amount'])} — {state_label}{credit_tag}")
     body = (
-        f"You have *{len(orders)} active order{'s' if len(orders) != 1 else ''}*.\n\n"
-        "Tap an order to see actions."
+        f"You have *{len(orders)} active order{'s' if len(orders) != 1 else ''}*:\n\n"
+        + "\n".join(lines)
+        + "\n\nTap an order below to see actions."
     )
+    if len(body) > 1024:
+        body = (
+            f"You have *{len(orders)} active order{'s' if len(orders) != 1 else ''}*.\n\n"
+            "Tap an order below to see actions."
+        )
     button_label = "View orders"
     rows = []
     for o in orders[:10]:  # WhatsApp max 10 rows
