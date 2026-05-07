@@ -624,7 +624,7 @@ def pending_orders_list(
         desc = f"{_naira(o['amount'])} — {state_label}{credit_tag} — {o['date']}"
         rows.append({
             "id": f"ORDACT_{o['ref']}",
-            "title": f"+{o['customer_phone']}"[:24] if o.get("customer_phone") else o["ref"],
+            "title": (o.get("customer_name") or (f"+{o['customer_phone']}" if o.get("customer_phone") else o["ref"]))[:24],
             "description": desc[:72],
         })
     sections = [{"title": "Active orders", "rows": rows}]
@@ -637,7 +637,7 @@ def pending_order_actions(
     """Return (body, buttons) for Paid/Credit action on a specific order."""
     body = (
         f"Order *{order_ref}*\n"
-        f"Customer: +{customer_phone}\n"
+        f"Customer: {customer_phone}\n"
         f"Amount: {_naira(amount)}"
     )
     buttons = [
@@ -676,10 +676,10 @@ def no_pending_orders() -> str:
     return "You have no active orders right now. \U0001f389"
 
 
-def order_credit_to_trader(order_ref: str, customer_phone: str, amount: int) -> str:
+def order_credit_to_trader(order_ref: str, customer_display: str, amount: int) -> str:
     return (
         f"\U0001f4dd Order {order_ref} marked as credit.\n\n"
-        f"Customer: +{customer_phone}\n"
+        f"Customer: {customer_display}\n"
         f"Amount: {_naira(amount)}\n\n"
         "I'll track this for you. Type _WHO OWES ME_ to see your debt book."
     )

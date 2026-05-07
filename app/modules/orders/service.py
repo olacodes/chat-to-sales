@@ -1992,6 +1992,7 @@ class OrderService:
             order_data.append({
                 "ref": o.id[:8],
                 "customer_phone": o.customer_phone or "",
+                "customer_name": o.customer_name or "",
                 "amount": int(o.amount or 0),
                 "date": o.created_at.strftime("%b %d") if o.created_at else "",
                 "state": o.state,
@@ -2531,11 +2532,12 @@ class OrderService:
                 return
             total = int(order.amount or 0)
             cust_phone = order.customer_phone or "unknown"
+            cust_display = order.customer_name or (f"+{cust_phone}" if cust_phone != "unknown" else "Unknown")
             ref_lower = order_ref.lower()
             # Show context-appropriate buttons based on order state
             if order.state == OrderState.INQUIRY:
                 body, buttons = wa.order_action_buttons(
-                    ref_lower, cust_phone, total, order.state, order.is_credit
+                    ref_lower, cust_display, total, order.state, order.is_credit
                 )
                 await self._reply_interactive(
                     phone=trader_phone, tenant_id=tenant_id,
@@ -2544,7 +2546,7 @@ class OrderService:
                     channel_tenant_id=channel_tenant_id,
                 )
             elif order.state == OrderState.CONFIRMED:
-                body, buttons = wa.pending_order_actions(ref_lower, cust_phone, total)
+                body, buttons = wa.pending_order_actions(ref_lower, cust_display, total)
                 await self._reply_interactive(
                     phone=trader_phone, tenant_id=tenant_id,
                     event_id=f"trader.ordact.{message_id}",
@@ -2553,7 +2555,7 @@ class OrderService:
                 )
             elif order.state == OrderState.PAID:
                 body, buttons = wa.order_action_buttons(
-                    ref_lower, cust_phone, total, order.state, order.is_credit
+                    ref_lower, cust_display, total, order.state, order.is_credit
                 )
                 await self._reply_interactive(
                     phone=trader_phone, tenant_id=tenant_id,
@@ -2857,13 +2859,14 @@ class OrderService:
 
             total = int(order.amount or 0)
             cust_phone = order.customer_phone or "unknown"
+            cust_name = order.customer_name or (f"+{cust_phone}" if cust_phone != "unknown" else "Unknown")
 
             try:
                 async with async_session_factory.begin() as cs_session:
                     credit_sale = CreditSale(
                         tenant_id=order.tenant_id,
                         order_id=order.id,
-                        customer_name=f"+{cust_phone}" if cust_phone != "unknown" else "Unknown",
+                        customer_name=cust_name,
                         amount=D(str(total)),
                         currency=order.currency or "NGN",
                     )
@@ -2885,7 +2888,7 @@ class OrderService:
                 phone=trader_phone,
                 tenant_id=tenant_id,
                 event_id=f"order.credit_trader.{order.id}",
-                text=wa.order_credit_to_trader(ref, cust_phone, total),
+                text=wa.order_credit_to_trader(ref, cust_name, total),
                 channel_tenant_id=channel_tenant_id,
             )
             logger.info("Trader marked order CREDIT order_id=%s ref=%s", order.id, ref)
