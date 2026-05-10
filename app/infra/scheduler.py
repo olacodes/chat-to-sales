@@ -310,6 +310,48 @@ async def _send_debt_reminders() -> None:
             )
 
 
+async def _send_weekly_reports() -> None:
+    """
+    Send the weekly report for every tenant that has reports enabled.
+
+    Runs Monday 8:00 AM WAT (7:00 AM UTC). Each tenant's run_weekly()
+    is idempotent — safe to call multiple times in the same week.
+    """
+    from app.modules.reports.models import TenantReportConfig
+    from app.modules.reports.service import WeeklyReportService
+
+    # Find all tenants with reports enabled + recipient set
+    async with async_session_factory() as session:
+        result = await session.execute(
+            select(TenantReportConfig).where(
+                and_(
+                    TenantReportConfig.enabled == True,  # noqa: E712
+                    TenantReportConfig.recipient_phone.is_not(None),
+                )
+            )
+        )
+        configs = list(result.scalars().all())
+
+    if not configs:
+        return
+
+    logger.info("Weekly reports: found %d enabled tenants", len(configs))
+
+    for config in configs:
+        try:
+            async with async_session_factory.begin() as session:
+                svc = WeeklyReportService(session)
+                report = await svc.run_weekly(config.tenant_id)
+            logger.info(
+                "Weekly report %s for tenant=%s week=%s",
+                report.status, config.tenant_id, report.week_start,
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "Weekly report failed for tenant=%s", config.tenant_id,
+            )
+
+
 def start_scheduler() -> None:
     """Add jobs and start the scheduler. Call once during app lifespan startup."""
     _scheduler.add_job(
@@ -336,9 +378,20 @@ def start_scheduler() -> None:
         replace_existing=True,
         misfire_grace_time=120,
     )
+    _scheduler.add_job(
+        _send_weekly_reports,
+        trigger="cron",
+        day_of_week="mon",
+        hour=7,
+        minute=0,
+        id="send_weekly_reports",
+        replace_existing=True,
+        misfire_grace_time=3600,  # 1 hour grace — if server was down at 7am, still send
+    )
     _scheduler.start()
     logger.info(
-        "Scheduler started — messages every 60s, order reminders every %dm, debt reminders every %dh",
+        "Scheduler started — messages every 60s, order reminders every %dm, "
+        "debt reminders every %dh, weekly reports Mon 8am WAT",
         _REMINDER_INTERVAL_MINUTES,
         _DEBT_REMINDER_INTERVAL_HOURS,
     )
