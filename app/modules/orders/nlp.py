@@ -50,6 +50,8 @@ TRADER_PAID_DEBT = "trader_paid_debt"
 TRADER_WHO_OWES_ME = "trader_who_owes_me"
 TRADER_ORDERS = "trader_orders"
 NEGOTIATION = "negotiation"
+IGNORE = "ignore"
+CHITCHAT = "chitchat"
 TRADER_BANK = "trader_bank"
 TRADER_MENU = "trader_menu"
 UNKNOWN = "unknown"
@@ -620,7 +622,7 @@ async def smart_parse_customer_message(
         f"Customer's new message: {json.dumps(message)}\n\n"
         "Your job: understand what the customer wants and respond helpfully.\n\n"
         "Return ONLY a JSON object — no markdown, no commentary.\n\n"
-        'Format: {"action":"order"|"clarify"|"negotiation"|"greeting"|"unknown",'
+        'Format: {"action":"order"|"clarify"|"negotiation"|"greeting"|"chitchat"|"ignore"|"unknown",'
         '"items":[{"name":"exact catalogue product name","qty":2,"unit_price":8500}],'
         '"offered_price":null,'
         '"reply":"your natural language response to the customer"}\n\n'
@@ -633,6 +635,11 @@ async def smart_parse_customer_message(
         "  If they name a specific price, set offered_price.\n"
         "- action=greeting: customer is just saying hi, asking about the store, or chitchat.\n"
         "  Respond warmly in 'reply'.\n"
+        "- action=ignore: message is a simple acknowledgment (ok, thanks, thank you, bye, "
+        "  alright, noted, cool, sure, fine) or has no meaningful content. Do NOT reply.\n"
+        "- action=chitchat: customer is chatting socially or asking a non-order question "
+        "  (e.g. 'are you open?', 'where is your shop?', 'happy birthday', 'how are you'). "
+        "  Reply warmly in 'reply' but do NOT start an order flow.\n"
         "- action=unknown: can't determine what the customer wants.\n"
         "  Ask what they'd like to order in 'reply'.\n"
         "- Match product names LOOSELY to catalogue: 'iphone 14' → 'UK 14 Pro Max + eSIM'.\n"
@@ -689,7 +696,9 @@ async def smart_parse_customer_message(
         "order": ORDER,
         "clarify": UNKNOWN,
         "negotiation": NEGOTIATION,
-        "greeting": UNKNOWN,
+        "greeting": CHITCHAT,
+        "chitchat": CHITCHAT,
+        "ignore": IGNORE,
         "unknown": UNKNOWN,
     }
     intent = intent_map.get(action, UNKNOWN)
@@ -705,8 +714,9 @@ async def smart_parse_customer_message(
             except (ValueError, TypeError):
                 pass
 
-    # For clarify/greeting/unknown — use Claude's reply as the clarification question
-    needs_clarification = action in ("clarify", "greeting", "unknown")
+    # For clarify/unknown — use Claude's reply as the clarification question
+    # Chitchat/greeting get reply but no clarification flag
+    needs_clarification = action in ("clarify", "unknown")
 
     return ParseResult(
         intent=intent,

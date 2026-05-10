@@ -61,7 +61,7 @@ from app.modules.orders.nlp import (
 from app.modules.onboarding.repository import TraderRepository
 from app.modules.orders.repository import OrderRepository
 from app.modules.orders.schemas import OrderCreate, OrderItemCreate, OrderListResponse
-from app.modules.orders.nlp import NEGOTIATION
+from app.modules.orders.nlp import CHITCHAT, IGNORE, NEGOTIATION
 from app.modules.orders.session import (
     AWAITING_CLARIFICATION,
     AWAITING_CUSTOMER_CONFIRMATION,
@@ -486,6 +486,15 @@ class OrderService:
         category: str = trader.get("business_category", "")
         catalogue: dict[str, int] = trader.get("catalogue", {})
 
+        # ── Post-order quiet mode: only respond to clear order intents ────
+        from app.modules.orders.session import is_quiet_mode
+        if await is_quiet_mode(tenant_id, customer_phone):
+            # Quick check: is this a clear order or negotiation?
+            quick = await self._smart_parse(message, category, catalogue, conversation_id)
+            if quick.intent not in (ORDER, NEGOTIATION):
+                # Silent — customer is in post-order cooldown
+                return
+
         session = await get_order_session(tenant_id, customer_phone)
 
         # ── Existing session: customer is responding to a summary ─────────────
@@ -603,6 +612,8 @@ class OrderService:
                     order.id,
                     customer_phone,
                 )
+                from app.modules.orders.session import set_quiet_mode
+                await set_quiet_mode(tenant_id, customer_phone)
                 return
 
             if result.intent == CANCEL:
@@ -624,6 +635,8 @@ class OrderService:
                     channel_tenant_id=channel_tenant_id,
                 )
                 logger.info("Customer cancelled order customer=%s", customer_phone)
+                from app.modules.orders.session import set_quiet_mode
+                await set_quiet_mode(tenant_id, customer_phone)
                 return
 
             # Customer sent something else — check if it's a new negotiation
@@ -722,6 +735,22 @@ class OrderService:
                 tenant_id=tenant_id,
                 event_id=f"order.stale_cancel.{message_id}",
                 text=wa.no_active_session(),
+                channel_tenant_id=channel_tenant_id,
+            )
+            return
+
+        # ── Ignore: no response needed ─────────────────────────────────────
+        if result.intent == IGNORE:
+            return
+
+        # ── Chitchat: friendly reply, no order flow ────────────────────────
+        if result.intent == CHITCHAT:
+            reply_text = result.clarification_question or "Hi! What would you like to order?"
+            await self._reply(
+                phone=customer_phone,
+                tenant_id=tenant_id,
+                event_id=f"order.chitchat.{message_id}",
+                text=reply_text,
                 channel_tenant_id=channel_tenant_id,
             )
             return
@@ -3273,13 +3302,22 @@ class OrderService:
             if handled:
                 return
 
-            # Show interactive menu instead of text command guide
-            await self._send_trader_menu(
-                trader_phone=trader_phone,
-                message_id=message_id,
-                tenant_id=tenant_id,
-                channel_tenant_id=channel_tenant_id,
+            # Only show menu if the message looks like a command attempt.
+            # Random personal messages (e.g. "pick up the kids") → stay silent.
+            import re as _cmd_re
+            _COMMAND_HINT = _cmd_re.compile(
+                r"\b(menu|help|order|add|remove|price|catalogue|catalog|"
+                r"debt|paid|bank|credit|who owes|pricelist|category|store|commands)\b",
+                _cmd_re.IGNORECASE,
             )
+            if _COMMAND_HINT.search(message):
+                await self._send_trader_menu(
+                    trader_phone=trader_phone,
+                    message_id=message_id,
+                    tenant_id=tenant_id,
+                    channel_tenant_id=channel_tenant_id,
+                )
+            # Otherwise: stay silent — likely a personal message sent to wrong number
             return
 
         ref = result.order_ref or ""

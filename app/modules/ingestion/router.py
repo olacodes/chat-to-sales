@@ -164,6 +164,15 @@ async def receive_whatsapp_message(
     except (KeyError, IndexError, TypeError):
         pass  # status/delivery notification — nothing to process
 
+    # Skip pure-emoji messages (no meaningful content to process)
+    import re as _emoji_re
+    _EMOJI_ONLY = _emoji_re.compile(
+        r"^[\U0001f000-\U0001ffff\u2600-\u27ff\ufe0f\u200d\s]+$"
+    )
+    if sender_id and content and _EMOJI_ONLY.match(content.strip()):
+        logger.debug("WhatsApp webhook — ignoring emoji-only message sender=%s", sender_id)
+        return {"status": "accepted"}
+
     if sender_id and content:
         tenant_id = settings.TENANT_ID
         inbound = InboundMessageRequest(

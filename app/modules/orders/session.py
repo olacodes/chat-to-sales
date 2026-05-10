@@ -253,6 +253,26 @@ async def count_pending_image_inquiries(trader_phone: str) -> int:
     return await redis.scard(_image_inquiry_index_key(trader_phone))
 
 
+# ── Post-order quiet mode ─────────────────────────────────────────────────────
+
+_QUIET_PREFIX = "quiet"
+_QUIET_TTL = 30 * 60  # 30 minutes
+
+
+def _quiet_key(tenant_id: str, phone: str) -> str:
+    return f"{_QUIET_PREFIX}:{tenant_id}:{phone}"
+
+
+async def set_quiet_mode(tenant_id: str, customer_phone: str) -> None:
+    """Set 30-minute quiet mode after an order completes."""
+    await get_redis().setex(_quiet_key(tenant_id, customer_phone), _QUIET_TTL, "1")
+
+
+async def is_quiet_mode(tenant_id: str, customer_phone: str) -> bool:
+    """Return True if customer is in post-order quiet mode."""
+    return bool(await get_redis().get(_quiet_key(tenant_id, customer_phone)))
+
+
 # ── Pending negotiation (customer free, trader decides async) ────────────────
 
 _NEGOTIATION_PREFIX = "negotiation"
