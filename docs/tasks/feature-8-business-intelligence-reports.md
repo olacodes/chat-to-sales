@@ -20,12 +20,12 @@ Monday 8am weekly WhatsApp summary sent to the trader. Covers: new leads, orders
 | ✅ | Idempotency + error handling | Same tenant+week = same event_id (no duplicate sends). Failed sends logged with error_detail. Skipped if disabled or no recipient. |
 | ✅ | Configuration | REPORT_SECRET env var for trigger endpoint protection. Validated in production. |
 | ✅ | Module registration | Router registered in main.py. |
+| ✅ | Automatic Monday 8am scheduling | `_send_weekly_reports()` in scheduler.py: APScheduler cron job (Monday 7:00 UTC = 8:00 AM WAT). Queries all tenants with reports enabled + recipient set, calls `run_weekly()` for each. 1-hour misfire grace. Per-tenant failure isolation. No external cron needed. |
 
 ## Not Done (MVP)
 
 | # | Task | Description | Priority |
 |---|------|-------------|----------|
-| ⬜ | Automatic Monday 8am scheduling | Add `_run_weekly_for_all_tenants()` job in scheduler.py. Query all tenants with reports enabled, iterate `run_weekly()` for each. Register as weekly cron (Monday 8:00 AM Africa/Lagos). Currently requires external cron to call the trigger endpoint. | High |
 | ⬜ | Debt summary in weekly report | Extend `_gather_metrics()` to include: total outstanding debts, debts settled this week, number of active debtors. Add section to `render_report()`. | High |
 | ⬜ | Trending products in report | Top 5 most-ordered products this week by order count. Add to the report body. | Medium |
 | ⬜ | Report history on dashboard | Frontend page showing past weekly reports: date, status (sent/failed/skipped), preview text. Query the `weekly_reports` table. | Medium |
