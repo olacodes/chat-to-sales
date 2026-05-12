@@ -1422,9 +1422,57 @@ class OrderService:
             TRADER_AWAITING_PRICELIST_CONFIRM,
             TRADER_AWAITING_COUNTER_PRICE,
             TRADER_AWAITING_BANK_DETAILS,
+            TRADER_AWAITING_PHOTO_PRODUCT,
         )
 
         state = tsession.get("state", "")
+
+        if state == TRADER_AWAITING_PHOTO_PRODUCT:
+            # Waiting for trader to pick which product the photo is for
+            # This can come from a PHOT_ list tap or typed product name
+            await clear_trader_session(trader_phone)
+            product_name = message.strip()
+            # Handle PHOT_ prefix from list picker
+            if product_name.upper().startswith("PHOT_"):
+                product_name = product_name[5:]
+
+            catalogue = trader.get("catalogue", {})
+            # Case-insensitive match
+            matched_name: str | None = None
+            matched_price: int = 0
+            for key, val in catalogue.items():
+                if key.lower() == product_name.lower():
+                    matched_name = key
+                    matched_price = val
+                    break
+            if not matched_name:
+                await self._reply(
+                    phone=trader_phone,
+                    tenant_id=tenant_id,
+                    event_id=f"trader.photo_nomatch.{message_id}",
+                    text=wa.product_not_found(product_name),
+                    channel_tenant_id=channel_tenant_id,
+                )
+                return True
+
+            # Retrieve stored image bytes from session and upload
+            import base64
+            img_b64 = tsession.get("image_b64", "")
+            if img_b64:
+                img_bytes = base64.b64decode(img_b64)
+                await self._save_product_image(
+                    trader_phone=trader_phone,
+                    product_name=matched_name,
+                    image_bytes=img_bytes,
+                )
+                await self._reply(
+                    phone=trader_phone,
+                    tenant_id=tenant_id,
+                    event_id=f"trader.photo_saved.{message_id}",
+                    text=wa.product_photo_saved(matched_name, matched_price),
+                    channel_tenant_id=channel_tenant_id,
+                )
+            return True
 
         if state == TRADER_AWAITING_BANK_DETAILS:
             await clear_trader_session(trader_phone)
@@ -1984,6 +2032,126 @@ class OrderService:
                 text=wa.product_not_found(", ".join(not_found)),
                 channel_tenant_id=channel_tenant_id,
             )
+
+    # ── Product image helpers ────────────────────────────────────────────
+
+    async def _save_product_image(
+        self,
+        *,
+        trader_phone: str,
+        product_name: str,
+        image_bytes: bytes,
+    ) -> str | None:
+        """Upload product image to R2 and save reference in DB."""
+        from app.infra.storage import upload_product_image
+        from app.modules.orders.product_images import ProductImageRepository
+        from app.modules.onboarding.media import compute_phash
+
+        url = await upload_product_image(
+            trader_phone=trader_phone,
+            product_name=product_name,
+            image_bytes=image_bytes,
+        )
+        if not url:
+            return None
+
+        # Compute pHash for image matching
+        image_hash: str | None = None
+        try:
+            image_hash = compute_phash(image_bytes)
+        except Exception:
+            pass
+
+        async with async_session_factory.begin() as session:
+            repo = ProductImageRepository(session)
+            await repo.upsert(
+                trader_phone=trader_phone,
+                product_name=product_name,
+                image_url=url,
+                image_hash=image_hash,
+            )
+
+        logger.info("Product image saved: trader=%s product=%s url=%s", trader_phone, product_name, url)
+        return url
+
+    async def _handle_trader_product_photo(
+        self,
+        *,
+        trader_phone: str,
+        message: str,
+        message_id: str,
+        image_bytes: bytes,
+        trader: dict[str, Any],
+        tenant_id: str,
+        channel_tenant_id: str | None = None,
+    ) -> None:
+        """Handle a product photo sent by the trader (outside any session)."""
+        import base64
+        from app.modules.orders.session import set_trader_session, TRADER_AWAITING_PHOTO_PRODUCT
+
+        catalogue = trader.get("catalogue", {})
+        caption = message.strip() if message and message != "[image]" else ""
+
+        # If caption matches a product name, save directly
+        if caption:
+            matched_name: str | None = None
+            matched_price: int = 0
+            for key, val in catalogue.items():
+                if caption.lower() in key.lower() or key.lower() in caption.lower():
+                    matched_name = key
+                    matched_price = val
+                    break
+            if matched_name:
+                await self._save_product_image(
+                    trader_phone=trader_phone,
+                    product_name=matched_name,
+                    image_bytes=image_bytes,
+                )
+                await self._reply(
+                    phone=trader_phone,
+                    tenant_id=tenant_id,
+                    event_id=f"trader.photo_saved.{message_id}",
+                    text=wa.product_photo_saved(matched_name, matched_price),
+                    channel_tenant_id=channel_tenant_id,
+                )
+                return
+
+        # No caption or no match — ask which product
+        if not catalogue:
+            return  # No catalogue, nothing to match
+
+        result = wa.product_photo_which_product(catalogue)
+        if result is None:
+            return
+
+        # Store image bytes in session (base64) so we can upload after product selection
+        img_b64 = base64.b64encode(image_bytes).decode()
+        # Limit to 500KB base64 to avoid Redis memory issues
+        if len(img_b64) > 700_000:
+            from PIL import Image
+            from io import BytesIO
+            img = Image.open(BytesIO(image_bytes))
+            img = img.convert("RGB")
+            img.thumbnail((400, 400), Image.LANCZOS)
+            buf = BytesIO()
+            img.save(buf, format="JPEG", quality=60)
+            img_b64 = base64.b64encode(buf.getvalue()).decode()
+
+        await set_trader_session(trader_phone, {
+            "state": TRADER_AWAITING_PHOTO_PRODUCT,
+            "image_b64": img_b64,
+        })
+
+        body, btn, sections = result
+        await self._reply_list(
+            phone=trader_phone,
+            tenant_id=tenant_id,
+            event_id=f"trader.photo_pick.{message_id}",
+            body_text=body,
+            button_label=btn,
+            sections=sections,
+            channel_tenant_id=channel_tenant_id,
+        )
 
     # ── Smart parse helper ────────────────────────────────────────────────
 
@@ -2983,6 +3151,23 @@ class OrderService:
                 )
             return
 
+        # ── Handle product photo tap (PHOT_*) ────────────────────────────────
+        if stripped.startswith("PHOT_"):
+            # Route to the photo product session handler
+            tsession_check = await get_trader_session(trader_phone)
+            if tsession_check and tsession_check.get("state") == TRADER_AWAITING_PHOTO_PRODUCT:
+                handled = await self._handle_trader_session(
+                    tsession=tsession_check,
+                    trader_phone=trader_phone,
+                    message=message,
+                    message_id=message_id,
+                    trader=trader,
+                    tenant_id=tenant_id,
+                    channel_tenant_id=channel_tenant_id,
+                )
+                if handled:
+                    return
+
         # ── Handle negotiation response taps (NEGACCEPT_*, NEGCOUNTER_*, NEGDECLINE_*) ──
         if stripped.startswith("NEGACCEPT_") or stripped.startswith("NEGDECLINE_"):
             customer_phone_from_tap = message.strip().split("_", 1)[1] if "_" in message else ""
@@ -3300,6 +3485,19 @@ class OrderService:
                 channel_tenant_id=channel_tenant_id,
             )
             if handled:
+                return
+
+            # Trader sent a photo outside any session → product photo upload
+            if image_bytes:
+                await self._handle_trader_product_photo(
+                    trader_phone=trader_phone,
+                    message=message,
+                    message_id=message_id,
+                    image_bytes=image_bytes,
+                    trader=trader,
+                    tenant_id=tenant_id,
+                    channel_tenant_id=channel_tenant_id,
+                )
                 return
 
             # Only show menu if the message looks like a command attempt.

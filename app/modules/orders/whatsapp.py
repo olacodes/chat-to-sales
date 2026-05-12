@@ -762,6 +762,34 @@ def order_action_buttons(
 # ── Bank details templates ───────────────────────────────────────────────
 
 
+def product_photo_saved(product_name: str, price: int) -> str:
+    return (
+        f"\U0001f4f8 Photo saved for *{product_name}* ({_naira(price)}).\n\n"
+        "This will be used in your Status posts and store page."
+    )
+
+
+def product_photo_which_product(
+    catalogue: dict[str, int],
+) -> tuple[str, str, list[dict]] | None:
+    """Return (body, button_label, sections) list picker to match a photo to a product."""
+    if not catalogue:
+        return None
+    body = "Nice photo! Which product is this for?"
+    button_label = "Select product"
+    rows = []
+    for name, price in sorted(catalogue.items()):
+        rows.append({
+            "id": f"PHOT_{name}"[:72],
+            "title": name[:24],
+            "description": _naira(price),
+        })
+    if len(rows) > 10:
+        rows = rows[:10]
+    sections = [{"title": "Your products", "rows": rows}]
+    return body, button_label, sections
+
+
 def bank_details_prompt() -> str:
     return (
         "To set up your bank details, type your bank name and account number.\n\n"

@@ -107,6 +107,13 @@ class Settings(BaseSettings):
     # ── Weekly report ──────────────────────────────────────────────────────────
     # Shared secret for the POST /reports/trigger-weekly endpoint.
     # Set a strong random value in production (e.g. openssl rand -hex 32).
+    # ── Cloudflare R2 (product image storage) ──────────────────────────────
+    R2_ACCOUNT_ID: str = ""
+    R2_ACCESS_KEY_ID: str = ""
+    R2_SECRET_ACCESS_KEY: str = ""
+    R2_BUCKET_NAME: str = "chattosales-images"
+    R2_PUBLIC_URL: str = ""  # e.g. https://images.chattosales.com or R2 public bucket URL
+
     REPORT_SECRET: str = "change-this-report-secret"
 
     # ── Validators ────────────────────────────────────────────────────────────
