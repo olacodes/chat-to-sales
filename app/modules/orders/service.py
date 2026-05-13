@@ -1186,7 +1186,7 @@ class OrderService:
 
         # Save product image passively (if we uploaded it during the inquiry)
         pending_image_url: str = pending.get("image_url", "")
-        if pending_image_url and product_name != "Product":
+        if pending_image_url:
             try:
                 from app.modules.orders.product_images import ProductImageRepository
                 async with async_session_factory.begin() as img_session:
