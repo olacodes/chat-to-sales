@@ -383,7 +383,6 @@ def trader_menu() -> tuple[str, str, list[dict]]:
             "rows": [
                 {"id": "MENU_ORDERS", "title": "\U0001f4cb Active Orders", "description": "View and manage your orders"},
                 {"id": "MENU_DEBTS", "title": "\U0001f4d6 Who Owes Me", "description": "See your debt book"},
-                {"id": "MENU_HELP", "title": "\u2753 Help", "description": "See order commands"},
             ],
         },
         {
