@@ -2979,13 +2979,29 @@ class OrderService:
             )
             return
 
+        # For credit orders, fetch outstanding balance from credit_sales
+        credit_order_ids = [o.id for o in orders if o.is_credit]
+        outstanding_map: dict[str, int] = {}
+        if credit_order_ids:
+            from app.modules.credit_sales.models import CreditSale, CreditSaleStatus
+            async with async_session_factory() as cs_sess:
+                cs_result = await cs_sess.execute(
+                    select(CreditSale.order_id, CreditSale.amount).where(
+                        CreditSale.order_id.in_(credit_order_ids),
+                        CreditSale.status == CreditSaleStatus.ACTIVE,
+                    )
+                )
+                for row in cs_result.all():
+                    outstanding_map[row.order_id] = int(row.amount)
+
         order_data = []
         for o in orders:
+            amount = outstanding_map.get(o.id, int(o.amount or 0)) if o.is_credit else int(o.amount or 0)
             order_data.append({
                 "ref": o.id[:8],
                 "customer_phone": o.customer_phone or "",
                 "customer_name": o.customer_name or "",
-                "amount": int(o.amount or 0),
+                "amount": amount,
                 "date": o.created_at.strftime("%b %d") if o.created_at else "",
                 "state": o.state,
                 "is_credit": o.is_credit,
@@ -3567,7 +3583,14 @@ class OrderService:
                 order = await self._repo.get_by_ref_prefix(ref_prefix=ref)
                 if order and order.state == OrderState.CONFIRMED and order.is_credit:
                     order_ref = order.id[:8]
-                    total = int(order.amount or 0)
+                    # Get actual outstanding from credit_sale
+                    from app.modules.credit_sales.models import CreditSale as _CS, CreditSaleStatus as _CSS
+                    async with async_session_factory() as _cs_sess:
+                        _cs_r = await _cs_sess.execute(
+                            select(_CS.amount).where(_CS.order_id == order.id, _CS.status == _CSS.ACTIVE)
+                        )
+                        _cs_row = _cs_r.scalar_one_or_none()
+                    total = int(_cs_row) if _cs_row else int(order.amount or 0)
                     if is_full:
                         # Paid in full: order → PAID + settle linked credit sale
                         try:
@@ -3718,6 +3741,16 @@ class OrderService:
                 )
                 return
             total = int(order.amount or 0)
+            # For credit orders, show outstanding balance instead of original amount
+            if order.is_credit:
+                from app.modules.credit_sales.models import CreditSale as _OrdCS, CreditSaleStatus as _OrdCSS
+                async with async_session_factory() as _ord_cs_sess:
+                    _ord_cs_r = await _ord_cs_sess.execute(
+                        select(_OrdCS.amount).where(_OrdCS.order_id == order.id, _OrdCS.status == _OrdCSS.ACTIVE)
+                    )
+                    _ord_cs_amt = _ord_cs_r.scalar_one_or_none()
+                if _ord_cs_amt is not None:
+                    total = int(_ord_cs_amt)
             cust_phone = order.customer_phone or "unknown"
             cust_display = order.customer_name or (f"+{cust_phone}" if cust_phone != "unknown" else "Unknown")
             ref_lower = order_ref.lower()
