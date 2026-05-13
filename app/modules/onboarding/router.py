@@ -8,6 +8,7 @@ import json
 from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, UploadFile, File
+from pydantic import BaseModel
 
 from app.core.config import get_settings
 from app.core.dependencies import CurrentUserDep, DBSessionDep
@@ -146,6 +147,79 @@ async def update_catalogue(
         await cache_trader_by_phone(phone, cached)
 
     return [CatalogueItem(name=k, price=v) for k, v in catalogue_dict.items()]
+
+
+# ── Product image endpoints (authenticated) ──────────────────────────────
+
+
+class ProductImageOut(BaseModel):
+    product_name: str
+    image_url: str
+
+
+@router.get("/images", summary="List product images for trader")
+async def list_product_images(
+    user: CurrentUserDep,
+    db: DBSessionDep,
+) -> list[ProductImageOut]:
+    """Return all product images for the authenticated trader."""
+    from app.core.models.user import User
+    from sqlalchemy import select as sel
+    from app.modules.orders.product_images import ProductImageRepository
+
+    db_user = (await db.execute(sel(User).where(User.id == user.user_id))).scalar_one_or_none()
+    phone = db_user.phone_number if db_user else None
+    if not phone:
+        return []
+
+    repo = ProductImageRepository(db)
+    images = await repo.list_for_trader(phone)
+    return [ProductImageOut(product_name=img.product_name, image_url=img.image_url) for img in images]
+
+
+@router.post("/images/{product_name}", summary="Upload product image")
+async def upload_product_image_endpoint(
+    product_name: str,
+    user: CurrentUserDep,
+    db: DBSessionDep,
+    file: UploadFile = File(...),
+) -> ProductImageOut:
+    """Upload a product image to Cloudflare R2."""
+    from app.core.models.user import User
+    from sqlalchemy import select as sel
+    from app.infra.storage import upload_product_image as r2_upload
+    from app.modules.orders.product_images import ProductImageRepository
+    from app.modules.onboarding.media import compute_phash
+
+    db_user = (await db.execute(sel(User).where(User.id == user.user_id))).scalar_one_or_none()
+    phone = db_user.phone_number if db_user else None
+    if not phone:
+        raise HTTPException(status_code=400, detail="Phone number required.")
+
+    image_bytes = await file.read()
+    if not image_bytes:
+        raise HTTPException(status_code=400, detail="Empty file.")
+
+    url = await r2_upload(trader_phone=phone, product_name=product_name, image_bytes=image_bytes)
+    if not url:
+        raise HTTPException(status_code=500, detail="Image upload failed.")
+
+    image_hash: str | None = None
+    try:
+        image_hash = compute_phash(image_bytes)
+    except Exception:
+        pass
+
+    repo = ProductImageRepository(db)
+    await repo.upsert(
+        trader_phone=phone,
+        product_name=product_name,
+        image_url=url,
+        image_hash=image_hash,
+    )
+    await db.commit()
+
+    return ProductImageOut(product_name=product_name, image_url=url)
 
 
 @router.get("/{slug}", summary="Get public store by slug")
