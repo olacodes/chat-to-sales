@@ -20,16 +20,18 @@ Two-part feature: (1) Product image management — traders add photos to catalog
 | ✅ | WhatsApp templates | product_photo_saved, product_photo_which_product (list picker). |
 | ✅ | Session state | TRADER_AWAITING_PHOTO_PRODUCT for the "which product?" selection flow. |
 | ✅ | boto3 dependency | Added to requirements.txt for S3-compatible R2 access. |
+| ✅ | Passive collection from image inquiries | Customer sends product photo → image uploaded to R2 immediately with temp name. When trader replies with price → product_images row created automatically with the pre-uploaded URL. Works even when trader replies with price only (saves as "Product"). |
+| ✅ | Status Kit photo card generator | Pillow-based: product photo fills 1080x1920 background, dark overlay, white text (trader name, product name, price in WhatsApp green, store link, "Message to order" CTA). Auto word-wrap, center crop, ~40-50KB JPEG. |
+| ✅ | Status Kit text card generator | Gradient green background, same text layout. Fallback when no product photo available. |
+| ✅ | Daily Status Kit scheduler | Cron job at 5:30 AM UTC (6:30 AM WAT). For each completed trader: picks 2-3 products, generates photo or text cards, uploads to R2, sends via WhatsApp image URL, then sends "Share to your Status!" prompt. Business hours gated. |
+| ✅ | Product rotation logic | Deterministic rotation: day_index × 3 mod catalogue_size. Every product gets visibility over time. Different products each day, wraps around. |
+| ✅ | Send image by URL | NotificationService.send_image_url() — sends WhatsApp images via public R2 URL instead of media_id. Uses Meta Cloud API {"link": url} format. |
+| ✅ | DejaVu fonts in Docker | fonts-dejavu-core added to Dockerfile for consistent text rendering in generated images. |
 
 ## Not Done (MVP)
 
 | # | Task | Description | Priority |
 |---|------|-------------|----------|
-| ⬜ | Passive collection from image inquiries | When a customer sends a product photo and the trader replies with a price (existing image learning flow), also save the image to R2 + product_images table. Zero extra work. | High |
-| ⬜ | Status Kit image generator | Pillow-based: product photo as background + dark overlay + white text (trader name, product name, price, store link). 1080x1920px (9:16 vertical, Status-optimal). | High |
-| ⬜ | Status Kit text-only card | For products without photos: clean branded text card with product name, price, store link. Gradient background. | High |
-| ⬜ | Daily Status Kit scheduler | Morning job (6:30 AM WAT): pick 2-3 products per trader (rotate daily), generate images, send via WhatsApp. "Good morning! Here are today's Status posts." | High |
-| ⬜ | Product rotation logic | Cycle through catalogue so every product gets visibility. Track last sent index per trader in Redis. Never repeat same product two days in a row. | Medium |
 | ⬜ | Store page product images | Show product photos on the public store page `/stores/{slug}` when available. Falls back to text-only display. | Medium |
 | ⬜ | Photo replacement on dashboard | Click existing thumbnail → file picker → replace image. Currently can only upload new, not replace. | Low |
 
@@ -55,13 +57,17 @@ Two-part feature: (1) Product image management — traders add photos to catalog
 | File | Purpose |
 |------|---------|
 | `app/infra/storage.py` | Cloudflare R2 client (upload, delete, resize) |
+| `app/infra/status_kit.py` | Pillow image generator (photo card + text card, 1080x1920) |
+| `app/infra/scheduler.py` | Daily Status Kit cron job (_send_status_kit) |
 | `app/modules/orders/product_images.py` | ProductImage model + repository |
 | `app/modules/onboarding/router.py` | Image API endpoints (GET /images, POST /images/{name}) |
-| `app/modules/orders/service.py` | WhatsApp photo handler (_handle_trader_product_photo, _save_product_image) |
+| `app/modules/orders/service.py` | WhatsApp photo handler, passive collection from inquiries |
 | `app/modules/orders/whatsapp.py` | Photo templates (saved, which_product picker) |
 | `app/modules/orders/session.py` | TRADER_AWAITING_PHOTO_PRODUCT state |
+| `app/modules/notifications/service.py` | send_image_url() for WhatsApp image-by-URL |
 | `app/core/config.py` | R2 configuration vars |
 | `alembic/versions/027_add_product_images.py` | Migration |
+| `Dockerfile` | fonts-dejavu-core for image text rendering |
 
 ### Frontend
 | File | Purpose |
