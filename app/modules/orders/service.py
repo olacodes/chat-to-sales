@@ -711,10 +711,19 @@ class OrderService:
             # Append the clarification answer to the original message and re-parse
             original = session.get("original_message", "")
             combined = f"{original}. {message}"
-            result = await self._smart_parse(combined, category, catalogue, conversation_id)
-            # Fall through to handle result as a fresh order below
+            try:
+                result = await self._smart_parse(combined, category, catalogue, conversation_id)
+            except Exception as exc:
+                logger.error("Smart parse failed (clarification): %s", exc, exc_info=True)
+                from app.modules.orders.nlp import ParseResult
+                result = ParseResult(intent=UNKNOWN, confidence=0.0)
         else:
-            result = await self._smart_parse(message, category, catalogue, conversation_id)
+            try:
+                result = await self._smart_parse(message, category, catalogue, conversation_id)
+            except Exception as exc:
+                logger.error("Smart parse failed: %s", exc, exc_info=True)
+                from app.modules.orders.nlp import ParseResult
+                result = ParseResult(intent=UNKNOWN, confidence=0.0)
 
         # ── No session (or just resolved clarification): fresh order parse ────
         logger.info(
