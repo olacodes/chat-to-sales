@@ -13,6 +13,7 @@ from pydantic import BaseModel
 class CatalogueItem(BaseModel):
     name: str
     price: int
+    image_url: str | None = None
 
 
 class StoreListItem(BaseModel):

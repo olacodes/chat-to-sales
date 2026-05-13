@@ -257,12 +257,22 @@ async def get_store(slug: str, db: DBSessionDep) -> TraderStoreOut:
         has_own_channel=has_own_channel,
     )
 
+    # Enrich catalogue items with product images
+    from app.modules.orders.product_images import ProductImageRepository
+    img_repo = ProductImageRepository(db)
+    images = await img_repo.list_for_trader(trader.phone_number)
+    image_map = {img.product_name: img.image_url for img in images}
+
+    catalogue_items = normalize_catalogue(trader.onboarding_catalogue)
+    for item in catalogue_items:
+        item.image_url = image_map.get(item.name)
+
     return TraderStoreOut(
         business_name=trader.business_name or "",
         business_category=trader.business_category or "",
         store_slug=trader.store_slug or "",
         ordering_whatsapp_url=ordering_whatsapp_url,
-        catalogue=normalize_catalogue(trader.onboarding_catalogue),
+        catalogue=catalogue_items,
     )
 
 
