@@ -487,10 +487,13 @@ class OrderService:
         # ── Post-order quiet mode: only respond to clear order intents ────
         from app.modules.orders.session import is_quiet_mode
         if await is_quiet_mode(tenant_id, customer_phone):
-            # Quick check: is this a clear order, negotiation, or payment?
-            quick = await self._smart_parse(message, category, catalogue, conversation_id)
-            if quick.intent not in (ORDER, NEGOTIATION, PAYMENT_SENT):
-                # Silent — customer is in post-order cooldown
+            # Quick check using Layer 1 only (no Claude call — instant, zero cost)
+            from app.modules.orders.nlp import _layer1
+            quick = _layer1(message)
+            # Let through anything that looks intentional: order keywords,
+            # negotiation, payment, YES/NO. Only block pure noise (UNKNOWN with 0 confidence).
+            if quick.intent == UNKNOWN and quick.confidence == 0.0:
+                logger.debug("Quiet mode: dropping message from %s", customer_phone)
                 return
 
         session = await get_order_session(tenant_id, customer_phone)
