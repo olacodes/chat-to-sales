@@ -29,11 +29,11 @@ Two-part feature: (1) Product image management — traders add photos to catalog
 | ✅ | DejaVu fonts in Docker | fonts-dejavu-core added to Dockerfile for consistent text rendering in generated images. |
 | ✅ | Store page product images | `GET /stores/{slug}` now enriches catalogue items with `image_url` from product_images table. StoreCatalogue component shows 48x48 rounded thumbnails per product. Falls back to shopping bag emoji when no image. Lazy loaded for performance. |
 
+| ✅ | Photo replacement on dashboard | Click existing thumbnail → hover shows pencil overlay → file picker → replaces image via same upsert mutation. Both upload new + replace existing use unified label with hidden file input. |
+
 ## Not Done (MVP)
 
-| # | Task | Description | Priority |
-|---|------|-------------|----------|
-| ⬜ | Photo replacement on dashboard | Click existing thumbnail → file picker → replace image. Currently can only upload new, not replace. | Low |
+All MVP tasks complete.
 
 ## Nice to Have (Post-MVP)
 
