@@ -269,15 +269,24 @@ def no_active_session() -> str:
 
 # ── Trader-facing ─────────────────────────────────────────────────────────────
 
+def _customer_label(customer_name: str | None, customer_phone: str) -> str:
+    """Return the best display name for a customer."""
+    if customer_name:
+        return f"*{customer_name}*"
+    return f"+{customer_phone}"
+
+
 def order_received_to_trader(
     items: list[dict[str, Any]],
     total: int,
     customer_phone: str,
     order_ref: str,
+    customer_name: str | None = None,
 ) -> str:
+    display = _customer_label(customer_name, customer_phone)
     lines = "\n".join(_item_line(i) for i in items)
     return (
-        f"\U0001f6d2 New order from +{customer_phone}:\n\n"
+        f"\U0001f6d2 New order from {display}:\n\n"
         f"{lines}\n\n"
         f"*Total: {_naira(total)}*\n"
         f"Ref: {order_ref}\n\n"
@@ -291,11 +300,13 @@ def order_received_interactive(
     total: int,
     customer_phone: str,
     order_ref: str,
+    customer_name: str | None = None,
 ) -> tuple[str, list[dict[str, str]]]:
     """Return (body_text, buttons) for a trader order notification."""
+    display = _customer_label(customer_name, customer_phone)
     lines = "\n".join(_item_line(i) for i in items)
     body = (
-        f"\U0001f6d2 New order from +{customer_phone}:\n\n"
+        f"\U0001f6d2 New order from {display}:\n\n"
         f"{lines}\n\n"
         f"*Total: {_naira(total)}*\n"
         f"Ref: {order_ref}"
@@ -307,10 +318,13 @@ def order_received_interactive(
     return body, buttons
 
 
-def order_confirmed_to_trader(order_ref: str) -> tuple[str, list[dict[str, str]]]:
+def order_confirmed_to_trader(
+    order_ref: str, customer_name: str | None = None, customer_phone: str = "",
+) -> tuple[str, list[dict[str, str]]]:
     """Return (body_text, buttons) for post-confirm payment options."""
+    display = _customer_label(customer_name, customer_phone) if (customer_name or customer_phone) else "The customer"
     body = (
-        f"\u2705 Order {order_ref} confirmed. The customer has been notified.\n\n"
+        f"\u2705 {display}'s order confirmed.\n\n"
         "When they pay, tap *Paid*.\n"
         "If it's on credit (pay later), tap *Credit*."
     )
@@ -326,9 +340,9 @@ def order_credit_buttons(
 ) -> tuple[str, list[dict[str, str]]]:
     """Return (body, buttons) for a confirmed credit order — Paid in Full / Partial Payment."""
     body = (
-        f"Order *{order_ref}* (Credit)\n"
-        f"Customer: {customer_display}\n"
-        f"Outstanding: {_naira(amount)}"
+        f"*{customer_display}* (Credit)\n"
+        f"Amount: {_naira(amount)}\n"
+        f"Ref: {order_ref}"
     )
     buttons = [
         {"id": f"CREDITPAID {order_ref}", "title": "\u2705 Paid in Full"},
@@ -337,44 +351,57 @@ def order_credit_buttons(
     return body, buttons
 
 
-def order_already_on_credit(order_ref: str) -> str:
+def order_already_on_credit(order_ref: str, customer_name: str | None = None) -> str:
+    display = f"*{customer_name}*'s order" if customer_name else f"Order {order_ref}"
     return (
-        f"Order {order_ref} is already on credit.\n\n"
+        f"{display} is already on credit.\n\n"
         "Type _WHO OWES ME_ to manage your debt book."
     )
 
 
-def credit_partial_prompt(order_ref: str, outstanding: int) -> str:
+def credit_partial_prompt(
+    order_ref: str, outstanding: int, customer_name: str | None = None,
+) -> str:
+    display = f"*{customer_name}*" if customer_name else f"Order {order_ref}"
     return (
-        f"Order {order_ref} — outstanding: {_naira(outstanding)}\n\n"
+        f"{display} — outstanding: {_naira(outstanding)}\n\n"
         "How much did the customer pay? Type the amount (e.g. _5000_):"
     )
 
 
-def credit_paid_in_full(order_ref: str, amount: int) -> str:
+def credit_paid_in_full(
+    order_ref: str, amount: int, customer_name: str | None = None,
+) -> str:
+    display = f"*{customer_name}*" if customer_name else f"Order {order_ref}"
     return (
-        f"\u2705 Order {order_ref} fully paid! {_naira(amount)} debt cleared.\n\n"
+        f"\u2705 {display} fully paid! {_naira(amount)} debt cleared.\n\n"
         "The order has been marked as PAID."
     )
 
 
-def credit_partial_received(order_ref: str, paid: int, remaining: int) -> str:
+def credit_partial_received(
+    order_ref: str, paid: int, remaining: int, customer_name: str | None = None,
+) -> str:
+    display = f"*{customer_name}*" if customer_name else f"order {order_ref}"
     return (
-        f"\U0001f4b0 Received {_naira(paid)} for order {order_ref}.\n\n"
+        f"\U0001f4b0 Received {_naira(paid)} from {display}.\n\n"
         f"Remaining balance: *{_naira(remaining)}*"
     )
 
 
-def order_cancelled_to_trader(order_ref: str) -> str:
-    return f"\u274c Order {order_ref} cancelled. The customer has been notified."
+def order_cancelled_to_trader(order_ref: str, customer_name: str | None = None) -> str:
+    display = f"*{customer_name}*'s order" if customer_name else f"Order {order_ref}"
+    return f"\u274c {display} cancelled. The customer has been notified."
 
 
-def order_paid_to_trader(order_ref: str) -> str:
-    return f"\U0001f4b0 Payment recorded for order {order_ref}. Marked as PAID."
+def order_paid_to_trader(order_ref: str, customer_name: str | None = None) -> str:
+    display = f"*{customer_name}*'s" if customer_name else f"Order {order_ref}:"
+    return f"\U0001f4b0 Payment recorded for {display}. Marked as PAID."
 
 
-def order_delivered_to_trader(order_ref: str) -> str:
-    return f"\U0001f680 Order {order_ref} marked as delivered. Well done! \U0001f4aa"
+def order_delivered_to_trader(order_ref: str, customer_name: str | None = None) -> str:
+    display = f"*{customer_name}*'s order" if customer_name else f"Order {order_ref}"
+    return f"\U0001f680 {display} marked as delivered. Well done! \U0001f4aa"
 
 
 def order_not_found_to_trader(ref: str) -> str:
@@ -389,11 +416,13 @@ def order_reminder_to_trader(
     total: int,
     order_ref: str,
     hours_ago: int,
+    customer_name: str | None = None,
 ) -> tuple[str, list[dict[str, str]]]:
     """Return (body_text, buttons) for an interactive order reminder."""
+    display = _customer_label(customer_name, customer_phone)
     time_label = f"{hours_ago} hour{'s' if hours_ago != 1 else ''}"
     body = (
-        f"\u23f0 Reminder: You have an unconfirmed order from +{customer_phone} "
+        f"\u23f0 Reminder: {display} has an unconfirmed order "
         f"({time_label} ago).\n\n"
         f"*Total: {_naira(total)}*\n"
         f"Ref: {order_ref}"
@@ -762,15 +791,15 @@ def pending_orders_list(
 
 
 def pending_order_actions(
-    order_ref: str, customer_phone: str, amount: int, is_credit: bool = False,
+    order_ref: str, customer_display: str, amount: int, is_credit: bool = False,
 ) -> tuple[str, list[dict[str, str]]]:
     """Return (body, buttons) for action on a confirmed order."""
     if is_credit:
-        return order_credit_buttons(order_ref, customer_phone, amount)
+        return order_credit_buttons(order_ref, customer_display, amount)
     body = (
-        f"Order *{order_ref}*\n"
-        f"Customer: {customer_phone}\n"
-        f"Amount: {_naira(amount)}"
+        f"*{customer_display}*\n"
+        f"Amount: {_naira(amount)}\n"
+        f"Ref: {order_ref}"
     )
     buttons = [
         {"id": f"PAID {order_ref}", "title": "\U0001f4b0 Paid"},
@@ -780,16 +809,16 @@ def pending_order_actions(
 
 
 def order_action_buttons(
-    order_ref: str, customer_phone: str, amount: int, state: str, is_credit: bool,
+    order_ref: str, customer_display: str, amount: int, state: str, is_credit: bool,
 ) -> tuple[str, list[dict[str, str]]]:
     """Return (body, buttons) with context-appropriate actions per order state."""
     credit_tag = " | Credit" if is_credit else ""
     state_label = _STATE_LABELS.get(state, state)
     body = (
-        f"Order *{order_ref}*\n"
-        f"Customer: +{customer_phone}\n"
+        f"*{customer_display}*\n"
         f"Amount: {_naira(amount)}\n"
-        f"Status: {state_label}{credit_tag}"
+        f"Status: {state_label}{credit_tag}\n"
+        f"Ref: {order_ref}"
     )
     buttons: list[dict[str, str]] = []
     if state == "inquiry":

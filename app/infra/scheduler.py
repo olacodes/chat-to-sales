@@ -131,6 +131,7 @@ async def _send_order_reminders() -> None:
             total=total,
             order_ref=order_ref,
             hours_ago=hours_ago,
+            customer_name=order.customer_name,
         )
 
         try:

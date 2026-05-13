@@ -589,6 +589,7 @@ class OrderService:
                     total=total,
                     customer_phone=customer_phone,
                     order_ref=order_ref,
+                    customer_name=customer_name,
                 )
                 await self._reply_interactive(
                     phone=trader_phone_number,
@@ -1679,6 +1680,7 @@ class OrderService:
             paid_amount = int(numbers[0])
             order_id = tsession.get("order_id", "")
             order_ref = tsession.get("order_ref", "")
+            session_cust_name: str | None = tsession.get("customer_name") or None
 
             if paid_amount <= 0:
                 await self._reply(
@@ -1719,7 +1721,7 @@ class OrderService:
                         await self._reply(
                             phone=trader_phone, tenant_id=tenant_id,
                             event_id=f"order.creditpart_full.{message_id}",
-                            text=wa.credit_paid_in_full(order_ref, outstanding),
+                            text=wa.credit_paid_in_full(order_ref, outstanding, customer_name=session_cust_name),
                             channel_tenant_id=channel_tenant_id,
                         )
                     else:
@@ -1729,7 +1731,7 @@ class OrderService:
                         await self._reply(
                             phone=trader_phone, tenant_id=tenant_id,
                             event_id=f"order.creditpart_partial.{message_id}",
-                            text=wa.credit_partial_received(order_ref, paid_amount, remaining),
+                            text=wa.credit_partial_received(order_ref, paid_amount, remaining, customer_name=session_cust_name),
                             channel_tenant_id=channel_tenant_id,
                         )
                 else:
@@ -3517,7 +3519,7 @@ class OrderService:
                             phone=trader_phone,
                             tenant_id=tenant_id,
                             event_id=f"order.payrcvd_trader.{order.id}",
-                            text=wa.order_paid_to_trader(order_ref),
+                            text=wa.order_paid_to_trader(order_ref, customer_name=order.customer_name),
                             channel_tenant_id=channel_tenant_id,
                         )
                         if customer_phone:
@@ -3591,7 +3593,7 @@ class OrderService:
                         await self._reply(
                             phone=trader_phone, tenant_id=tenant_id,
                             event_id=f"order.creditpaid_trader.{order.id}",
-                            text=wa.credit_paid_in_full(order_ref, total),
+                            text=wa.credit_paid_in_full(order_ref, total, customer_name=order.customer_name),
                             channel_tenant_id=channel_tenant_id,
                         )
                         # Notify customer
@@ -3611,11 +3613,12 @@ class OrderService:
                             "state": TRADER_AWAITING_CREDIT_PARTIAL,
                             "order_id": order.id,
                             "order_ref": order_ref,
+                            "customer_name": order.customer_name or "",
                         })
                         await self._reply(
                             phone=trader_phone, tenant_id=tenant_id,
                             event_id=f"order.creditpart_prompt.{message_id}",
-                            text=wa.credit_partial_prompt(order_ref, total),
+                            text=wa.credit_partial_prompt(order_ref, total, customer_name=order.customer_name),
                             channel_tenant_id=channel_tenant_id,
                         )
                 else:
@@ -3996,6 +3999,7 @@ class OrderService:
             return
 
         customer_phone: str = order.customer_phone or ""
+        cust_name: str | None = order.customer_name or None
 
         if result.intent == TRADER_CONFIRM:
             try:
@@ -4010,7 +4014,7 @@ class OrderService:
                     channel_tenant_id=channel_tenant_id,
                 )
                 return
-            body_text, buttons = wa.order_confirmed_to_trader(ref)
+            body_text, buttons = wa.order_confirmed_to_trader(ref, customer_name=cust_name, customer_phone=customer_phone)
             await self._reply_interactive(
                 phone=trader_phone,
                 tenant_id=tenant_id,
@@ -4066,7 +4070,7 @@ class OrderService:
                 phone=trader_phone,
                 tenant_id=tenant_id,
                 event_id=f"order.cancelled_trader.{order.id}",
-                text=wa.order_cancelled_to_trader(ref),
+                text=wa.order_cancelled_to_trader(ref, customer_name=cust_name),
                 channel_tenant_id=channel_tenant_id,
             )
             if customer_phone:
@@ -4096,7 +4100,7 @@ class OrderService:
                 phone=trader_phone,
                 tenant_id=tenant_id,
                 event_id=f"order.paid_trader.{order.id}",
-                text=wa.order_paid_to_trader(ref),
+                text=wa.order_paid_to_trader(ref, customer_name=cust_name),
                 channel_tenant_id=channel_tenant_id,
             )
             logger.info("Trader marked order PAID order_id=%s ref=%s", order.id, ref)
@@ -4112,7 +4116,7 @@ class OrderService:
                     phone=trader_phone,
                     tenant_id=tenant_id,
                     event_id=f"order.credit_dup.{message_id}",
-                    text=wa.order_already_on_credit(ref),
+                    text=wa.order_already_on_credit(ref, customer_name=cust_name),
                     channel_tenant_id=channel_tenant_id,
                 )
                 return
@@ -4172,7 +4176,7 @@ class OrderService:
                 phone=trader_phone,
                 tenant_id=tenant_id,
                 event_id=f"order.delivered_trader.{order.id}",
-                text=wa.order_delivered_to_trader(ref),
+                text=wa.order_delivered_to_trader(ref, customer_name=cust_name),
                 channel_tenant_id=channel_tenant_id,
             )
             logger.info("Trader marked order DELIVERED order_id=%s ref=%s", order.id, ref)
