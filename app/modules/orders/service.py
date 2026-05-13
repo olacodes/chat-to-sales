@@ -711,15 +711,51 @@ class OrderService:
 
         # ── Existing session: waiting for clarification answer ────────────────
         if session and session.get("state") == AWAITING_CLARIFICATION:
-            # Append the clarification answer to the original message and re-parse
             original = session.get("original_message", "")
-            combined = f"{original}. {message}"
-            try:
-                result = await self._smart_parse(combined, category, catalogue, conversation_id)
-            except Exception as exc:
-                logger.error("Smart parse failed (clarification): %s", exc, exc_info=True)
-                from app.modules.orders.nlp import ParseResult
-                result = ParseResult(intent=UNKNOWN, confidence=0.0)
+            bot_reply = session.get("bot_reply", "")
+            numbered_items: list[dict[str, Any]] = session.get("numbered_items", [])
+
+            # Quick-pick: customer replies with a number matching a numbered list
+            import re as _pick_re
+            num_match = _pick_re.match(r"^\s*(\d{1,2})\s*$", message.strip())
+            if num_match and numbered_items:
+                picked_num = int(num_match.group(1))
+                picked = next((it for it in numbered_items if it["index"] == picked_num), None)
+                if picked:
+                    from app.modules.orders.nlp import ParseResult
+                    result = ParseResult(
+                        intent=ORDER,
+                        items=[{"name": picked["name"], "qty": 1, "unit_price": picked["price"]}],
+                        confidence=1.0,
+                    )
+                    await clear_order_session(tenant_id, customer_phone)
+                    logger.info("Quick-pick: customer chose #%d -> %s", picked_num, picked["name"])
+                else:
+                    await self._reply(
+                        phone=customer_phone, tenant_id=tenant_id,
+                        event_id=f"order.pick_invalid.{message_id}",
+                        text=f"There's no item #{picked_num} in the list. Please pick a number from the list, or tell me what you want.",
+                        channel_tenant_id=channel_tenant_id,
+                    )
+                    return
+            else:
+                # Re-parse with full conversation context (original + bot reply + new message)
+                extra_history: list[dict[str, str]] = []
+                if original:
+                    extra_history.append({"role": "user", "content": original})
+                if bot_reply:
+                    extra_history.append({"role": "assistant", "content": bot_reply})
+
+                try:
+                    result = await self._smart_parse(
+                        message, category, catalogue, conversation_id,
+                        extra_history=extra_history,
+                    )
+                except Exception as exc:
+                    logger.error("Smart parse failed (clarification): %s", exc, exc_info=True)
+                    from app.modules.orders.nlp import ParseResult
+                    result = ParseResult(intent=UNKNOWN, confidence=0.0)
+                await clear_order_session(tenant_id, customer_phone)
         else:
             try:
                 result = await self._smart_parse(message, category, catalogue, conversation_id)
@@ -862,20 +898,34 @@ class OrderService:
 
         if result.intent == UNKNOWN or (result.intent == ORDER and not result.items):
             if result.clarification_needed and result.clarification_question:
-                # Save context and ask the clarification question
+                reply_text = result.clarification_question
+
+                # Extract numbered items from the reply for quick-pick
+                import re as _cl_re
+                numbered_items: list[dict[str, Any]] = []
+                for m in _cl_re.finditer(r"(\d+)\.\s+(.+?)\s*[-\u2013]\s*N([\d,]+)", reply_text):
+                    numbered_items.append({
+                        "index": int(m.group(1)),
+                        "name": m.group(2).strip(),
+                        "price": int(m.group(3).replace(",", "")),
+                    })
+
+                # Save context including bot reply and numbered items
                 await set_order_session(
                     tenant_id,
                     customer_phone,
                     {
                         "state": AWAITING_CLARIFICATION,
                         "original_message": message,
+                        "bot_reply": reply_text,
+                        "numbered_items": numbered_items,
                     },
                 )
                 await self._reply(
                     phone=customer_phone,
                     tenant_id=tenant_id,
                     event_id=f"order.clarify.{message_id}",
-                    text=wa.ask_clarification(result.clarification_question),
+                    text=wa.ask_clarification(reply_text),
                     channel_tenant_id=channel_tenant_id,
                 )
             else:
@@ -2499,11 +2549,12 @@ class OrderService:
         category: str,
         catalogue: dict[str, int],
         conversation_id: str,
+        extra_history: list[dict[str, str]] | None = None,
     ) -> Any:
         """Parse customer message using Claude-first smart parser with conversation context."""
         from app.modules.orders.nlp import smart_parse_customer_message
 
-        # Fetch last 5 messages for context
+        # Fetch last 5 messages from DB for context
         history: list[dict[str, str]] = []
         try:
             from app.modules.conversation.models import Message
@@ -2524,6 +2575,10 @@ class OrderService:
                     })
         except Exception:
             pass  # No history is fine — Claude still works without it
+
+        # Prepend extra history (bot replies from clarification sessions)
+        if extra_history:
+            history = extra_history + history
 
         return await smart_parse_customer_message(
             message,
