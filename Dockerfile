@@ -21,8 +21,10 @@ RUN pip install --upgrade pip \
 # ── Runtime stage ─────────────────────────────────────────────────────────────
 FROM python:3.11-slim AS runtime
 
-# ffmpeg for audio format conversion (AAC/AMR → OGG for Whisper)
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
+# ffmpeg for audio conversion, fonts for Status Kit image generation
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ffmpeg \
+        fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 
 # Non-root user for security
