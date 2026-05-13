@@ -6,10 +6,9 @@ Strict order state machine for ChatToSales.
 Allowed transitions
 -------------------
 INQUIRY    → CONFIRMED | FAILED
-CONFIRMED  → PAID      | FAILED
-PAID       → COMPLETED | FAILED
-COMPLETED  → (terminal — no further transitions)
-FAILED     → (terminal — no further transitions)
+CONFIRMED  → PAID | FAILED
+PAID       → (terminal — payment received, order is done)
+FAILED     → (terminal — cancelled or error)
 
 ANY attempt to move to a state not in the allowed set raises
 InvalidTransitionError, which maps to HTTP 409 in the exception handlers.
@@ -24,10 +23,9 @@ logger = get_logger(__name__)
 
 _VALID_TRANSITIONS: dict[OrderState, frozenset[OrderState]] = {
     OrderState.INQUIRY: frozenset({OrderState.CONFIRMED, OrderState.FAILED}),
-    OrderState.CONFIRMED: frozenset({OrderState.PAID, OrderState.COMPLETED, OrderState.FAILED}),
-    OrderState.PAID: frozenset({OrderState.COMPLETED, OrderState.FAILED}),
-    OrderState.COMPLETED: frozenset(),  # terminal
-    OrderState.FAILED: frozenset(),     # terminal
+    OrderState.CONFIRMED: frozenset({OrderState.PAID, OrderState.FAILED}),
+    OrderState.PAID: frozenset(),      # terminal — paid = done
+    OrderState.FAILED: frozenset(),    # terminal
 }
 
 
@@ -54,7 +52,7 @@ def validate_transition(order_id: str, current_state: str, new_state: str) -> No
     Verify that moving from current_state to new_state is permitted.
 
     Raises InvalidTransitionError on any invalid attempt — including:
-    - Transitioning a terminal state (COMPLETED / FAILED) to anything
+    - Transitioning a terminal state (PAID / FAILED) to anything
     - Skipping states (e.g. INQUIRY → PAID)
     - No-op transitions (same state → same state)
     """

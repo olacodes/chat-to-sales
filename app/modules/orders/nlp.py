@@ -38,7 +38,6 @@ CANCEL = "cancel"                # customer cancels / says NO
 TRADER_CONFIRM = "trader_confirm"
 TRADER_CANCEL = "trader_cancel"
 TRADER_PAID = "trader_paid"
-TRADER_DELIVERED = "trader_delivered"
 TRADER_ADD = "trader_add"
 TRADER_REMOVE = "trader_remove"
 TRADER_PRICE = "trader_price"
@@ -87,7 +86,7 @@ _WORD_TO_NUM: dict[str, int] = {**_YORUBA_NUMS, **_ENGLISH_NUMS}
 
 # Trader commands: verb + 6-16 lowercase hex chars
 _TRADER_CMD_RE = re.compile(
-    r"^(confirm|cancel|paid|credit|deliver(?:ed)?)\s+([a-f0-9]{6,16})\b",
+    r"^(confirm|cancel|paid|credit)\s+([a-f0-9]{6,16})\b",
     re.IGNORECASE,
 )
 
@@ -153,8 +152,6 @@ _TRADER_VERB_MAP = {
     "cancel": TRADER_CANCEL,
     "paid": TRADER_PAID,
     "credit": TRADER_CREDIT,
-    "deliver": TRADER_DELIVERED,
-    "delivered": TRADER_DELIVERED,
 }
 
 # Catalogue management commands

@@ -84,7 +84,6 @@ async def _fetch_metrics(db: AsyncSession, tenant_id: str | None) -> DashboardMe
                         [
                             OrderState.CONFIRMED,
                             OrderState.PAID,
-                            OrderState.COMPLETED,
                         ]
                     ),
                     Order.id,

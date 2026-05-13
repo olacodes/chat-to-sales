@@ -10,7 +10,7 @@ conversation has been persisted.  Four possible actors:
 
 1. Trader (store owner) — personal phone matches a completed Trader record.
    -> Routed to OrderService.handle_trader_command()
-   -> Commands: CONFIRM/CANCEL/PAID/DELIVERED <ref>
+   -> Commands: CONFIRM/CANCEL/PAID/CREDIT <ref>
    -> Uses trader's own tenant_id for order lookup; platform tenant for sends.
 
 2. Customer in onboarding — sender has an active onboarding session in Redis.
@@ -607,7 +607,7 @@ def register_credit_sale_status_handler() -> asyncio.Task:
         if order is None:
             logger.warning("CreditSaleStatus: transition skipped order_id=%s", order_id)
         else:
-            logger.info("CreditSaleStatus: order COMPLETED order_id=%s", order.id)
+            logger.info("CreditSaleStatus: order PAID order_id=%s", order.id)
 
     logger.info("Registering credit_sale.status_changed handler (all tenants)")
     return _cgl(

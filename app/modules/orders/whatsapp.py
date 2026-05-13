@@ -399,9 +399,6 @@ def order_paid_to_trader(order_ref: str, customer_name: str | None = None) -> st
     return f"\U0001f4b0 Payment recorded for {display}. Marked as PAID."
 
 
-def order_delivered_to_trader(order_ref: str, customer_name: str | None = None) -> str:
-    display = f"*{customer_name}*'s order" if customer_name else f"Order {order_ref}"
-    return f"\U0001f680 {display} marked as delivered. Well done! \U0001f4aa"
 
 
 def order_not_found_to_trader(ref: str) -> str:
@@ -439,8 +436,7 @@ def trader_command_guide() -> str:
         "To manage your orders, use these commands:\n\n"
         "  CONFIRM <ref>   - confirm a customer order\n"
         "  CANCEL <ref>    - cancel an order\n"
-        "  PAID <ref>      - mark order as paid\n"
-        "  DELIVERED <ref> - mark order as delivered\n\n"
+        "  PAID <ref>      - mark order as paid\n\n"
         "The ref is the short code shown in each order notification.\n\n"
         "Visit your dashboard to see all orders."
     )
@@ -743,7 +739,6 @@ _STATE_LABELS: dict[str, str] = {
     "inquiry": "New",
     "confirmed": "Confirmed",
     "paid": "Paid",
-    "completed": "Done",
     "failed": "Cancelled",
 }
 
@@ -831,10 +826,7 @@ def order_action_buttons(
             {"id": f"CREDITPAID {order_ref}", "title": "\u2705 Paid in Full"},
             {"id": f"CREDITPART {order_ref}", "title": "\U0001f4b0 Partial Payment"},
         ]
-    elif state == "paid":
-        buttons = [
-            {"id": f"DELIVERED {order_ref}", "title": "\U0001f680 Complete"},
-        ]
+    # PAID is terminal — no buttons needed
     return body, buttons
 
 

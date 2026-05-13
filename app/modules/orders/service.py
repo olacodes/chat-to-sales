@@ -6,7 +6,7 @@ OrderService — orchestrates the order lifecycle.
 WhatsApp-driven entry points (Feature 2):
   handle_inbound_customer_message() — parses customer orders and manages the
       customer confirmation flow via Redis session.
-  handle_trader_command() — interprets CONFIRM/CANCEL/PAID/DELIVERED commands
+  handle_trader_command() — interprets CONFIRM/CANCEL/PAID/CREDIT commands
       from the trader and transitions the order state machine accordingly.
 
 Every state-changing method:
@@ -46,7 +46,6 @@ from app.modules.orders.nlp import (
     TRADER_CREDIT,
     TRADER_DEBT,
     TRADER_ORDERS,
-    TRADER_DELIVERED,
     TRADER_MENU,
     TRADER_BANK,
     TRADER_PAID,
@@ -287,9 +286,8 @@ class OrderService:
         """
         Core CONFIRMED → PAID logic shared by HTTP and event-handler paths.
 
-        Validates the transition, persists the new state, emits both
-        order.state_changed and order.paid events.  Does NOT commit —
-        the caller owns the transaction.
+        Emits both order.state_changed and order.paid events.
+        Does NOT commit — the caller owns the transaction.
         """
         order = await self._transition(order, OrderState.PAID)
         # Emit dedicated payment event for downstream modules
@@ -331,10 +329,10 @@ class OrderService:
             )
             return None
 
-        if order.state == OrderState.PAID:
+        if order.state in (OrderState.PAID, OrderState.PAID):
             logger.info(
-                "handle_payment_confirmed: order already PAID order_id=%s — idempotent",
-                order_id,
+                "handle_payment_confirmed: order already %s order_id=%s — idempotent",
+                order.state, order_id,
             )
             return order
 
@@ -355,7 +353,7 @@ class OrderService:
         self, order_id: str, *, tenant_id: str | None = None
     ) -> Order:
         order = await self._get_or_404(order_id, tenant_id)
-        order = await self._transition(order, OrderState.COMPLETED)
+        order = await self._transition(order, OrderState.PAID)
         await self._db.commit()
         return await self._reload(order.id)
 
@@ -363,10 +361,10 @@ class OrderService:
         self, *, order_id: str, tenant_id: str
     ) -> Order | None:
         """
-        Transition an order to COMPLETED when its linked credit sale is settled
+        Transition an order to PAID when its linked credit sale is settled
         or written off.
 
-        Accepts orders in CONFIRMED or PAID state (CONFIRMED → COMPLETED is
+        Accepts orders in CONFIRMED state (CONFIRMED → PAID is
         allowed for credit sales that bypass the normal payment step).
         Returns None if the order is not found, already terminal, or the
         transition is not applicable.
@@ -378,7 +376,7 @@ class OrderService:
             )
             return None
 
-        if order.state in (OrderState.COMPLETED, OrderState.FAILED):
+        if order.state in (OrderState.PAID, OrderState.FAILED):
             logger.info(
                 "handle_credit_sale_resolved: order already terminal order_id=%s state=%s",
                 order_id,
@@ -387,7 +385,7 @@ class OrderService:
             return order
 
         try:
-            order = await self._transition(order, OrderState.COMPLETED)
+            order = await self._transition(order, OrderState.PAID)
         except ConflictError as exc:
             logger.warning(
                 "handle_credit_sale_resolved: cannot transition order_id=%s state=%s: %s",
@@ -2963,7 +2961,6 @@ class OrderService:
                     Order.state.in_([
                         OrderState.INQUIRY,
                         OrderState.CONFIRMED,
-                        OrderState.PAID,
                     ]),
                 ).order_by(Order.created_at.desc())
             )
@@ -3348,7 +3345,6 @@ class OrderService:
             CONFIRM <ref>    INQUIRY -> CONFIRMED, notify customer
             CANCEL  <ref>    INQUIRY/CONFIRMED -> FAILED, notify customer
             PAID    <ref>    CONFIRMED -> PAID
-            DELIVERED <ref>  CONFIRMED/PAID -> COMPLETED
 
         Catalogue commands:
             ADD <product> <price>     Add a product
@@ -3775,16 +3771,6 @@ class OrderService:
                     body_text=body, buttons=buttons,
                     channel_tenant_id=channel_tenant_id,
                 )
-            elif order.state == OrderState.PAID:
-                body, buttons = wa.order_action_buttons(
-                    ref_lower, cust_display, total, order.state, order.is_credit
-                )
-                await self._reply_interactive(
-                    phone=trader_phone, tenant_id=tenant_id,
-                    event_id=f"trader.ordact.{message_id}",
-                    body_text=body, buttons=buttons,
-                    channel_tenant_id=channel_tenant_id,
-                )
             else:
                 await self._reply(
                     phone=trader_phone, tenant_id=tenant_id,
@@ -3970,7 +3956,7 @@ class OrderService:
 
         # ── Order commands ────────────────────────────────────────────────────
         if result.intent not in (
-            TRADER_CONFIRM, TRADER_CANCEL, TRADER_PAID, TRADER_CREDIT, TRADER_DELIVERED
+            TRADER_CONFIRM, TRADER_CANCEL, TRADER_PAID, TRADER_CREDIT
         ):
             # Check if trader is replying to a pending image inquiry
             handled = await self._handle_image_inquiry_reply(
@@ -4191,28 +4177,6 @@ class OrderService:
             )
             logger.info("Trader marked order CREDIT order_id=%s ref=%s", order.id, ref)
 
-        elif result.intent == TRADER_DELIVERED:
-            # Accept CONFIRMED -> COMPLETED or PAID -> COMPLETED
-            try:
-                await self._transition(order, OrderState.COMPLETED)
-                await self._db.commit()
-            except ConflictError as exc:
-                await self._reply(
-                    phone=trader_phone,
-                    tenant_id=tenant_id,
-                    event_id=f"order.deliver_err.{message_id}",
-                    text=f"Cannot mark order {ref} as delivered: {exc}",
-                    channel_tenant_id=channel_tenant_id,
-                )
-                return
-            await self._reply(
-                phone=trader_phone,
-                tenant_id=tenant_id,
-                event_id=f"order.delivered_trader.{order.id}",
-                text=wa.order_delivered_to_trader(ref, customer_name=cust_name),
-                channel_tenant_id=channel_tenant_id,
-            )
-            logger.info("Trader marked order DELIVERED order_id=%s ref=%s", order.id, ref)
 
     async def _reply(
         self,

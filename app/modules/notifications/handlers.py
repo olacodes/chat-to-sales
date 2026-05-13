@@ -156,7 +156,7 @@ async def handle_order_state_changed_notification(event: Event) -> None:
     """
     Send a state-specific message when order.state_changed fires.
 
-    States handled: CONFIRMED, PAID, COMPLETED.
+    States handled: CONFIRMED, PAID.
     Other states (INQUIRY, FAILED) are silently skipped.
     """
     payload = event.payload
@@ -175,7 +175,6 @@ async def handle_order_state_changed_notification(event: Event) -> None:
     template = {
         OrderState.CONFIRMED: _MSG_ORDER_CONFIRMED,
         OrderState.PAID: _MSG_ORDER_PAID,
-        OrderState.COMPLETED: _MSG_ORDER_COMPLETED,
     }.get(new_state)
 
     if template is None:

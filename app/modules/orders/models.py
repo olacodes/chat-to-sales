@@ -11,8 +11,7 @@ from app.core.models.base import BaseModel, TenantModel
 class OrderState(StrEnum):
     INQUIRY = "inquiry"  # initial — customer expressed intent
     CONFIRMED = "confirmed"  # order details agreed, awaiting payment
-    PAID = "paid"  # payment received
-    COMPLETED = "completed"  # fulfilled / delivered (terminal)
+    PAID = "paid"  # payment received (terminal success)
     FAILED = "failed"  # cancelled / error (terminal)
 
 
