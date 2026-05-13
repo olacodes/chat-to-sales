@@ -151,8 +151,12 @@ _MEDIA_CONFIRMED = (
 )
 
 _WRONG_MEDIA_TYPE = (
-    "I'm waiting for a {expected} — please send a {expected} or "
-    "type *3* to answer questions instead."
+    "I'm waiting for a {expected} — please send a {expected}, or switch:\n\n"
+    "*1* — Photo of price list\n"
+    "*2* — Voice note\n"
+    "*3* — Answer questions\n"
+    "*4* — Skip\n"
+    "*back* — Choose again"
 )
 
 _QA_QUESTION = (
@@ -475,6 +479,21 @@ class OnboardingService:
                     step_name="catalogue_path", path="skip",
                 )
                 await self._complete(phone_number, state.data, tenant_id, message_id)
+            case "back":
+                # Go back to path selection
+                await self._advance(
+                    phone_number,
+                    OnboardingStep.AWAITING_CATALOGUE,
+                    state.data,
+                    "No problem! How would you like to set up your catalogue?\n\n"
+                    "1. Send a *photo* of your price list\n"
+                    "2. Send a *voice note* listing products\n"
+                    "3. Answer questions one by one\n"
+                    "4. Skip — I'll learn from your orders\n\n"
+                    "Reply with 1, 2, 3, or 4.",
+                    tenant_id,
+                    message_id,
+                )
             case _:
                 await self._reply(
                     phone_number=phone_number,
@@ -495,6 +514,11 @@ class OnboardingService:
         media_id: str | None,
         media_type: str | None,
     ) -> None:
+        # Allow switching paths by typing a number or "back"
+        if msg.strip() in ("1", "2", "3", "4", "back"):
+            await self._handle_catalogue_choice(phone_number, msg, tenant_id, message_id, state)
+            return
+
         if not media_id or msg != "[image]":
             # Trader sent text while we're waiting for a photo
             await self._reply(
@@ -573,6 +597,11 @@ class OnboardingService:
         media_id: str | None,
         media_type: str | None,
     ) -> None:
+        # Allow switching paths by typing a number or "back"
+        if msg.strip() in ("1", "2", "3", "4", "back"):
+            await self._handle_catalogue_choice(phone_number, msg, tenant_id, message_id, state)
+            return
+
         if not media_id or msg != "[audio]":
             # Trader sent text while we're waiting for a voice note
             await self._reply(
