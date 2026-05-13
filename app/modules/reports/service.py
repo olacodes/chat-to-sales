@@ -32,7 +32,7 @@ from app.core.logging import get_logger
 from app.modules.channels.repository import ChannelRepository
 from app.modules.conversation.models import Conversation, ConversationStatus, Message
 from app.modules.notifications.service import NotificationService
-from app.modules.orders.models import Order, OrderState
+from app.modules.orders.models import Order, OrderItem, OrderState
 from app.modules.reports.models import (
     TenantReportConfig,
     WeeklyReport,
@@ -111,6 +111,8 @@ class WeeklyMetrics:
     needs_attention: list[NeedsAttention] = field(default_factory=list)
     conv_delta: int = 0
     revenue_delta: Decimal = Decimal("0")
+    # Trending products
+    trending_products: list[tuple[str, int]] = field(default_factory=list)  # (name, order_count)
     # Debt summary
     total_outstanding: Decimal = Decimal("0")
     active_debts_count: int = 0
@@ -289,7 +291,30 @@ async def _gather_metrics(
         )
     )
 
-    # ── 6. Debt summary ──────────────────────────────────────────────────────
+    # ── 6. Trending products (top 5 by total quantity ordered) ──────────────
+    trending_rows = (
+        await db.execute(
+            select(
+                OrderItem.product_name,
+                func.sum(OrderItem.quantity).label("total_qty"),
+            )
+            .join(Order, OrderItem.order_id == Order.id)
+            .where(
+                Order.tenant_id == tenant_id,
+                Order.created_at >= week_start,
+                Order.created_at <= week_end,
+            )
+            .group_by(OrderItem.product_name)
+            .order_by(func.sum(OrderItem.quantity).desc())
+            .limit(5)
+        )
+    ).all()
+    trending_products = [
+        (row.product_name, int(row.total_qty))
+        for row in trending_rows
+    ]
+
+    # ── 7. Debt summary ──────────────────────────────────────────────────────
     from app.modules.credit_sales.models import CreditSale, CreditSaleStatus
 
     # Total outstanding (all active debts, not just this week)
@@ -329,6 +354,7 @@ async def _gather_metrics(
         needs_attention=needs_attention,
         conv_delta=conv_count - prior_conversations,
         revenue_delta=revenue_paid - prior_revenue,
+        trending_products=trending_products,
         total_outstanding=total_outstanding,
         active_debts_count=active_debts_count,
         settled_this_week=settled_this_week,
@@ -379,6 +405,12 @@ def render_report(m: WeeklyMetrics) -> str:
             rev = f" — {_NAIRA}{c.revenue:,.0f}" if c.revenue > 0 else ""
             word = "order" if c.order_count == 1 else "orders"
             lines.append(f"{i}. {c.name} ({c.order_count} {word}{rev})")
+
+    if m.trending_products:
+        lines += ["", "━━━━━━━━━━━━━━━━━━━━", "*📈 Trending products*"]
+        for i, (name, qty) in enumerate(m.trending_products, 1):
+            unit = "unit" if qty == 1 else "units"
+            lines.append(f"{i}. {name} — {qty} {unit}")
 
     if m.active_debts_count > 0 or m.settled_this_week > 0:
         lines += ["", "━━━━━━━━━━━━━━━━━━━━", "*📖 Debt book*"]
