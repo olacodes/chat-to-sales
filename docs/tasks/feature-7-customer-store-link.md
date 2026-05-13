@@ -28,7 +28,7 @@ Lightweight mobile page at `chattosales.com/stores/{slug}` where customers can b
 
 | # | Task | Description | Priority |
 |---|------|-------------|----------|
-| ⬜ | 2G performance optimization | Test and optimize for sub-2-second load on slow networks. Image lazy loading, minimal JS, critical CSS inlining. | High |
+| ✅ | 2G performance optimization | Lightweight StoreNavbar (zero client JS — no framer-motion, no auth store, no scroll listeners). next/image for product photos (WebP/AVIF auto-format, 48px sizing). CDN cache headers (s-maxage=60, stale-while-revalidate=300). Instant loading skeleton (pure HTML+CSS, zero JS). R2 image domains configured. Smaller device-size presets for thumbnails. | High |
 | ✅ | Open Graph / social sharing | Dynamic OG metadata per store: title (business name), description (product count + CTA), full openGraph + twitter card tags. Dynamic OG image generated via `next/og` ImageResponse (1200x630): dark green background, store name, category, top 4 product names as pills, WhatsApp green CTA button, ChatToSales branding. Revalidates every 5 min. |
 | ⬜ | Store page bank details | Show trader's bank details on the store page (optional, trader-configurable) so customers can pay before messaging. | Medium |
 | ⬜ | Product search on store page | Search/filter bar on store pages with large catalogues (>20 products). | Medium |
