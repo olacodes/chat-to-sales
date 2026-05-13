@@ -321,6 +321,50 @@ def order_confirmed_to_trader(order_ref: str) -> tuple[str, list[dict[str, str]]
     return body, buttons
 
 
+def order_credit_buttons(
+    order_ref: str, customer_display: str, amount: int,
+) -> tuple[str, list[dict[str, str]]]:
+    """Return (body, buttons) for a confirmed credit order — Paid in Full / Partial Payment."""
+    body = (
+        f"Order *{order_ref}* (Credit)\n"
+        f"Customer: {customer_display}\n"
+        f"Outstanding: {_naira(amount)}"
+    )
+    buttons = [
+        {"id": f"CREDITPAID {order_ref}", "title": "\u2705 Paid in Full"},
+        {"id": f"CREDITPART {order_ref}", "title": "\U0001f4b0 Partial Payment"},
+    ]
+    return body, buttons
+
+
+def order_already_on_credit(order_ref: str) -> str:
+    return (
+        f"Order {order_ref} is already on credit.\n\n"
+        "Type _WHO OWES ME_ to manage your debt book."
+    )
+
+
+def credit_partial_prompt(order_ref: str, outstanding: int) -> str:
+    return (
+        f"Order {order_ref} — outstanding: {_naira(outstanding)}\n\n"
+        "How much did the customer pay? Type the amount (e.g. _5000_):"
+    )
+
+
+def credit_paid_in_full(order_ref: str, amount: int) -> str:
+    return (
+        f"\u2705 Order {order_ref} fully paid! {_naira(amount)} debt cleared.\n\n"
+        "The order has been marked as PAID."
+    )
+
+
+def credit_partial_received(order_ref: str, paid: int, remaining: int) -> str:
+    return (
+        f"\U0001f4b0 Received {_naira(paid)} for order {order_ref}.\n\n"
+        f"Remaining balance: *{_naira(remaining)}*"
+    )
+
+
 def order_cancelled_to_trader(order_ref: str) -> str:
     return f"\u274c Order {order_ref} cancelled. The customer has been notified."
 
@@ -718,9 +762,11 @@ def pending_orders_list(
 
 
 def pending_order_actions(
-    order_ref: str, customer_phone: str, amount: int,
+    order_ref: str, customer_phone: str, amount: int, is_credit: bool = False,
 ) -> tuple[str, list[dict[str, str]]]:
-    """Return (body, buttons) for Paid/Credit action on a specific order."""
+    """Return (body, buttons) for action on a confirmed order."""
+    if is_credit:
+        return order_credit_buttons(order_ref, customer_phone, amount)
     body = (
         f"Order *{order_ref}*\n"
         f"Customer: {customer_phone}\n"
@@ -750,6 +796,11 @@ def order_action_buttons(
         buttons = [
             {"id": f"CONFIRM {order_ref}", "title": "\u2705 Confirm"},
             {"id": f"CANCEL {order_ref}", "title": "\u274c Cancel"},
+        ]
+    elif state == "confirmed" and is_credit:
+        buttons = [
+            {"id": f"CREDITPAID {order_ref}", "title": "\u2705 Paid in Full"},
+            {"id": f"CREDITPART {order_ref}", "title": "\U0001f4b0 Partial Payment"},
         ]
     elif state == "paid":
         buttons = [

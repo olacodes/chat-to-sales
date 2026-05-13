@@ -1489,6 +1489,7 @@ class OrderService:
             TRADER_AWAITING_COUNTER_PRICE,
             TRADER_AWAITING_BANK_DETAILS,
             TRADER_AWAITING_BANK_CONFIRM,
+            TRADER_AWAITING_CREDIT_PARTIAL,
             TRADER_AWAITING_PHOTO_PRODUCT,
         )
 
@@ -1659,6 +1660,85 @@ class OrderService:
                     ),
                     channel_tenant_id=channel_tenant_id,
                 )
+            return True
+
+        if state == TRADER_AWAITING_CREDIT_PARTIAL:
+            await clear_trader_session(trader_phone)
+            # Parse the partial payment amount
+            cleaned = _re.sub(r"(\d),(\d)", r"\1\2", message.strip())
+            numbers = _re.findall(r"\d+", cleaned)
+            if not numbers:
+                await self._reply(
+                    phone=trader_phone, tenant_id=tenant_id,
+                    event_id=f"trader.creditpart_invalid.{message_id}",
+                    text="I didn't understand that. Just type the amount received (e.g. _5000_):",
+                    channel_tenant_id=channel_tenant_id,
+                )
+                return True
+
+            paid_amount = int(numbers[0])
+            order_id = tsession.get("order_id", "")
+            order_ref = tsession.get("order_ref", "")
+
+            if paid_amount <= 0:
+                await self._reply(
+                    phone=trader_phone, tenant_id=tenant_id,
+                    event_id=f"trader.creditpart_zero.{message_id}",
+                    text="Amount must be greater than zero.",
+                    channel_tenant_id=channel_tenant_id,
+                )
+                return True
+
+            # Find and reduce the linked credit sale
+            from app.modules.credit_sales.models import CreditSale, CreditSaleStatus
+            from decimal import Decimal as D
+
+            async with async_session_factory.begin() as cs_session:
+                from sqlalchemy import select
+                cs_result = await cs_session.execute(
+                    select(CreditSale).where(
+                        CreditSale.order_id == order_id,
+                        CreditSale.status == CreditSaleStatus.ACTIVE,
+                    )
+                )
+                credit_sale = cs_result.scalar_one_or_none()
+                if credit_sale:
+                    outstanding = int(credit_sale.amount)
+                    if paid_amount >= outstanding:
+                        # Full settlement
+                        credit_sale.status = CreditSaleStatus.SETTLED
+                        credit_sale.amount = D("0")
+                        # Also mark order PAID
+                        order = await self._repo.get_by_id(order_id=order_id)
+                        if order and order.state == OrderState.CONFIRMED:
+                            try:
+                                await self._transition(order, OrderState.PAID)
+                                await self._db.commit()
+                            except ConflictError:
+                                pass
+                        await self._reply(
+                            phone=trader_phone, tenant_id=tenant_id,
+                            event_id=f"order.creditpart_full.{message_id}",
+                            text=wa.credit_paid_in_full(order_ref, outstanding),
+                            channel_tenant_id=channel_tenant_id,
+                        )
+                    else:
+                        # Partial — reduce balance
+                        remaining = outstanding - paid_amount
+                        credit_sale.amount = D(str(remaining))
+                        await self._reply(
+                            phone=trader_phone, tenant_id=tenant_id,
+                            event_id=f"order.creditpart_partial.{message_id}",
+                            text=wa.credit_partial_received(order_ref, paid_amount, remaining),
+                            channel_tenant_id=channel_tenant_id,
+                        )
+                else:
+                    await self._reply(
+                        phone=trader_phone, tenant_id=tenant_id,
+                        event_id=f"order.creditpart_notfound.{message_id}",
+                        text=f"Could not find an active credit for order {order_ref}.",
+                        channel_tenant_id=channel_tenant_id,
+                    )
             return True
 
         if state == TRADER_AWAITING_COUNTER_PRICE:
@@ -3477,6 +3557,76 @@ class OrderService:
                     )
             return
 
+        # ── Handle credit payment taps (CREDITPAID *, CREDITPART *) ──────
+        if stripped.startswith("CREDITPAID ") or stripped.startswith("CREDITPART "):
+            is_full = stripped.startswith("CREDITPAID ")
+            ref = message.strip().split(" ", 1)[1].strip().lower() if " " in message else ""
+            if ref:
+                order = await self._repo.get_by_ref_prefix(ref_prefix=ref)
+                if order and order.state == OrderState.CONFIRMED and order.is_credit:
+                    order_ref = order.id[:8]
+                    total = int(order.amount or 0)
+                    if is_full:
+                        # Paid in full: order → PAID + settle linked credit sale
+                        try:
+                            await self._transition(order, OrderState.PAID)
+                            await self._db.commit()
+                        except ConflictError as exc:
+                            await self._reply(
+                                phone=trader_phone, tenant_id=tenant_id,
+                                event_id=f"order.creditpaid_err.{message_id}",
+                                text=f"Cannot mark order {order_ref} as paid: {exc}",
+                                channel_tenant_id=channel_tenant_id,
+                            )
+                            return
+                        # Settle the linked credit sale
+                        from app.modules.credit_sales.models import CreditSale, CreditSaleStatus
+                        async with async_session_factory.begin() as cs_session:
+                            from sqlalchemy import select, update
+                            await cs_session.execute(
+                                update(CreditSale)
+                                .where(CreditSale.order_id == order.id, CreditSale.status == CreditSaleStatus.ACTIVE)
+                                .values(status=CreditSaleStatus.SETTLED)
+                            )
+                        await self._reply(
+                            phone=trader_phone, tenant_id=tenant_id,
+                            event_id=f"order.creditpaid_trader.{order.id}",
+                            text=wa.credit_paid_in_full(order_ref, total),
+                            channel_tenant_id=channel_tenant_id,
+                        )
+                        # Notify customer
+                        customer_phone = order.customer_phone or ""
+                        if customer_phone:
+                            await self._reply(
+                                phone=customer_phone, tenant_id=tenant_id,
+                                event_id=f"order.creditpaid_customer.{order.id}",
+                                text=wa.payment_confirmed_to_customer(trader_name, order_ref),
+                                channel_tenant_id=channel_tenant_id,
+                            )
+                        logger.info("Credit order paid in full order_id=%s", order.id)
+                    else:
+                        # Partial payment: ask for amount
+                        from app.modules.orders.session import set_trader_session, TRADER_AWAITING_CREDIT_PARTIAL
+                        await set_trader_session(trader_phone, {
+                            "state": TRADER_AWAITING_CREDIT_PARTIAL,
+                            "order_id": order.id,
+                            "order_ref": order_ref,
+                        })
+                        await self._reply(
+                            phone=trader_phone, tenant_id=tenant_id,
+                            event_id=f"order.creditpart_prompt.{message_id}",
+                            text=wa.credit_partial_prompt(order_ref, total),
+                            channel_tenant_id=channel_tenant_id,
+                        )
+                else:
+                    await self._reply(
+                        phone=trader_phone, tenant_id=tenant_id,
+                        event_id=f"order.creditpaid_notfound.{message_id}",
+                        text=wa.order_not_found_to_trader(ref),
+                        channel_tenant_id=channel_tenant_id,
+                    )
+            return
+
         # ── Handle negotiation response taps (NEGACCEPT_*, NEGCOUNTER_*, NEGDECLINE_*) ──
         if stripped.startswith("NEGACCEPT_") or stripped.startswith("NEGDECLINE_"):
             customer_phone_from_tap = message.strip().split("_", 1)[1] if "_" in message else ""
@@ -3580,7 +3730,9 @@ class OrderService:
                     channel_tenant_id=channel_tenant_id,
                 )
             elif order.state == OrderState.CONFIRMED:
-                body, buttons = wa.pending_order_actions(ref_lower, cust_display, total)
+                body, buttons = wa.pending_order_actions(
+                    ref_lower, cust_display, total, is_credit=order.is_credit,
+                )
                 await self._reply_interactive(
                     phone=trader_phone, tenant_id=tenant_id,
                     event_id=f"trader.ordact.{message_id}",
@@ -3953,6 +4105,17 @@ class OrderService:
             # Create a credit sale linked to this order
             from decimal import Decimal as D
             from app.modules.credit_sales.models import CreditSale
+
+            # Guard: check if credit sale already exists for this order
+            if order.is_credit:
+                await self._reply(
+                    phone=trader_phone,
+                    tenant_id=tenant_id,
+                    event_id=f"order.credit_dup.{message_id}",
+                    text=wa.order_already_on_credit(ref),
+                    channel_tenant_id=channel_tenant_id,
+                )
+                return
 
             total = int(order.amount or 0)
             cust_phone = order.customer_phone or "unknown"
