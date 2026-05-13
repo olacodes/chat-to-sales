@@ -29,7 +29,7 @@ Lightweight mobile page at `chattosales.com/stores/{slug}` where customers can b
 | # | Task | Description | Priority |
 |---|------|-------------|----------|
 | ⬜ | 2G performance optimization | Test and optimize for sub-2-second load on slow networks. Image lazy loading, minimal JS, critical CSS inlining. | High |
-| ⬜ | Open Graph / social sharing | OG image, title, description per store so shared links preview nicely on WhatsApp, Twitter, Facebook. | High |
+| ✅ | Open Graph / social sharing | Dynamic OG metadata per store: title (business name), description (product count + CTA), full openGraph + twitter card tags. Dynamic OG image generated via `next/og` ImageResponse (1200x630): dark green background, store name, category, top 4 product names as pills, WhatsApp green CTA button, ChatToSales branding. Revalidates every 5 min. |
 | ⬜ | Store page bank details | Show trader's bank details on the store page (optional, trader-configurable) so customers can pay before messaging. | Medium |
 | ⬜ | Product search on store page | Search/filter bar on store pages with large catalogues (>20 products). | Medium |
 | ⬜ | Structured data (JSON-LD) | Schema.org Product + LocalBusiness markup for Google rich results. | Medium |

@@ -22,12 +22,14 @@ Design rule: never send aggressive debt reminders — always warm, respectful, n
 
 | # | Task | Description | Priority |
 |---|------|-------------|----------|
-| ⬜ | DEBT WhatsApp command | `DEBT [name] [amount]` — creates a credit sale via WhatsApp. Needs: Layer 1 regex in nlp.py, intent handler in service.py, WhatsApp response template. | High |
-| ⬜ | PAID WhatsApp command | `PAID [name] [amount]` — settles a debt via WhatsApp. Needs to fuzzy-match debtor name, settle the credit sale, confirm to trader. | High |
-| ⬜ | WHO OWES ME command | Formatted list of all active debts: name, amount, date. Paginated if >10. Should show total outstanding at the bottom. | High |
-| ⬜ | Automated reminder scheduler | Background job (APScheduler) that checks active credit sales past reminder_interval_days and sends warm reminders. Currently manual-only via API. | High |
+| ✅ | DEBT WhatsApp command | `DEBT [name] [amount]` — creates a credit sale via WhatsApp. Needs: Layer 1 regex in nlp.py, intent handler in service.py, WhatsApp response template. | High |
+| ✅ | PAID WhatsApp command | `PAID [name] [amount]` — settles a debt via WhatsApp. Needs to fuzzy-match debtor name, settle the credit sale, confirm to trader. | High |
+| ✅ | WHO OWES ME command | Formatted list of all active debts: name, amount, date. Paginated if >10. Should show total outstanding at the bottom. | High |
+| ✅ | Automated reminder scheduler | Background job (APScheduler) that checks active credit sales past reminder_interval_days and sends warm reminders. Currently manual-only via API. | High |
+| ✅ | WhatsApp interactive debt list | WHO OWES ME returns a list picker where trader can tap a name to settle or remind | High |
+| ✅ | Partial payments | `PAID [name] [partial amount]` — reduce debt amount instead of fully settling | High |
 | ⬜ | Friday debt summary in weekly report | Extend `_gather_metrics()` + `render_report()` in reports service to include: total outstanding, debts settled this week, top debtors. | Medium |
-| ⬜ | Dashboard credit sales endpoints | Add debt summary to dashboard metrics: total outstanding, overdue count, recently settled. Currently dashboard has no credit data. | Medium |
+| ✅ | Dashboard credit sales endpoints | Add debt summary to dashboard metrics: total outstanding, overdue count, recently settled. Currently dashboard has no credit data. | Medium |
 
 ## Nice to Have (Post-MVP)
 
@@ -36,10 +38,8 @@ Design rule: never send aggressive debt reminders — always warm, respectful, n
 | ⬜ | Overdue debt alerts in Today's Focus | Dashboard "Today's Focus" panel should include debts past due_date as urgent items |
 | ⬜ | Reminder escalation levels | Gentle → firm → final notice templates instead of one generic reminder |
 | ⬜ | Dispute/write-off notes | Capture reason text when disputing or writing off a debt for audit trail |
-| ⬜ | Partial payments | `PAID [name] [partial amount]` — reduce debt amount instead of fully settling |
 | ⬜ | Debt history per customer | Show full payment/debt history for a customer across all transactions |
 | ⬜ | Batch debt entry | `DEBT Iya Bimpe 5000, Mama Tayo 3000, Bro Femi 8000` — multiple debts in one message |
-| ⬜ | WhatsApp interactive debt list | WHO OWES ME returns a list picker where trader can tap a name to settle or remind |
 | ⬜ | Customer debt notification | When a debt is created, optionally notify the customer: "You have a balance of N5,000 with {trader}" |
 | ⬜ | Debt aging report | Group debts by age: <7 days, 7-30 days, >30 days with totals per bucket |
 | ⬜ | Auto-create from credit orders | When an order is marked CONFIRMED but not PAID within X days, auto-create a credit sale |

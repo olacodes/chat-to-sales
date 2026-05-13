@@ -120,6 +120,21 @@ _NEGOTIATE_GENERAL_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Payment confirmation from customer
+_PAYMENT_SENT_RE = re.compile(
+    r"(?:^|\b)(?:i['\u2019]?ve? (?:paid|sent|transferred|done)|"
+    r"paid|payment (?:sent|done|made|completed)|"
+    r"sent (?:the )?(?:money|payment|transfer)|"
+    r"transferred|i (?:don )?pay|"
+    r"done (?:the )?(?:payment|transfer)|"
+    r"already (?:paid|sent|transferred)|"
+    r"money (?:sent|transferred|done)|"
+    r"e don pay|don pay|i pay am|"
+    r"check (?:your )?(?:account|bank)|"
+    r"receipt|proof of payment)(?:\b|$)",
+    re.IGNORECASE,
+)
+
 # Trigger words that suggest a purchase intent
 _ORDER_TRIGGER_RE = re.compile(
     r"\b(order|buy|want|need|send|give|get|bring|abeg|oya|"
@@ -131,6 +146,7 @@ _ORDER_TRIGGER_RE = re.compile(
 _NAME_STOP = frozenset({"and", "with", "plus", "abeg", "oya", "for", "please"})
 
 TRADER_CREDIT = "trader_credit"
+PAYMENT_SENT = "payment_sent"
 
 _TRADER_VERB_MAP = {
     "confirm": TRADER_CONFIRM,
@@ -399,6 +415,10 @@ def _layer1(message: str) -> ParseResult:
     if _NO_RE.match(stripped):
         return ParseResult(intent=CANCEL, confidence=1.0)
 
+    # ── Payment sent detection ─────────────────────────────────────────────
+    if _PAYMENT_SENT_RE.search(stripped):
+        return ParseResult(intent=PAYMENT_SENT, confidence=1.0)
+
     # ── Negotiation detection ───────────────────────────────────────────────
     m = _NEGOTIATE_PRICE_RE.search(stripped)
     if m:
@@ -591,6 +611,10 @@ async def smart_parse_customer_message(
     if l1.intent == NEGOTIATION and l1.confidence == 1.0:
         return l1
 
+    # Fast-path payment sent detection (no Claude needed)
+    if l1.intent == PAYMENT_SENT and l1.confidence == 1.0:
+        return l1
+
     # Everything else → Claude with full context
     if not _settings.ANTHROPIC_API_KEY:
         logger.warning("ANTHROPIC_API_KEY not set — smart parse unavailable")
@@ -622,7 +646,7 @@ async def smart_parse_customer_message(
         f"Customer's new message: {json.dumps(message)}\n\n"
         "Your job: understand what the customer wants and respond helpfully.\n\n"
         "Return ONLY a JSON object — no markdown, no commentary.\n\n"
-        'Format: {"action":"order"|"clarify"|"negotiation"|"greeting"|"chitchat"|"ignore"|"unknown",'
+        'Format: {"action":"order"|"clarify"|"negotiation"|"payment_sent"|"greeting"|"chitchat"|"ignore"|"unknown",'
         '"items":[{"name":"exact catalogue product name","qty":2,"unit_price":8500}],'
         '"offered_price":null,'
         '"reply":"your natural language response to the customer"}\n\n'
@@ -635,6 +659,8 @@ async def smart_parse_customer_message(
         "  If they name a specific price, set offered_price.\n"
         "- action=greeting: customer is just saying hi, asking about the store, or chitchat.\n"
         "  Respond warmly in 'reply'.\n"
+        "- action=payment_sent: customer says they've paid, sent money, transferred, or sends a receipt/screenshot.\n"
+        "  Examples: 'I've paid', 'sent', 'transferred', 'done paying', 'check your account', 'receipt'.\n"
         "- action=ignore: message is a simple acknowledgment (ok, thanks, thank you, bye, "
         "  alright, noted, cool, sure, fine) or has no meaningful content. Do NOT reply.\n"
         "- action=chitchat: customer is chatting socially or asking a non-order question "
@@ -696,6 +722,7 @@ async def smart_parse_customer_message(
         "order": ORDER,
         "clarify": UNKNOWN,
         "negotiation": NEGOTIATION,
+        "payment_sent": PAYMENT_SENT,
         "greeting": CHITCHAT,
         "chitchat": CHITCHAT,
         "ignore": IGNORE,

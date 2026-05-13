@@ -61,7 +61,7 @@ from app.modules.orders.nlp import (
 from app.modules.onboarding.repository import TraderRepository
 from app.modules.orders.repository import OrderRepository
 from app.modules.orders.schemas import OrderCreate, OrderItemCreate, OrderListResponse
-from app.modules.orders.nlp import CHITCHAT, IGNORE, NEGOTIATION
+from app.modules.orders.nlp import CHITCHAT, IGNORE, NEGOTIATION, PAYMENT_SENT
 from app.modules.orders.session import (
     AWAITING_CLARIFICATION,
     AWAITING_CUSTOMER_CONFIRMATION,
@@ -489,9 +489,9 @@ class OrderService:
         # ── Post-order quiet mode: only respond to clear order intents ────
         from app.modules.orders.session import is_quiet_mode
         if await is_quiet_mode(tenant_id, customer_phone):
-            # Quick check: is this a clear order or negotiation?
+            # Quick check: is this a clear order, negotiation, or payment?
             quick = await self._smart_parse(message, category, catalogue, conversation_id)
-            if quick.intent not in (ORDER, NEGOTIATION):
+            if quick.intent not in (ORDER, NEGOTIATION, PAYMENT_SENT):
                 # Silent — customer is in post-order cooldown
                 return
 
@@ -755,6 +755,18 @@ class OrderService:
             )
             return
 
+        # ── Payment sent detected ─────────────────────────────────────────
+        if result.intent == PAYMENT_SENT:
+            await self._handle_payment_sent(
+                tenant_id=tenant_id,
+                customer_phone=customer_phone,
+                customer_name=customer_name,
+                message_id=message_id,
+                trader=trader,
+                channel_tenant_id=channel_tenant_id,
+            )
+            return
+
         # ── Negotiation detected ────────────────────────────────────────────
         if result.intent == NEGOTIATION:
             from app.modules.orders.session import set_pending_negotiation
@@ -969,6 +981,24 @@ class OrderService:
         catalogue: dict[str, int] = trader.get("catalogue", {})
         category: str = trader.get("business_category", "")
         trader_phone: str = trader.get("phone_number", "")
+
+        # ── Check for payment screenshot: if customer has a CONFIRMED order,
+        #    treat image as payment receipt/screenshot ──────────────────────
+        confirmed_order = await self._repo.get_open_order_by_customer_phone(
+            customer_phone=customer_phone,
+            tenant_id=tenant_id,
+        )
+        if confirmed_order and confirmed_order.state == OrderState.CONFIRMED:
+            await self._handle_payment_sent(
+                tenant_id=tenant_id,
+                customer_phone=customer_phone,
+                customer_name=customer_name,
+                message_id=message_id,
+                trader=trader,
+                channel_tenant_id=channel_tenant_id,
+                has_screenshot=True,
+            )
+            return
 
         # Compute perceptual hash for image matching (fast, no API call)
         image_hash: str | None = None
@@ -1458,6 +1488,7 @@ class OrderService:
             TRADER_AWAITING_PRICELIST_CONFIRM,
             TRADER_AWAITING_COUNTER_PRICE,
             TRADER_AWAITING_BANK_DETAILS,
+            TRADER_AWAITING_BANK_CONFIRM,
             TRADER_AWAITING_PHOTO_PRODUCT,
         )
 
@@ -1530,34 +1561,104 @@ class OrderService:
 
             bank_name = m.group(1).strip()
             account_number = m.group(2)
-            # Use bank name as account name for now (trader can correct)
-            account_name = trader.get("business_name", bank_name)
 
-            async with async_session_factory.begin() as session:
-                repo = TraderRepository(session)
-                await repo.update_bank_details(
-                    phone_number=trader_phone,
-                    bank_name=bank_name,
-                    bank_account_number=account_number,
-                    bank_account_name=account_name,
+            # Try to verify account name via Paystack
+            from app.infra.paystack import resolve_bank_code, resolve_account_name
+            from app.modules.orders.session import TRADER_AWAITING_BANK_CONFIRM
+
+            bank_code = resolve_bank_code(bank_name)
+            if bank_code is None:
+                # Bank not recognised — warn but still save with business name
+                account_name = trader.get("business_name", bank_name)
+                await self._reply(
+                    phone=trader_phone,
+                    tenant_id=tenant_id,
+                    event_id=f"trader.bank_unknown.{message_id}",
+                    text=wa.bank_unknown_bank(bank_name),
+                    channel_tenant_id=channel_tenant_id,
                 )
+                return True
 
-            # Bust cache
-            from app.modules.orders.session import cache_trader_by_phone, get_trader_by_phone_cache
-            cached = await get_trader_by_phone_cache(trader_phone)
-            if cached and isinstance(cached, dict) and cached:
-                cached["bank_name"] = bank_name
-                cached["bank_account_number"] = account_number
-                cached["bank_account_name"] = account_name
-                await cache_trader_by_phone(trader_phone, cached)
+            resolved_name = await resolve_account_name(bank_code, account_number)
+            if resolved_name:
+                # Ask trader to confirm the resolved account name
+                await set_trader_session(trader_phone, {
+                    "state": TRADER_AWAITING_BANK_CONFIRM,
+                    "bank_name": bank_name,
+                    "account_number": account_number,
+                    "account_name": resolved_name,
+                })
+                body, buttons = wa.bank_verify_confirm(
+                    bank_name, account_number, resolved_name,
+                )
+                await self._reply_interactive(
+                    phone=trader_phone,
+                    tenant_id=tenant_id,
+                    event_id=f"trader.bank_verify.{message_id}",
+                    body_text=body,
+                    buttons=buttons,
+                    channel_tenant_id=channel_tenant_id,
+                )
+                return True
 
+            # Resolve failed — save with business name as fallback
+            account_name = trader.get("business_name", bank_name)
+            await self._save_bank_details(
+                trader_phone=trader_phone,
+                bank_name=bank_name,
+                account_number=account_number,
+                account_name=account_name,
+                message_id=message_id,
+                tenant_id=tenant_id,
+                channel_tenant_id=channel_tenant_id,
+            )
             await self._reply(
                 phone=trader_phone,
                 tenant_id=tenant_id,
-                event_id=f"trader.bank_saved.{message_id}",
-                text=wa.bank_details_saved(bank_name, account_number, account_name),
+                event_id=f"trader.bank_noverify.{message_id}",
+                text=wa.bank_verify_failed(bank_name),
                 channel_tenant_id=channel_tenant_id,
             )
+            return True
+
+        if state == TRADER_AWAITING_BANK_CONFIRM:
+            await clear_trader_session(trader_phone)
+            answer = message.strip().upper()
+            if answer in ("YES", "BANK_YES"):
+                # Trader confirmed — save bank details
+                bank_name = tsession.get("bank_name", "")
+                account_number = tsession.get("account_number", "")
+                account_name = tsession.get("account_name", "")
+                await self._save_bank_details(
+                    trader_phone=trader_phone,
+                    bank_name=bank_name,
+                    account_number=account_number,
+                    account_name=account_name,
+                    message_id=message_id,
+                    tenant_id=tenant_id,
+                    channel_tenant_id=channel_tenant_id,
+                )
+                await self._reply(
+                    phone=trader_phone,
+                    tenant_id=tenant_id,
+                    event_id=f"trader.bank_confirmed.{message_id}",
+                    text=wa.bank_details_saved(bank_name, account_number, account_name),
+                    channel_tenant_id=channel_tenant_id,
+                )
+            else:
+                # Trader rejected — ask them to re-enter
+                from app.modules.orders.session import TRADER_AWAITING_BANK_DETAILS as _TABD
+                await set_trader_session(trader_phone, {"state": _TABD})
+                await self._reply(
+                    phone=trader_phone,
+                    tenant_id=tenant_id,
+                    event_id=f"trader.bank_retry.{message_id}",
+                    text=(
+                        "No problem. Type your bank name and account number again.\n\n"
+                        "For example: _GTBank 0123456789_"
+                    ),
+                    channel_tenant_id=channel_tenant_id,
+                )
             return True
 
         if state == TRADER_AWAITING_COUNTER_PRICE:
@@ -2187,6 +2288,111 @@ class OrderService:
             button_label=btn,
             sections=sections,
             channel_tenant_id=channel_tenant_id,
+        )
+
+    # ── Bank details helper ────────────────────────────────────────────────
+
+    async def _save_bank_details(
+        self,
+        *,
+        trader_phone: str,
+        bank_name: str,
+        account_number: str,
+        account_name: str,
+        message_id: str,
+        tenant_id: str,
+        channel_tenant_id: str | None = None,
+    ) -> None:
+        """Persist bank details and bust the trader cache."""
+        async with async_session_factory.begin() as session:
+            repo = TraderRepository(session)
+            await repo.update_bank_details(
+                phone_number=trader_phone,
+                bank_name=bank_name,
+                bank_account_number=account_number,
+                bank_account_name=account_name,
+            )
+
+        from app.modules.orders.session import cache_trader_by_phone, get_trader_by_phone_cache
+        cached = await get_trader_by_phone_cache(trader_phone)
+        if cached and isinstance(cached, dict) and cached:
+            cached["bank_name"] = bank_name
+            cached["bank_account_number"] = account_number
+            cached["bank_account_name"] = account_name
+            await cache_trader_by_phone(trader_phone, cached)
+
+    # ── Payment receipt detection ────────────────────────────────────────
+
+    async def _handle_payment_sent(
+        self,
+        *,
+        tenant_id: str,
+        customer_phone: str,
+        customer_name: str | None,
+        message_id: str,
+        trader: dict[str, Any],
+        channel_tenant_id: str | None = None,
+        has_screenshot: bool = False,
+    ) -> None:
+        """
+        Handle when a customer says they've paid or sends a payment screenshot.
+
+        Finds the most recent CONFIRMED order for this customer+trader,
+        notifies the trader with Payment Received / Not Received buttons,
+        and acknowledges to the customer.
+        """
+        trader_name: str = trader.get("business_name", "the trader")
+        trader_phone: str = trader.get("phone_number", "")
+
+        # Find the customer's most recent confirmed order
+        order = await self._repo.get_open_order_by_customer_phone(
+            customer_phone=customer_phone,
+            tenant_id=tenant_id,
+        )
+
+        if order is None or order.state != OrderState.CONFIRMED:
+            await self._reply(
+                phone=customer_phone,
+                tenant_id=tenant_id,
+                event_id=f"order.payment_no_order.{message_id}",
+                text=wa.no_confirmed_order_for_payment(trader_name),
+                channel_tenant_id=channel_tenant_id,
+            )
+            return
+
+        order_ref = order.id[:8]
+        total = int(order.amount or 0)
+
+        # Notify the trader
+        if trader_phone:
+            body, buttons = wa.payment_receipt_to_trader(
+                customer_phone=customer_phone,
+                customer_name=customer_name or order.customer_name,
+                amount=total,
+                order_ref=order_ref,
+                has_screenshot=has_screenshot,
+            )
+            await self._reply_interactive(
+                phone=trader_phone,
+                tenant_id=tenant_id,
+                event_id=f"order.payment_notify_trader.{order.id}",
+                body_text=body,
+                buttons=buttons,
+                channel_tenant_id=channel_tenant_id,
+            )
+
+        # Acknowledge to the customer
+        await self._reply(
+            phone=customer_phone,
+            tenant_id=tenant_id,
+            event_id=f"order.payment_ack.{order.id}",
+            text=wa.payment_receipt_ack_to_customer(trader_name),
+            channel_tenant_id=channel_tenant_id,
+        )
+
+        logger.info(
+            "Customer payment notification sent order_id=%s customer=%s screenshot=%s",
+            order.id, customer_phone, has_screenshot,
         )
 
     # ── Smart parse helper ────────────────────────────────────────────────
@@ -3203,6 +3409,73 @@ class OrderService:
                 )
                 if handled:
                     return
+
+        # ── Handle payment receipt taps (PAYRCVD *, PAYNOTRCVD *) ────────
+        if stripped.startswith("PAYRCVD ") or stripped.startswith("PAYNOTRCVD "):
+            is_received = stripped.startswith("PAYRCVD ")
+            ref = message.strip().split(" ", 1)[1].strip().lower() if " " in message else ""
+            if ref:
+                order = await self._repo.get_by_ref_prefix(ref_prefix=ref)
+                if order and order.state == OrderState.CONFIRMED:
+                    customer_phone = order.customer_phone or ""
+                    order_ref = order.id[:8]
+                    if is_received:
+                        # Mark order as PAID
+                        try:
+                            await self._transition(order, OrderState.PAID)
+                            await self._db.commit()
+                        except ConflictError as exc:
+                            await self._reply(
+                                phone=trader_phone,
+                                tenant_id=tenant_id,
+                                event_id=f"order.payrcvd_err.{message_id}",
+                                text=f"Cannot mark order {order_ref} as paid: {exc}",
+                                channel_tenant_id=channel_tenant_id,
+                            )
+                            return
+                        await self._reply(
+                            phone=trader_phone,
+                            tenant_id=tenant_id,
+                            event_id=f"order.payrcvd_trader.{order.id}",
+                            text=wa.order_paid_to_trader(order_ref),
+                            channel_tenant_id=channel_tenant_id,
+                        )
+                        if customer_phone:
+                            await self._reply(
+                                phone=customer_phone,
+                                tenant_id=tenant_id,
+                                event_id=f"order.payrcvd_customer.{order.id}",
+                                text=wa.payment_confirmed_to_customer(trader_name, order_ref),
+                                channel_tenant_id=channel_tenant_id,
+                            )
+                        logger.info("Trader confirmed payment order_id=%s", order.id)
+                    else:
+                        # Payment not received
+                        if customer_phone:
+                            await self._reply(
+                                phone=customer_phone,
+                                tenant_id=tenant_id,
+                                event_id=f"order.paynotrcvd_customer.{order.id}",
+                                text=wa.payment_not_received_to_customer(trader_name, order_ref),
+                                channel_tenant_id=channel_tenant_id,
+                            )
+                        await self._reply(
+                            phone=trader_phone,
+                            tenant_id=tenant_id,
+                            event_id=f"order.paynotrcvd_trader.{order.id}",
+                            text=f"Noted. Customer has been notified that payment for order {order_ref} was not received.",
+                            channel_tenant_id=channel_tenant_id,
+                        )
+                        logger.info("Trader rejected payment claim order_id=%s", order.id)
+                else:
+                    await self._reply(
+                        phone=trader_phone,
+                        tenant_id=tenant_id,
+                        event_id=f"order.payrcvd_notfound.{message_id}",
+                        text=wa.order_not_found_to_trader(ref),
+                        channel_tenant_id=channel_tenant_id,
+                    )
+            return
 
         # ── Handle negotiation response taps (NEGACCEPT_*, NEGCOUNTER_*, NEGDECLINE_*) ──
         if stripped.startswith("NEGACCEPT_") or stripped.startswith("NEGDECLINE_"):

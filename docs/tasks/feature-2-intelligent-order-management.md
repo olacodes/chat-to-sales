@@ -42,12 +42,13 @@
 |---|------|-------------|-----|
 | ✅ | Dashboard order management | Trader can confirm/cancel orders from the web dashboard — not everyone has WhatsApp open all day | ✅ Yes |
 | ✅ | Automated trader follow-up | If trader hasn't confirmed in 2h, auto-send a reminder — reduces order abandonment | ✅ Yes |
-| ⬜ | Smart reorder | "Order same as last time" — repeat a previous order with one tap | ⬜ No |
+| ⬜ | Order editing | Allow customer or trader to modify items/quantities after order creation (currently must cancel and re-order) | ✅ Yes |
+| 💡 | Partial order fulfillment | Trader can confirm some items but mark others as out-of-stock, adjusting the total | ⬜ No |
+| ⬜ | Smart reorder | "Order same as last time" — repeat a previous order with one tap | ✅ Yes |
 | ⬜ | Order history for customers | Customer types "my orders" or "status" → sees list of recent orders with current state | ✅ Yes |
 | ⬜ | Receipt generation | Auto-generate and send a receipt (image or formatted text) after order completion or payment | ✅ Yes |
 | ⬜ | Order timeout | Auto-cancel INQUIRY orders after X hours if trader doesn't confirm — prevents stale orders piling up | ✅ Yes |
 | ⬜ | Payment integration (Paystack) | Auto-generate Paystack payment link for confirmed orders, customer pays inline (Feature 6) | ✅ Yes |
-| ⬜ | Order editing | Allow customer or trader to modify items/quantities after order creation (currently must cancel and re-order) | ⬜ No |
 | ⬜ | Group order collection | ChatToSales joins a WhatsApp group, collects orders from members, sends consolidated sheet to trader | ⬜ No |
 | ⬜ | Delivery tracking | Status updates (dispatched, en-route, delivered) with real-time customer notifications | ⬜ No |
 | ⬜ | Bulk order operations | Trader can confirm/cancel multiple orders at once from dashboard or WhatsApp | ⬜ No |
@@ -59,7 +60,6 @@
 
 | # | Task | Description | MVP |
 |---|------|-------------|-----|
-| 💡 | Smart reorder | "Order same as last time" — repeat a previous order with one tap | ⬜ No |
 | 💡 | Order scheduling | "Deliver on Friday" — schedule orders for future delivery with reminder | ⬜ No |
 | 💡 | Price negotiation detection | Detect when customer is haggling ("can you do 7000?") and escalate to trader (Feature 5) | ⬜ No |
 | 💡 | Multi-item image orders | Customer sends photo of a handwritten shopping list → OCR → parse multiple items at once | ⬜ No |
@@ -69,5 +69,4 @@
 | 💡 | Multi-currency | Support USD, GBP for diaspora customers ordering from Nigerian traders | ⬜ No |
 | 💡 | Order analytics for trader | WhatsApp summary: "This week: 23 orders, N145,000 revenue, top product: Indomie" | ⬜ No |
 | 💡 | Customer satisfaction survey | After order completion, ask customer to rate 1-5 — aggregate for trader insights | ⬜ No |
-| 💡 | Partial order fulfillment | Trader can confirm some items but mark others as out-of-stock, adjusting the total | ⬜ No |
 | 💡 | Order forwarding | Trader can forward an order to another trader if they don't have the product | ⬜ No |

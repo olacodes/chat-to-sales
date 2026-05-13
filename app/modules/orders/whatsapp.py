@@ -825,6 +825,42 @@ def bank_details_not_set() -> str:
     )
 
 
+def bank_verify_confirm(
+    bank_name: str, account_number: str, account_name: str,
+) -> tuple[str, list[dict[str, str]]]:
+    """Ask trader to confirm the resolved account name."""
+    body = (
+        f"\U0001f3e6 I found this account:\n\n"
+        f"Bank: *{bank_name}*\n"
+        f"Account: *{account_number}*\n"
+        f"Name: *{account_name}*\n\n"
+        "Is this correct?"
+    )
+    buttons = [
+        {"id": "BANK_YES", "title": "\u2705 Yes, save it"},
+        {"id": "BANK_NO", "title": "\u274c No, re-enter"},
+    ]
+    return body, buttons
+
+
+def bank_verify_failed(bank_name: str) -> str:
+    """Paystack couldn't resolve the account — save with business name as fallback."""
+    return (
+        f"I couldn't verify the account name for *{bank_name}*.\n\n"
+        "I'll save it with your business name. You can update it later by "
+        "typing _BANK_ again."
+    )
+
+
+def bank_unknown_bank(bank_name: str) -> str:
+    """Bank name not recognized."""
+    return (
+        f"I don't recognise *{bank_name}* as a bank name.\n\n"
+        "Please type a Nigerian bank name and your 10-digit account number.\n"
+        "For example: _GTBank 0123456789_ or _Kuda 1234567890_"
+    )
+
+
 def payment_details_to_customer(
     trader_name: str, total: int, bank_name: str,
     account_number: str, account_name: str, order_ref: str,
@@ -1053,6 +1089,64 @@ def image_inquiry_more_pending(remaining: int) -> str:
         f"\U0001f4f8 You still have {remaining} more product "
         f"{'inquiry' if remaining == 1 else 'inquiries'} waiting.\n\n"
         "Reply with the product name and price for each one."
+    )
+
+
+# ── Payment receipt detection ─────────────────────────────────────────────
+
+
+def payment_receipt_to_trader(
+    customer_phone: str,
+    customer_name: str | None,
+    amount: int,
+    order_ref: str,
+    has_screenshot: bool = False,
+) -> tuple[str, list[dict[str, str]]]:
+    """Return (body, buttons) notifying trader that customer says they've paid."""
+    display = customer_name or f"+{customer_phone}"
+    screenshot_line = "\nThey also sent a payment screenshot." if has_screenshot else ""
+    body = (
+        f"\U0001f4b3 *{display}* says they have paid for order {order_ref}.\n\n"
+        f"Amount: {_naira(amount)}{screenshot_line}\n\n"
+        "Please check your account and confirm."
+    )
+    buttons = [
+        {"id": f"PAYRCVD {order_ref}", "title": "\u2705 Payment Received"},
+        {"id": f"PAYNOTRCVD {order_ref}", "title": "\u274c Not Received"},
+    ]
+    return body, buttons
+
+
+def payment_receipt_ack_to_customer(trader_name: str) -> str:
+    """Acknowledge customer's payment notification."""
+    return (
+        f"Thank you! I've notified *{trader_name}* about your payment. \U0001f4b3\n\n"
+        "They will confirm once they've checked. Please hold on. \U0001f64f"
+    )
+
+
+def payment_confirmed_to_customer(trader_name: str, order_ref: str) -> str:
+    """Notify customer that trader confirmed receiving payment."""
+    return (
+        f"\u2705 *{trader_name}* has confirmed receiving your payment for order {order_ref}!\n\n"
+        "Thank you for your purchase! \U0001f389"
+    )
+
+
+def payment_not_received_to_customer(trader_name: str, order_ref: str) -> str:
+    """Notify customer that trader hasn't received payment yet."""
+    return (
+        f"*{trader_name}* hasn't received the payment for order {order_ref} yet.\n\n"
+        "Please double-check the bank details and try again, "
+        "or contact the trader directly. \U0001f64f"
+    )
+
+
+def no_confirmed_order_for_payment(trader_name: str) -> str:
+    """Customer says paid but no confirmed order found."""
+    return (
+        f"I don't see a confirmed order with *{trader_name}* to match your payment to. \U0001f914\n\n"
+        "If you've placed an order, please wait for the trader to confirm it first."
     )
 
 

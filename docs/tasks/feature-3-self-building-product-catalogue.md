@@ -38,10 +38,11 @@
 
 | # | Task | Description | MVP |
 |---|------|-------------|-----|
-| ⬜ | Dashboard catalogue management | Web UI for traders to add/edit/delete products with names, prices, and photos | ✅ Yes |
+| ✅ | Dashboard catalogue management | Web UI for traders to add/edit/delete products with names, prices, and photos | ✅ Yes |
+| ✅ | Multiple pending inquiries per trader | Currently one pending inquiry per trader (Redis key overwrite) — need queue so concurrent customer photos don't overwrite each other | ✅ Yes |
+
 | ⬜ | Catalogue sync | Write learned products (from ProductDescription) back to `Trader.onboarding_catalogue` so they appear on the store page | ✅ Yes |
 | ⬜ | Product deletion | Let trader remove a learned product via WhatsApp ("DELETE Indomie") or dashboard — currently incorrect associations persist forever | ✅ Yes |
-| ⬜ | Multiple pending inquiries per trader | Currently one pending inquiry per trader (Redis key overwrite) — need queue so concurrent customer photos don't overwrite each other | ✅ Yes |
 | ⬜ | Product image storage | Store actual product images (Vercel Blob) for display on the public store page — currently store page has no photos | ✅ Yes |
 | ⬜ | Product deduplication | Multiple ProductDescription rows can exist for the same product from different photos — merge into single product with multiple hashes | ⬜ No |
 | ⬜ | Catalogue export | Download catalogue as CSV/PDF for printing price lists or sharing with suppliers | ⬜ No |

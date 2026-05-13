@@ -24,12 +24,13 @@ Two-tier payment system: (1) Bank details sharing for all traders — auto-sends
 | ✅ | Bank details menu item | "Bank Details" in the Store section of the trader menu. |
 | ✅ | Bank details in trader cache | bank_name, bank_account_number, bank_account_name included in trader dict and Redis cache. |
 
+| ✅ | Customer payment receipt detection | Customer types "paid"/"sent"/"transferred" or sends payment screenshot → finds most recent CONFIRMED order → notifies trader with [Payment Received] / [Not Received] buttons → PAYRCVD marks order PAID, PAYNOTRCVD notifies customer. NLP Layer 1 regex + smart parser both detect PAYMENT_SENT intent. Payment screenshots detected when customer has a confirmed order and sends an image. Quiet mode allows payment through. |
+
 ## Not Done (MVP)
 
 | # | Task | Description | Priority |
 |---|------|-------------|----------|
-| ⬜ | Customer payment receipt detection | When customer sends a screenshot after paying, acknowledge it and notify trader: "Customer says they've paid. [Payment Received]" button. | High |
-| ⬜ | Bank account name verification | Use Paystack `POST /bank/resolve` (free API, no account needed) to verify account name before saving. Trader confirms: "Is this correct? OLATUNDE SODIQ" | Medium |
+| ✅ | Bank account name verification | Paystack `GET /bank/resolve` verifies account name. Bank name mapped to bank_code via 30+ Nigerian bank lookup table. Resolved name shown to trader with [Yes, save it] / [No, re-enter] buttons. Fallback to business name if Paystack key not set or resolve fails. Unknown bank names rejected with prompt. New file: `app/infra/paystack.py`. New session state: TRADER_AWAITING_BANK_CONFIRM. |
 | ⬜ | Payment status on dashboard | Show payment status (pending/paid/credit) on the orders page. Badge or icon next to each order. | Medium |
 | ⬜ | Paystack subaccount (premium tier) | For Oja/Alatise traders who opt in: create Paystack subaccount with trader's bank details, send payment links alongside bank details. Auto-confirm via webhook. | Medium |
 | ⬜ | Real Paystack API integration | Replace mock payment link with actual `POST https://api.paystack.co/transaction/initialize` + subaccount. For premium tiers only. | Medium |

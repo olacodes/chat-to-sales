@@ -21,8 +21,8 @@ Detects when a customer is negotiating on price (e.g. "can you do 7000?", "too e
 
 | # | Task | Description | Priority |
 |---|------|-------------|----------|
-| ⬜ | Trader Counter-offer flow | Trader taps Counter-offer → session state: `AWAITING_COUNTER_PRICE` → trader types a price → notify customer: "The trader can do N7,500. Would you like to proceed?" → customer YES/NO | Medium |
-| ⬜ | Session timeout | If trader doesn't respond within 30 minutes, auto-notify customer: "The trader hasn't responded yet. You can try again later or accept the listed price." Clear session. | Medium |
+| ✅ | Trader Counter-offer flow | Trader taps Counter-offer → session state: `AWAITING_COUNTER_PRICE` → trader types a price → notify customer: "The trader can do N7,500. Would you like to proceed?" → customer YES/NO | Medium |
+| ✅ | Session timeout | If trader doesn't respond within 30 minutes, auto-notify customer: "The trader hasn't responded yet. You can try again later or accept the listed price." Clear session. | Medium |
 
 ## Nice to Have (Post-MVP)
 
