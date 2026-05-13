@@ -27,12 +27,12 @@ Two-part feature: (1) Product image management — traders add photos to catalog
 | ✅ | Product rotation logic | Deterministic rotation: day_index × 3 mod catalogue_size. Every product gets visibility over time. Different products each day, wraps around. |
 | ✅ | Send image by URL | NotificationService.send_image_url() — sends WhatsApp images via public R2 URL instead of media_id. Uses Meta Cloud API {"link": url} format. |
 | ✅ | DejaVu fonts in Docker | fonts-dejavu-core added to Dockerfile for consistent text rendering in generated images. |
+| ✅ | Store page product images | `GET /stores/{slug}` now enriches catalogue items with `image_url` from product_images table. StoreCatalogue component shows 48x48 rounded thumbnails per product. Falls back to shopping bag emoji when no image. Lazy loaded for performance. |
 
 ## Not Done (MVP)
 
 | # | Task | Description | Priority |
 |---|------|-------------|----------|
-| ⬜ | Store page product images | Show product photos on the public store page `/stores/{slug}` when available. Falls back to text-only display. | Medium |
 | ⬜ | Photo replacement on dashboard | Click existing thumbnail → file picker → replace image. Currently can only upload new, not replace. | Low |
 
 ## Nice to Have (Post-MVP)
