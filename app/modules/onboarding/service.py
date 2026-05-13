@@ -679,7 +679,7 @@ class OnboardingService:
         products: list[dict[str, Any]],
         next_step: str,
     ) -> None:
-        """Format the extracted product list and ask the trader to confirm."""
+        """Format the extracted product list and ask the trader to confirm with buttons."""
         lines = []
         for i, p in enumerate(products, 1):
             price_fmt = f"N{p['price']:,}"
@@ -687,14 +687,51 @@ class OnboardingService:
 
         numbered_list = "\n".join(lines)
         new_data = {**state.data, "extracted_products": products}
-        await self._advance(
-            phone_number,
-            next_step,
-            new_data,
-            _MEDIA_EXTRACTED.format(numbered_list=numbered_list),
-            tenant_id,
-            message_id,
+
+        # Update state first
+        from app.modules.onboarding.session import save_state
+        await save_state(phone_number, OnboardingState(step=next_step, data=new_data))
+
+        # Send the product list as text
+        body_text = (
+            f"I found *{len(products)} items* — please check them:\n\n"
+            f"{numbered_list}"
         )
+        # WhatsApp interactive body max is 1024 chars — if list is long, send as plain text first
+        if len(body_text) > 900:
+            await self._reply(
+                phone_number=phone_number,
+                tenant_id=tenant_id,
+                message_id=f"{message_id}_list",
+                text=body_text,
+            )
+            body_text = "Are these correct?"
+
+        # Send interactive YES / NO buttons
+        buttons = [
+            {"id": "ONBOARD_YES", "title": "Yes, add all"},
+            {"id": "ONBOARD_NO", "title": "No, let me fix"},
+        ]
+        try:
+            async with async_session_factory.begin() as session:
+                svc = NotificationService(session)
+                await svc.send_interactive(
+                    tenant_id=tenant_id,
+                    event_id=f"onboarding_confirm.{message_id}",
+                    recipient=phone_number,
+                    body_text=body_text,
+                    buttons=buttons,
+                    channel="whatsapp",
+                )
+        except Exception as exc:
+            logger.error("Onboarding interactive send failed: %s", exc)
+            # Fallback to plain text
+            await self._reply(
+                phone_number=phone_number,
+                tenant_id=tenant_id,
+                message_id=message_id,
+                text=f"{body_text}\n\nReply *YES* to add all, or tell me what to fix.",
+            )
 
     # ── Media confirmation (shared by Path A and Path B) ─────────────────────
 
@@ -707,10 +744,11 @@ class OnboardingService:
         state: OnboardingState,
     ) -> None:
         msg_lower = msg.strip().lower()
+        msg_upper = msg.strip().upper()
         products: list[dict[str, Any]] = state.data.get("extracted_products", [])
 
-        # Accept any form of "yes"
-        if msg_lower in {"yes", "yeah", "y", "yep", "correct", "ok", "okay", "fine"}:
+        # Accept button tap or any form of "yes"
+        if msg_upper == "ONBOARD_YES" or msg_lower in {"yes", "yeah", "y", "yep", "correct", "ok", "okay", "fine"}:
             count = len(products)
             await self._reply(
                 phone_number=phone_number,
@@ -720,6 +758,23 @@ class OnboardingService:
             )
             final_data = {**state.data, "media_catalogue": json.dumps(products)}
             await self._complete(phone_number, final_data, tenant_id, message_id)
+            return
+
+        # Button tap: "No, let me fix" — go back to path selection
+        if msg_upper == "ONBOARD_NO":
+            await self._advance(
+                phone_number,
+                OnboardingStep.AWAITING_CATALOGUE,
+                state.data,
+                "No problem! Choose how to set up your catalogue:\n\n"
+                "1. Send a *photo* of your price list\n"
+                "2. Send a *voice note* listing products\n"
+                "3. Answer questions one by one\n"
+                "4. Skip — I'll learn from your orders\n\n"
+                "Reply with 1, 2, 3, or 4.",
+                tenant_id,
+                message_id,
+            )
             return
 
         # "yes but number 2 na X = Y" — apply a specific correction then save
