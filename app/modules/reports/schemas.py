@@ -43,6 +43,22 @@ class WeeklyReportOut(BaseModel):
     updated_at: datetime
 
 
+class ReportHistoryItem(BaseModel):
+    model_config = {"from_attributes": True}
+
+    id: str
+    week_start: str
+    status: str
+    report_text: str | None
+    error_detail: str | None
+    created_at: datetime
+
+
+class ReportHistoryOut(BaseModel):
+    items: list[ReportHistoryItem]
+    total: int
+
+
 class SendPreviewResponse(BaseModel):
     message: str
     preview_text: str

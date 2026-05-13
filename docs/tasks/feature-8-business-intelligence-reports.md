@@ -28,8 +28,8 @@ Monday 8am weekly WhatsApp summary sent to the trader. Covers: new leads, orders
 
 | # | Task | Description | Priority |
 |---|------|-------------|----------|
-| ⬜ | Report history on dashboard | Frontend page showing past weekly reports: date, status (sent/failed/skipped), preview text. Query the `weekly_reports` table. | Medium |
-| ⬜ | Revenue trend endpoint | `GET /dashboard/revenue-trend?period=weekly` returning time-series data (last 8 weeks) for chart display on dashboard. | Medium |
+| ✅ | Report history on dashboard | `GET /reports/history` endpoint returns past weekly reports (newest first, max 52). Frontend `/reports` page with table (week range, status badge, sent date), click-to-expand modal showing full report text. Empty state guides to Settings. Reports nav item in sidebar. | Medium |
+| ✅ | Revenue trend endpoint + chart | `GET /dashboard/revenue-trend?weeks=8` returns weekly time-series (revenue + order count per Monday-Sunday week, fills gaps with zeros). RevenueTrendChart bar chart on dashboard: total revenue, total orders, per-week bars with order count labels, week labels. Pure CSS bars, no chart library. | Medium |
 
 ## Nice to Have (Post-MVP)
 

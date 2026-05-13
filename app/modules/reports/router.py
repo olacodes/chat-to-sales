@@ -15,9 +15,14 @@ from fastapi import APIRouter, Header, HTTPException, status
 
 from app.core.config import get_settings
 from app.core.dependencies import CurrentUserDep, DBSessionDep
+from sqlalchemy import select
+
+from app.modules.reports.models import WeeklyReport
 from app.modules.reports.schemas import (
     ReportConfigOut,
     ReportConfigUpdate,
+    ReportHistoryItem,
+    ReportHistoryOut,
     SendPreviewResponse,
     TriggerWeeklyResponse,
 )
@@ -45,6 +50,25 @@ async def update_report_config(
     svc = WeeklyReportService(db)
     config = await svc.upsert_config(user.tenant_id, body)
     return ReportConfigOut.model_validate(config)
+
+
+@router.get("/history", response_model=ReportHistoryOut)
+async def get_report_history(
+    user: CurrentUserDep,
+    db: DBSessionDep,
+    limit: int = 20,
+) -> ReportHistoryOut:
+    """Return past weekly reports for the tenant, newest first."""
+    stmt = (
+        select(WeeklyReport)
+        .where(WeeklyReport.tenant_id == user.tenant_id)
+        .order_by(WeeklyReport.week_start.desc())
+        .limit(min(limit, 52))
+    )
+    result = await db.execute(stmt)
+    reports = list(result.scalars().all())
+    items = [ReportHistoryItem.model_validate(r) for r in reports]
+    return ReportHistoryOut(items=items, total=len(items))
 
 
 @router.post("/send-preview", response_model=SendPreviewResponse)

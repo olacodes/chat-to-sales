@@ -162,6 +162,75 @@ async def _fetch_metrics(db: AsyncSession, tenant_id: str | None) -> DashboardMe
 # ── Endpoint ──────────────────────────────────────────────────────────────────
 
 
+# ── Revenue trend ─────────────────────────────────────────────────────────
+
+
+class RevenueTrendPoint(BaseModel):
+    week_start: str
+    revenue: Decimal
+    order_count: int
+
+
+class RevenueTrendOut(BaseModel):
+    points: list[RevenueTrendPoint]
+
+
+@router.get("/revenue-trend", response_model=RevenueTrendOut)
+async def get_revenue_trend(
+    user: CurrentUserDep,
+    db: DBSessionDep,
+    weeks: int = 8,
+) -> RevenueTrendOut:
+    """
+    Return weekly revenue + order count for the last N weeks (default 8).
+
+    Each point represents a Monday–Sunday week. Revenue is sum of PAID orders.
+    """
+    weeks = max(1, min(weeks, 52))
+    now = datetime.now(tz=timezone.utc)
+    # Find the Monday of the current week
+    today = now.date()
+    current_monday = today - timedelta(days=today.weekday())
+    start_monday = current_monday - timedelta(weeks=weeks - 1)
+
+    tid = _tenant_filter(user)
+
+    # Query: group PAID orders by week (truncated to Monday)
+    week_expr = func.date_trunc('week', Order.created_at)
+    stmt = (
+        select(
+            cast(week_expr, String).label("week_start"),
+            func.coalesce(func.sum(Order.amount), Decimal("0")).label("revenue"),
+            func.count(Order.id).label("order_count"),
+        )
+        .where(
+            Order.state == OrderState.PAID,
+            Order.created_at >= datetime.combine(start_monday, datetime.min.time(), tzinfo=timezone.utc),
+        )
+        .group_by(week_expr)
+        .order_by(week_expr)
+    )
+    if tid is not None:
+        stmt = stmt.where(Order.tenant_id == tid)
+
+    result = await db.execute(stmt)
+    rows = {r.week_start[:10]: r for r in result.all()}
+
+    # Build full series (fill missing weeks with zeros)
+    points: list[RevenueTrendPoint] = []
+    for i in range(weeks):
+        monday = start_monday + timedelta(weeks=i)
+        key = monday.isoformat()
+        row = rows.get(key)
+        points.append(RevenueTrendPoint(
+            week_start=key,
+            revenue=Decimal(str(row.revenue)) if row else Decimal("0"),
+            order_count=int(row.order_count) if row else 0,
+        ))
+
+    return RevenueTrendOut(points=points)
+
+
 @router.get("/metrics")
 async def get_dashboard_metrics(
     user: CurrentUserDep,
