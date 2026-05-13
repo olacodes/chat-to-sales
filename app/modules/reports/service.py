@@ -111,6 +111,10 @@ class WeeklyMetrics:
     needs_attention: list[NeedsAttention] = field(default_factory=list)
     conv_delta: int = 0
     revenue_delta: Decimal = Decimal("0")
+    # Debt summary
+    total_outstanding: Decimal = Decimal("0")
+    active_debts_count: int = 0
+    settled_this_week: int = 0
 
 
 # ── Aggregation queries ────────────────────────────────────────────────────────
@@ -285,6 +289,36 @@ async def _gather_metrics(
         )
     )
 
+    # ── 6. Debt summary ──────────────────────────────────────────────────────
+    from app.modules.credit_sales.models import CreditSale, CreditSaleStatus
+
+    # Total outstanding (all active debts, not just this week)
+    debt_row = (
+        await db.execute(
+            select(
+                func.count(CreditSale.id).label("active_count"),
+                func.coalesce(func.sum(CreditSale.amount), Decimal("0")).label("total_outstanding"),
+            ).where(
+                CreditSale.tenant_id == tenant_id,
+                CreditSale.status == CreditSaleStatus.ACTIVE,
+            )
+        )
+    ).one()
+    total_outstanding = Decimal(str(debt_row.total_outstanding))
+    active_debts_count = int(debt_row.active_count)
+
+    # Settled this week
+    settled_this_week: int = (
+        await db.execute(
+            select(func.count(CreditSale.id)).where(
+                CreditSale.tenant_id == tenant_id,
+                CreditSale.status == CreditSaleStatus.SETTLED,
+                CreditSale.updated_at >= week_start,
+                CreditSale.updated_at <= week_end,
+            )
+        )
+    ).scalar_one()
+
     return WeeklyMetrics(
         week_start_iso=week_start_iso,
         new_conversations=conv_count,
@@ -295,6 +329,9 @@ async def _gather_metrics(
         needs_attention=needs_attention,
         conv_delta=conv_count - prior_conversations,
         revenue_delta=revenue_paid - prior_revenue,
+        total_outstanding=total_outstanding,
+        active_debts_count=active_debts_count,
+        settled_this_week=settled_this_week,
     )
 
 
@@ -342,6 +379,15 @@ def render_report(m: WeeklyMetrics) -> str:
             rev = f" — {_NAIRA}{c.revenue:,.0f}" if c.revenue > 0 else ""
             word = "order" if c.order_count == 1 else "orders"
             lines.append(f"{i}. {c.name} ({c.order_count} {word}{rev})")
+
+    if m.active_debts_count > 0 or m.settled_this_week > 0:
+        lines += ["", "━━━━━━━━━━━━━━━━━━━━", "*📖 Debt book*"]
+        if m.active_debts_count > 0:
+            lines.append(f"Outstanding: *{_NAIRA}{m.total_outstanding:,.0f}* ({m.active_debts_count} debtor{'s' if m.active_debts_count != 1 else ''})")
+        if m.settled_this_week > 0:
+            lines.append(f"Settled this week: *{m.settled_this_week}*")
+        if m.active_debts_count == 0:
+            lines.append("All debts cleared! 🎉")
 
     if m.needs_attention:
         lines += ["", "━━━━━━━━━━━━━━━━━━━━", "*⚠️ Needs your attention*"]
