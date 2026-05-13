@@ -717,6 +717,10 @@ class OrderService:
             result = await self._smart_parse(message, category, catalogue, conversation_id)
 
         # ── No session (or just resolved clarification): fresh order parse ────
+        logger.info(
+            "Smart parse result: intent=%s items=%d clarify=%s customer=%s",
+            result.intent, len(result.items), result.clarification_needed, customer_phone,
+        )
 
         if result.intent == CONFIRM and not session:
             await self._reply(
@@ -877,7 +881,7 @@ class OrderService:
         # Fill in prices from catalogue for items that don't have them
         missing_price_names: list[str] = []
         for item in items:
-            if item.get("unit_price") is None:
+            if not item.get("unit_price"):
                 # Case-insensitive catalogue lookup
                 matched_price: int | None = None
                 item_name_lower = item["name"].lower()
