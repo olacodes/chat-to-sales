@@ -310,6 +310,201 @@ async def _send_debt_reminders() -> None:
             )
 
 
+async def _send_status_kit() -> None:
+    """
+    Generate and send daily Status Kit images to all traders with catalogues.
+
+    Runs daily at 5:30 AM UTC (6:30 AM WAT). Picks 2-3 products per trader
+    (rotating daily), generates branded cards, sends via WhatsApp.
+    """
+    from app.modules.notifications.service import NotificationService
+    from app.modules.onboarding.models import OnboardingStatus, Trader
+    from app.modules.orders.product_images import ProductImage
+    from app.infra.storage import upload_product_image as r2_upload
+    from app.infra.status_kit import generate_text_card, generate_photo_card
+
+    now = datetime.now(tz=timezone.utc)
+    if not _is_business_hours(now):
+        return
+
+    settings = get_settings()
+    platform_tenant_id = settings.TENANT_ID
+    day_index = (now - datetime(2026, 1, 1, tzinfo=timezone.utc)).days  # deterministic rotation
+
+    # Find all completed traders with a catalogue
+    async with async_session_factory() as session:
+        result = await session.execute(
+            select(Trader).where(
+                Trader.onboarding_status == OnboardingStatus.COMPLETE,
+                Trader.onboarding_catalogue.is_not(None),
+                Trader.store_slug.is_not(None),
+            )
+        )
+        traders = list(result.scalars().all())
+
+    if not traders:
+        return
+
+    logger.info("Status Kit: generating for %d traders", len(traders))
+
+    for trader in traders:
+        try:
+            # Parse catalogue
+            import json as _json
+            raw_cat = trader.onboarding_catalogue or ""
+            try:
+                parsed = _json.loads(raw_cat)
+                if isinstance(parsed, dict):
+                    catalogue = {str(k): int(v) for k, v in parsed.items() if v}
+                elif isinstance(parsed, list):
+                    catalogue = {
+                        str(item.get("name", "")): int(item.get("price", 0))
+                        for item in parsed
+                        if isinstance(item, dict) and item.get("name") and item.get("price")
+                    }
+                else:
+                    catalogue = {}
+            except (ValueError, TypeError):
+                catalogue = {}
+
+            if not catalogue:
+                continue
+
+            products = sorted(catalogue.items())
+            if not products:
+                continue
+
+            # Pick 2-3 products (rotate daily)
+            n_products = min(3, len(products))
+            start_idx = (day_index * 3) % len(products)
+            selected = []
+            for i in range(n_products):
+                idx = (start_idx + i) % len(products)
+                selected.append(products[idx])
+
+            store_url = f"chattosales.com/stores/{trader.store_slug}"
+            trader_name = trader.business_name or "My Store"
+
+            # Fetch product images for this trader
+            async with async_session_factory() as session:
+                img_result = await session.execute(
+                    select(ProductImage).where(
+                        ProductImage.trader_phone == trader.phone_number
+                    )
+                )
+                image_map = {
+                    img.product_name: img.image_url
+                    for img in img_result.scalars().all()
+                }
+
+            # Generate + send cards
+            card_count = 0
+            for product_name, price in selected:
+                image_url = image_map.get(product_name)
+
+                if image_url:
+                    # Download the image from R2 for photo card
+                    try:
+                        import httpx as _httpx
+                        async with _httpx.AsyncClient(timeout=10.0) as http:
+                            resp = await http.get(image_url)
+                            if resp.is_success:
+                                photo_bytes = resp.content
+                            else:
+                                photo_bytes = None
+                    except Exception:
+                        photo_bytes = None
+                else:
+                    photo_bytes = None
+
+                if photo_bytes:
+                    card_bytes = generate_photo_card(
+                        trader_name=trader_name,
+                        product_name=product_name,
+                        price=price,
+                        store_url=store_url,
+                        photo_bytes=photo_bytes,
+                    )
+                else:
+                    card_bytes = generate_text_card(
+                        trader_name=trader_name,
+                        product_name=product_name,
+                        price=price,
+                        store_url=store_url,
+                    )
+
+                # Upload generated card to R2 for sending via URL
+                card_key = f"status-kit/{trader.phone_number}/{day_index}-{_slugify(product_name)}.jpg"
+                try:
+                    client = _get_client()
+                    if client:
+                        client.put_object(
+                            Bucket=settings.R2_BUCKET_NAME,
+                            Key=card_key,
+                            Body=card_bytes,
+                            ContentType="image/jpeg",
+                        )
+                        if settings.R2_PUBLIC_URL:
+                            card_url = f"{settings.R2_PUBLIC_URL.rstrip('/')}/{card_key}"
+                        else:
+                            card_url = f"https://{settings.R2_BUCKET_NAME}.{settings.R2_ACCOUNT_ID}.r2.cloudflarestorage.com/{card_key}"
+
+                        # Send via WhatsApp
+                        async with async_session_factory.begin() as svc_session:
+                            svc = NotificationService(svc_session)
+                            await svc.send_image_url(
+                                tenant_id=platform_tenant_id,
+                                event_id=f"status_kit.{trader.phone_number}.{day_index}.{card_count}",
+                                recipient=trader.phone_number,
+                                image_url=card_url,
+                                caption=f"{product_name} — N{price:,}\n{store_url}",
+                                channel_tenant_id=platform_tenant_id,
+                            )
+                        card_count += 1
+                except Exception as exc:
+                    logger.warning("Status Kit card send failed: %s", exc)
+
+            if card_count > 0:
+                # Send the "share to Status" prompt
+                async with async_session_factory.begin() as svc_session:
+                    svc = NotificationService(svc_session)
+                    await svc.send_message(
+                        tenant_id=platform_tenant_id,
+                        event_id=f"status_kit.prompt.{trader.phone_number}.{day_index}",
+                        recipient=trader.phone_number,
+                        message_text=(
+                            f"Good morning! Here are today's {card_count} Status post"
+                            f"{'s' if card_count != 1 else ''}.\n\n"
+                            "Long-press any image and share to your WhatsApp Status!"
+                        ),
+                        channel="whatsapp",
+                        channel_tenant_id=platform_tenant_id,
+                    )
+
+            logger.info(
+                "Status Kit sent: trader=%s cards=%d",
+                trader.phone_number, card_count,
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "Status Kit failed for trader=%s", trader.phone_number,
+            )
+
+
+def _slugify(text: str) -> str:
+    """URL-safe slug for R2 keys."""
+    import re as _slug_re
+    slug = _slug_re.sub(r"\s+", "-", text.lower())
+    slug = _slug_re.sub(r"[^a-z0-9-]", "", slug)
+    return slug.strip("-") or "product"
+
+
+def _get_client():
+    """Get the R2 S3 client (imported from storage module)."""
+    from app.infra.storage import _get_client as _r2_client
+    return _r2_client()
+
+
 async def _send_weekly_reports() -> None:
     """
     Send the weekly report for every tenant that has reports enabled.
@@ -379,6 +574,15 @@ def start_scheduler() -> None:
         misfire_grace_time=120,
     )
     _scheduler.add_job(
+        _send_status_kit,
+        trigger="cron",
+        hour=5,
+        minute=30,
+        id="send_status_kit",
+        replace_existing=True,
+        misfire_grace_time=3600,
+    )
+    _scheduler.add_job(
         _send_weekly_reports,
         trigger="cron",
         day_of_week="mon",
@@ -391,7 +595,7 @@ def start_scheduler() -> None:
     _scheduler.start()
     logger.info(
         "Scheduler started — messages every 60s, order reminders every %dm, "
-        "debt reminders every %dh, weekly reports Mon 8am WAT",
+        "debt reminders every %dh, Status Kit daily 6:30am WAT, weekly reports Mon 8am WAT",
         _REMINDER_INTERVAL_MINUTES,
         _DEBT_REMINDER_INTERVAL_HOURS,
     )

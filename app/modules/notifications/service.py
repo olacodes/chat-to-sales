@@ -569,6 +569,91 @@ class NotificationService:
             raise
         return wamid
 
+    async def send_image_url(
+        self,
+        *,
+        tenant_id: str,
+        event_id: str,
+        recipient: str,
+        image_url: str,
+        caption: str | None = None,
+        channel: str = "whatsapp",
+        channel_tenant_id: str | None = None,
+    ) -> str | None:
+        """Send a WhatsApp image message using a public URL (not media_id)."""
+        existing = await self._repo.get_by_event_id(event_id)
+        if existing is not None:
+            return None
+
+        notification = await self._repo.create(
+            tenant_id=tenant_id,
+            event_id=event_id,
+            recipient=recipient,
+            message_text=caption or "[image]",
+            channel=channel,
+        )
+
+        wamid: str | None = None
+        try:
+            if channel == "whatsapp":
+                wamid = await self._dispatch_whatsapp_image_url(
+                    tenant_id=channel_tenant_id or tenant_id,
+                    recipient=recipient,
+                    image_url=image_url,
+                    caption=caption,
+                )
+            await self._repo.update_status(notification, NotificationStatus.SENT)
+        except Exception as exc:
+            await self._repo.update_status(notification, NotificationStatus.FAILED)
+            logger.error("Image URL notification failed: %s", exc)
+        return wamid
+
+    async def _dispatch_whatsapp_image_url(
+        self,
+        tenant_id: str,
+        recipient: str,
+        image_url: str,
+        caption: str | None = None,
+    ) -> str | None:
+        """Send an image via Meta Cloud API using a public URL."""
+        channel_record = await self._channel_repo.get_by_tenant_and_channel(
+            tenant_id=tenant_id, channel="whatsapp",
+        )
+        if channel_record is None:
+            return None
+
+        phone_number_id = channel_record.phone_number_id
+        access_token = decrypt_token(channel_record.encrypted_access_token)
+
+        image_payload: dict = {"link": image_url}
+        if caption:
+            image_payload["caption"] = caption
+        body = {
+            "messaging_product": "whatsapp",
+            "to": recipient,
+            "type": "image",
+            "image": image_payload,
+        }
+
+        async with httpx.AsyncClient(timeout=_WHATSAPP_TIMEOUT) as client:
+            response = await client.post(
+                f"{_META_API_BASE}/{phone_number_id}/messages",
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json",
+                },
+                json=body,
+            )
+
+        if response.is_success:
+            try:
+                return response.json()["messages"][0]["id"]
+            except (KeyError, IndexError):
+                return None
+        else:
+            logger.error("WhatsApp image URL send failed: %s", response.text[:200])
+            return None
+
     async def _dispatch_whatsapp_image(
         self,
         tenant_id: str,
