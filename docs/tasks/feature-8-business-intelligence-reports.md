@@ -21,12 +21,12 @@ Monday 8am weekly WhatsApp summary sent to the trader. Covers: new leads, orders
 | ✅ | Configuration | REPORT_SECRET env var for trigger endpoint protection. Validated in production. |
 | ✅ | Module registration | Router registered in main.py. |
 | ✅ | Automatic Monday 8am scheduling | `_send_weekly_reports()` in scheduler.py: APScheduler cron job (Monday 7:00 UTC = 8:00 AM WAT). Queries all tenants with reports enabled + recipient set, calls `run_weekly()` for each. 1-hour misfire grace. Per-tenant failure isolation. No external cron needed. |
+| ✅ | Debt summary in weekly report | WeeklyMetrics now includes total_outstanding, active_debts_count, settled_this_week. Queries CreditSale model. Report shows "Debt book" section: outstanding amount + debtor count + settled this week. Shows "All debts cleared!" when zero. |
 
 ## Not Done (MVP)
 
 | # | Task | Description | Priority |
 |---|------|-------------|----------|
-| ⬜ | Debt summary in weekly report | Extend `_gather_metrics()` to include: total outstanding debts, debts settled this week, number of active debtors. Add section to `render_report()`. | High |
 | ⬜ | Trending products in report | Top 5 most-ordered products this week by order count. Add to the report body. | Medium |
 | ⬜ | Report history on dashboard | Frontend page showing past weekly reports: date, status (sent/failed/skipped), preview text. Query the `weekly_reports` table. | Medium |
 | ⬜ | Revenue trend endpoint | `GET /dashboard/revenue-trend?period=weekly` returning time-series data (last 8 weeks) for chart display on dashboard. | Medium |
