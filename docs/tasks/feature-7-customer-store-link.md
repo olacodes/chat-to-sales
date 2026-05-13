@@ -32,8 +32,8 @@ Lightweight mobile page at `chattosales.com/stores/{slug}` where customers can b
 | ✅ | Open Graph / social sharing | Dynamic OG metadata per store: title (business name), description (product count + CTA), full openGraph + twitter card tags. Dynamic OG image generated via `next/og` ImageResponse (1200x630): dark green background, store name, category, top 4 product names as pills, WhatsApp green CTA button, ChatToSales branding. Revalidates every 5 min. |
 | ⬜ | Store page bank details | Show trader's bank details on the store page (optional, trader-configurable) so customers can pay before messaging. | Medium |
 | ⬜ | Product search on store page | Search/filter bar on store pages with large catalogues (>20 products). | Medium |
-| ⬜ | Structured data (JSON-LD) | Schema.org Product + LocalBusiness markup for Google rich results. | Medium |
-| ⬜ | Sitemap for store pages | Dynamic sitemap.xml including all active store slugs for SEO indexing. | Medium |
+| ✅ | Structured data (JSON-LD) | LocalBusiness schema with category-mapped additionalType (GroceryStore, ElectronicsStore, ClothingStore, etc.) + OrderAction pointing to WhatsApp. Per-product Product schema (up to 20) with Offer (NGN price, InStock, seller). Injected as script tags in store page. | Medium |
+| ✅ | Sitemap for store pages | Dynamic sitemap.xml fetches all active store slugs from `GET /api/v1/stores` (revalidates hourly). Each store page at priority 0.7, changeFrequency daily. Static pages preserved. | Medium |
 
 ## Nice to Have (Post-MVP)
 
