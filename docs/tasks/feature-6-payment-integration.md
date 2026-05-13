@@ -31,7 +31,7 @@ Two-tier payment system: (1) Bank details sharing for all traders — auto-sends
 | # | Task | Description | Priority |
 |---|------|-------------|----------|
 | ✅ | Bank account name verification | Paystack `GET /bank/resolve` verifies account name. Bank name mapped to bank_code via 30+ Nigerian bank lookup table. Resolved name shown to trader with [Yes, save it] / [No, re-enter] buttons. Fallback to business name if Paystack key not set or resolve fails. Unknown bank names rejected with prompt. New file: `app/infra/paystack.py`. New session state: TRADER_AWAITING_BANK_CONFIRM. |
-| ⬜ | Payment status on dashboard | Show payment status (pending/paid/credit) on the orders page. Badge or icon next to each order. | Medium |
+| ✅ | Payment status on dashboard | Orders page shows "Awaiting Payment" outline badge on confirmed non-credit orders. Credit badge on credit orders. Status badges (Inquiry/Confirmed/Paid/Completed/Cancelled) already present. Clear payment flow visibility at a glance. | Medium |
 | ⬜ | Paystack subaccount (premium tier) | For Oja/Alatise traders who opt in: create Paystack subaccount with trader's bank details, send payment links alongside bank details. Auto-confirm via webhook. | Medium |
 | ⬜ | Real Paystack API integration | Replace mock payment link with actual `POST https://api.paystack.co/transaction/initialize` + subaccount. For premium tiers only. | Medium |
 | ⬜ | WhatsApp payment link delivery | Send Paystack payment link alongside bank details: "Pay to bank OR [Pay Online]". For premium tiers only. | Medium |

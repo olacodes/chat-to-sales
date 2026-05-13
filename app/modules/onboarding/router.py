@@ -267,12 +267,20 @@ async def get_store(slug: str, db: DBSessionDep) -> TraderStoreOut:
     for item in catalogue_items:
         item.image_url = image_map.get(item.name)
 
+    # Include bank details if trader has set them
+    bank_name = trader.bank_name if trader.bank_name else None
+    bank_account_number = trader.bank_account_number if trader.bank_account_number else None
+    bank_account_name = trader.bank_account_name if trader.bank_account_name else None
+
     return TraderStoreOut(
         business_name=trader.business_name or "",
         business_category=trader.business_category or "",
         store_slug=trader.store_slug or "",
         ordering_whatsapp_url=ordering_whatsapp_url,
         catalogue=catalogue_items,
+        bank_name=bank_name,
+        bank_account_number=bank_account_number,
+        bank_account_name=bank_account_name,
     )
 
 

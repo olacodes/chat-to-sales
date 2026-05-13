@@ -37,6 +37,10 @@ class TraderStoreOut(BaseModel):
     # WhatsApp Business number (Phase 2). Computed by the store router.
     ordering_whatsapp_url: str
     catalogue: list[CatalogueItem]
+    # Bank details (optional — only shown if trader has set them)
+    bank_name: str | None = None
+    bank_account_number: str | None = None
+    bank_account_name: str | None = None
 
 
 # ── Web onboarding schemas ────────────────────────────────────────────────────
