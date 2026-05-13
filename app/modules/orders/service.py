@@ -1061,12 +1061,28 @@ class OrderService:
                 channel_tenant_id=channel_tenant_id,
             )
 
+            # Upload the image to R2 immediately (before trader replies)
+            # so it's available when the trader names the product
+            temp_image_url = ""
+            try:
+                from app.infra.storage import upload_product_image as _r2_upload
+                temp_name = f"_pending_{image_hash or customer_phone}"
+                url = await _r2_upload(
+                    trader_phone=trader_phone,
+                    product_name=temp_name,
+                    image_bytes=image_bytes,
+                )
+                temp_image_url = url or ""
+            except Exception as exc:
+                logger.warning("R2 upload for pending inquiry failed: %s", exc)
+
             # Store pending inquiry so trader's price reply can be learned
             await set_pending_image_inquiry(
                 trader_phone,
                 {
                     "customer_phone": customer_phone,
                     "image_hash": image_hash or "",
+                    "image_url": temp_image_url,
                     "tenant_id": tenant_id,
                     "conversation_id": conversation_id,
                     "channel_tenant_id": channel_tenant_id or "",
@@ -1167,6 +1183,26 @@ class OrderService:
             image_hash=pending_image_hash or None,
             confirmed=True,
         )
+
+        # Save product image passively (if we uploaded it during the inquiry)
+        pending_image_url: str = pending.get("image_url", "")
+        if pending_image_url and product_name != "Product":
+            try:
+                from app.modules.orders.product_images import ProductImageRepository
+                async with async_session_factory.begin() as img_session:
+                    img_repo = ProductImageRepository(img_session)
+                    await img_repo.upsert(
+                        trader_phone=trader_phone,
+                        product_name=product_name,
+                        image_url=pending_image_url,
+                        image_hash=pending_image_hash or None,
+                    )
+                logger.info(
+                    "Passive product image saved: trader=%s product=%s",
+                    trader_phone, product_name,
+                )
+            except Exception as exc:
+                logger.warning("Passive image save failed: %s", exc)
 
         # Update the trader's catalogue with the new product/price
         catalogue[product_name] = price
