@@ -1475,7 +1475,7 @@ class OrderService:
                 )
         elif tap == "MENU_ADD":
             await set_trader_session(trader_phone, {"state": TRADER_AWAITING_ADD})
-            await self._reply(
+            await self._reply_with_cancel(
                 phone=trader_phone,
                 tenant_id=tenant_id,
                 event_id=f"trader.add_prompt.{message_id}",
@@ -1569,7 +1569,7 @@ class OrderService:
                 )
             else:
                 text = wa.bank_details_not_set()
-            await self._reply(
+            await self._reply_with_cancel(
                 phone=trader_phone, tenant_id=tenant_id,
                 event_id=f"trader.bank_menu.{message_id}",
                 text=text, channel_tenant_id=channel_tenant_id,
@@ -1627,6 +1627,27 @@ class OrderService:
         )
 
         state = tsession.get("state", "")
+
+        # ── Universal escape: cancel/menu always exits any session ────────
+        stripped_upper = message.strip().upper()
+        if stripped_upper in ("TRADER_CANCEL_SESSION", "CANCEL", "MENU", "BACK", "STOP"):
+            await clear_trader_session(trader_phone)
+            if stripped_upper in ("MENU", "TRADER_CANCEL_SESSION"):
+                await self._send_trader_menu(
+                    trader_phone=trader_phone,
+                    message_id=message_id,
+                    tenant_id=tenant_id,
+                    channel_tenant_id=channel_tenant_id,
+                )
+            else:
+                await self._reply(
+                    phone=trader_phone,
+                    tenant_id=tenant_id,
+                    event_id=f"trader.session_cancelled.{message_id}",
+                    text="Cancelled. Type *MENU* for options.",
+                    channel_tenant_id=channel_tenant_id,
+                )
+            return True
 
         if state == TRADER_AWAITING_PHOTO_PRODUCT:
             # Waiting for trader to pick which product the photo is for
@@ -3609,7 +3630,7 @@ class OrderService:
                     "state": TRADER_AWAITING_PRICE_VALUE,
                     "product_name": product_name,
                 })
-                await self._reply(
+                await self._reply_with_cancel(
                     phone=trader_phone,
                     tenant_id=tenant_id,
                     event_id=f"trader.price_prompt.{message_id}",
@@ -3773,7 +3794,7 @@ class OrderService:
                             "order_ref": order_ref,
                             "customer_name": order.customer_name or "",
                         })
-                        await self._reply(
+                        await self._reply_with_cancel(
                             phone=trader_phone, tenant_id=tenant_id,
                             event_id=f"order.creditpart_prompt.{message_id}",
                             text=wa.credit_partial_prompt(order_ref, total, customer_name=order.customer_name),
@@ -3819,7 +3840,7 @@ class OrderService:
                 "state": TRADER_AWAITING_COUNTER_PRICE,
                 "customer_phone": customer_phone_from_tap,
             })
-            await self._reply(
+            await self._reply_with_cancel(
                 phone=trader_phone,
                 tenant_id=tenant_id,
                 event_id=f"trader.neg_counter_prompt.{message_id}",
@@ -4065,22 +4086,17 @@ class OrderService:
             from app.modules.orders.session import set_trader_session, TRADER_AWAITING_BANK_DETAILS
             bank_name = trader.get("bank_name", "")
             if bank_name:
-                await self._reply(
-                    phone=trader_phone, tenant_id=tenant_id,
-                    event_id=f"trader.bank_current.{message_id}",
-                    text=wa.bank_details_current(
-                        bank_name, trader.get("bank_account_number", ""),
-                        trader.get("bank_account_name", ""),
-                    ),
-                    channel_tenant_id=channel_tenant_id,
+                text = wa.bank_details_current(
+                    bank_name, trader.get("bank_account_number", ""),
+                    trader.get("bank_account_name", ""),
                 )
             else:
-                await self._reply(
-                    phone=trader_phone, tenant_id=tenant_id,
-                    event_id=f"trader.bank_prompt.{message_id}",
-                    text=wa.bank_details_not_set(),
-                    channel_tenant_id=channel_tenant_id,
-                )
+                text = wa.bank_details_not_set()
+            await self._reply_with_cancel(
+                phone=trader_phone, tenant_id=tenant_id,
+                event_id=f"trader.bank_prompt.{message_id}",
+                text=text, channel_tenant_id=channel_tenant_id,
+            )
             await set_trader_session(trader_phone, {"state": TRADER_AWAITING_BANK_DETAILS})
             return
 
@@ -4360,6 +4376,26 @@ class OrderService:
                 event_id,
                 exc,
             )
+
+    async def _reply_with_cancel(
+        self,
+        *,
+        phone: str,
+        tenant_id: str,
+        event_id: str,
+        text: str,
+        channel_tenant_id: str | None = None,
+    ) -> None:
+        """Send a text prompt with a Cancel button so traders can exit any flow."""
+        buttons = [{"id": "TRADER_CANCEL_SESSION", "title": "Cancel"}]
+        await self._reply_interactive(
+            phone=phone,
+            tenant_id=tenant_id,
+            event_id=event_id,
+            body_text=text,
+            buttons=buttons,
+            channel_tenant_id=channel_tenant_id,
+        )
 
     async def _reply_interactive(
         self,
