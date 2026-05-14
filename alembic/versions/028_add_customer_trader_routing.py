@@ -6,8 +6,8 @@ Revision ID: 028
 from alembic import op
 import sqlalchemy as sa
 
-revision = "028"
-down_revision = "027"
+revision = "028_add_customer_trader_routing"
+down_revision = "027_add_product_images"
 branch_labels = None
 depends_on = None
 
