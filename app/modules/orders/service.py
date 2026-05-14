@@ -1609,6 +1609,23 @@ class OrderService:
                     body_text=body, button_label=btn, sections=sections,
                     channel_tenant_id=channel_tenant_id,
                 )
+        elif tap == "MENU_STATUS_POST":
+            result_tuple = wa.status_product_picker(catalogue, mode="post")
+            if result_tuple is None:
+                await self._reply(
+                    phone=trader_phone, tenant_id=tenant_id,
+                    event_id=f"trader.status_post_empty.{message_id}",
+                    text="Your catalogue is empty — add products first.",
+                    channel_tenant_id=channel_tenant_id,
+                )
+            else:
+                body, btn, sections = result_tuple
+                await self._reply_list(
+                    phone=trader_phone, tenant_id=tenant_id,
+                    event_id=f"trader.status_post_pick.{message_id}",
+                    body_text=body, button_label=btn, sections=sections,
+                    channel_tenant_id=channel_tenant_id,
+                )
         elif tap == "MENU_ORDERS":
             await self._do_list_pending_orders(
                 trader_phone=trader_phone,
@@ -3587,6 +3604,28 @@ class OrderService:
         result = _layer1(message)
         stripped = message.strip().upper()
 
+        # ── Handle sub-menu taps (SUB_*) → show sub-menu list ──────────────
+        if stripped.startswith("SUB_"):
+            sub_map = {
+                "SUB_ORDERS": wa.trader_submenu_orders,
+                "SUB_CATALOGUE": wa.trader_submenu_catalogue,
+                "SUB_STORE": wa.trader_submenu_store,
+                "SUB_MARKETING": wa.trader_submenu_marketing,
+            }
+            sub_fn = sub_map.get(stripped)
+            if sub_fn:
+                body, btn, sections = sub_fn()
+                await self._reply_list(
+                    phone=trader_phone,
+                    tenant_id=tenant_id,
+                    event_id=f"trader.submenu.{stripped.lower()}.{message_id}",
+                    body_text=body,
+                    button_label=btn,
+                    sections=sections,
+                    channel_tenant_id=channel_tenant_id,
+                )
+            return
+
         # ── Handle menu list taps (MENU_*) ────────────────────────────────────
         if stripped.startswith("MENU_"):
             await self._handle_menu_tap(
@@ -3723,6 +3762,32 @@ class OrderService:
                 message_id=message_id,
                 tenant_id=tenant_id,
                 channel_tenant_id=channel_tenant_id,
+            )
+            return
+
+        # ── Handle Status Post product tap (STPOST_*) — sends both image + video
+        if stripped.startswith("STPOST_"):
+            product_name = message.strip()[7:]
+            # Send image first (always works — text card fallback)
+            await self._generate_and_send_status(
+                mode="image",
+                product_name=product_name,
+                trader_phone=trader_phone,
+                trader=trader,
+                message_id=f"{message_id}_img",
+                tenant_id=tenant_id,
+                channel_tenant_id=channel_tenant_id,
+            )
+            # Then try video silently (skip if no photo — don't show error)
+            await self._generate_and_send_status(
+                mode="video",
+                product_name=product_name,
+                trader_phone=trader_phone,
+                trader=trader,
+                message_id=f"{message_id}_vid",
+                tenant_id=tenant_id,
+                channel_tenant_id=channel_tenant_id,
+                silent=True,
             )
             return
 
@@ -4449,6 +4514,7 @@ class OrderService:
         message_id: str,
         tenant_id: str,
         channel_tenant_id: str | None = None,
+        silent: bool = False,
     ) -> None:
         """Generate a Status image or video for a product and send it to the trader."""
         from app.infra.storage import _get_client
@@ -4470,13 +4536,14 @@ class OrderService:
                     price = v
                     break
 
-        # Notify trader we're working on it
-        await self._reply(
-            phone=trader_phone, tenant_id=tenant_id,
-            event_id=f"status.generating.{message_id}",
-            text=wa.status_generating(mode),
-            channel_tenant_id=channel_tenant_id,
-        )
+        # Notify trader we're working on it (skip in silent mode)
+        if not silent:
+            await self._reply(
+                phone=trader_phone, tenant_id=tenant_id,
+                event_id=f"status.generating.{message_id}",
+                text=wa.status_generating(mode),
+                channel_tenant_id=channel_tenant_id,
+            )
 
         # Fetch product photo if available
         photo_bytes: bytes | None = None
@@ -4499,6 +4566,8 @@ class OrderService:
 
         if mode == "video":
             if not photo_bytes:
+                if silent:
+                    return  # No photo, skip video silently
                 await self._reply(
                     phone=trader_phone, tenant_id=tenant_id,
                     event_id=f"status.nophoto.{message_id}",
@@ -4518,6 +4587,8 @@ class OrderService:
                 effect=effect,
             )
             if not video_bytes:
+                if silent:
+                    return
                 await self._reply(
                     phone=trader_phone, tenant_id=tenant_id,
                     event_id=f"status.vidfail.{message_id}",
@@ -4610,13 +4681,14 @@ class OrderService:
                 )
                 return
 
-        # Success prompt
-        await self._reply(
-            phone=trader_phone, tenant_id=tenant_id,
-            event_id=f"status.done.{message_id}",
-            text=wa.status_share_prompt(),
-            channel_tenant_id=channel_tenant_id,
-        )
+        # Success prompt (skip in silent mode — the non-silent call already sent one)
+        if not silent:
+            await self._reply(
+                phone=trader_phone, tenant_id=tenant_id,
+                event_id=f"status.done.{message_id}",
+                text=wa.status_share_prompt(),
+                channel_tenant_id=channel_tenant_id,
+            )
         logger.info("Status %s generated: trader=%s product=%s", mode, trader_phone, product_name)
 
     async def _reply_with_cancel(

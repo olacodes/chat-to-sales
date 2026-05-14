@@ -443,17 +443,44 @@ def trader_command_guide() -> str:
 
 
 def trader_menu() -> tuple[str, str, list[dict]]:
-    """Return (body, button_label, sections) for the trader main menu list message."""
+    """Return (body, button_label, sections) for the main menu (4 items → sub-menus)."""
     body = "What would you like to do? \U0001f4cb"
     button_label = "Open menu"
     sections = [
         {
-            "title": "Orders",
+            "title": "Menu",
+            "rows": [
+                {"id": "SUB_ORDERS", "title": "\U0001f4cb Orders & Debts", "description": "View orders, track who owes you"},
+                {"id": "SUB_CATALOGUE", "title": "\U0001f4e6 Catalogue", "description": "Add, remove, update products"},
+                {"id": "SUB_STORE", "title": "\U0001f6cd Store & Settings", "description": "Store link, bank, category"},
+                {"id": "SUB_MARKETING", "title": "\U0001f4e3 Marketing", "description": "Create Status posts and videos"},
+            ],
+        },
+    ]
+    return body, button_label, sections
+
+
+def trader_submenu_orders() -> tuple[str, str, list[dict]]:
+    """Orders & Debts sub-menu."""
+    body = "\U0001f4cb *Orders & Debts*"
+    button_label = "Select"
+    sections = [
+        {
+            "title": "Orders & Debts",
             "rows": [
                 {"id": "MENU_ORDERS", "title": "\U0001f4cb Active Orders", "description": "View and manage your orders"},
                 {"id": "MENU_DEBTS", "title": "\U0001f4d6 Who Owes Me", "description": "See your debt book"},
             ],
         },
+    ]
+    return body, button_label, sections
+
+
+def trader_submenu_catalogue() -> tuple[str, str, list[dict]]:
+    """Catalogue sub-menu."""
+    body = "\U0001f4e6 *Catalogue*"
+    button_label = "Select"
+    sections = [
         {
             "title": "Catalogue",
             "rows": [
@@ -464,19 +491,38 @@ def trader_menu() -> tuple[str, str, list[dict]]:
                 {"id": "MENU_PRICELIST", "title": "\U0001f4f7 Upload Price List", "description": "Photo/voice to update catalogue"},
             ],
         },
+    ]
+    return body, button_label, sections
+
+
+def trader_submenu_store() -> tuple[str, str, list[dict]]:
+    """Store & Settings sub-menu."""
+    body = "\U0001f6cd *Store & Settings*"
+    button_label = "Select"
+    sections = [
         {
-            "title": "Store",
+            "title": "Store & Settings",
             "rows": [
                 {"id": "MENU_STORE", "title": "\U0001f6cd My Store", "description": "View store link"},
                 {"id": "MENU_CATEGORY", "title": "\U0001f3f7 Change Category", "description": "Switch business category"},
                 {"id": "MENU_BANK", "title": "\U0001f3e6 Bank Details", "description": "Set or update bank account"},
             ],
         },
+    ]
+    return body, button_label, sections
+
+
+def trader_submenu_marketing() -> tuple[str, str, list[dict]]:
+    """Marketing sub-menu."""
+    body = "\U0001f4e3 *Marketing*"
+    button_label = "Select"
+    sections = [
         {
             "title": "Marketing",
             "rows": [
                 {"id": "MENU_STATUS_IMAGE", "title": "\U0001f4f8 Status Image", "description": "Generate a product image for Status"},
                 {"id": "MENU_STATUS_VIDEO", "title": "\U0001f3ac Status Video", "description": "Generate a Ken Burns video for Status"},
+                {"id": "MENU_STATUS_POST", "title": "\U0001f4e3 Create Status Post", "description": "Auto-generate image + video for Status"},
             ],
         },
     ]
@@ -877,8 +923,10 @@ def status_product_picker(
     """Return (body, button_label, sections) for picking a product to generate Status content."""
     if not catalogue:
         return None
-    label = "Status image" if mode == "image" else "Status video"
-    prefix = "STIMG" if mode == "image" else "STVID"
+    label_map = {"image": "Status image", "video": "Status video", "post": "Status post"}
+    prefix_map = {"image": "STIMG", "video": "STVID", "post": "STPOST"}
+    label = label_map.get(mode, "Status post")
+    prefix = prefix_map.get(mode, "STPOST")
     body = f"Which product do you want to create a {label} for?"
     button_label = "Select product"
     rows = []
