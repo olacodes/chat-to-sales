@@ -39,7 +39,7 @@ All MVP tasks complete.
 
 | # | Task | Description |
 |---|------|-------------|
-| ⬜ | Status Kit video (Ken Burns) | Take a single product photo → slow zoom/pan over 5-7 seconds → overlay text. FFmpeg. Creates engaging Status video from one photo. |
+| ✅ | Status Kit video (Ken Burns) | FFmpeg-based Ken Burns video generator: 4 effects (zoom_in, zoom_out, pan_right, pan_down) rotating daily. 1080x1920 MP4, 5 seconds, H.264 CRF 28. Dark gradient overlay + drawtext for product name, price (green), store URL, CTA. Integrated into scheduler: even days = video, odd days = static image. NotificationService.send_video_url() for WhatsApp delivery. Uploaded to R2 as MP4. |
 | ⬜ | Status Kit slideshow video | Combine 3-5 product photos into a 15-second video with transitions. Each slide shows product name + price. Ends with store link. |
 | ⬜ | Seasonal templates | Christmas, Ramadan, Black Friday themed Status cards. Trader selects theme in settings. |
 | ⬜ | Status Kit performance tracking | "Your Status posts generated 5 orders this week." Track store link clicks from Status-shared posts. |

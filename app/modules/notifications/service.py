@@ -729,3 +729,71 @@ class NotificationService:
                 message=f"WhatsApp API error {response.status_code}: {response.text[:200]}",
                 status_code=502,
             )
+
+    # ── Video by URL ─────────────────────────────────────────────────────────
+
+    async def send_video_url(
+        self,
+        *,
+        tenant_id: str,
+        event_id: str,
+        recipient: str,
+        video_url: str,
+        caption: str | None = None,
+        channel: str = "whatsapp",
+        channel_tenant_id: str | None = None,
+    ) -> str | None:
+        """Send a WhatsApp video message using a public URL."""
+        existing = await self._repo.get_by_event_id(event_id)
+        if existing is not None:
+            return None
+
+        notification = await self._repo.create(
+            tenant_id=tenant_id,
+            event_id=event_id,
+            recipient=recipient,
+            message_text=caption or "[video]",
+            channel=channel,
+        )
+
+        wamid: str | None = None
+        try:
+            if channel == "whatsapp":
+                channel_record = await self._channel_repo.get_by_tenant_and_channel(
+                    tenant_id=channel_tenant_id or tenant_id, channel="whatsapp",
+                )
+                if channel_record:
+                    phone_number_id = channel_record.phone_number_id
+                    access_token = decrypt_token(channel_record.encrypted_access_token)
+
+                    video_payload: dict = {"link": video_url}
+                    if caption:
+                        video_payload["caption"] = caption
+
+                    async with httpx.AsyncClient(timeout=_WHATSAPP_TIMEOUT) as client:
+                        response = await client.post(
+                            f"{_META_API_BASE}/{phone_number_id}/messages",
+                            headers={
+                                "Authorization": f"Bearer {access_token}",
+                                "Content-Type": "application/json",
+                            },
+                            json={
+                                "messaging_product": "whatsapp",
+                                "to": recipient,
+                                "type": "video",
+                                "video": video_payload,
+                            },
+                        )
+                    if response.is_success:
+                        try:
+                            wamid = response.json()["messages"][0]["id"]
+                        except (KeyError, IndexError):
+                            pass
+                    else:
+                        logger.error("WhatsApp video send failed: %s", response.text[:200])
+
+            await self._repo.update_status(notification, NotificationStatus.SENT)
+        except Exception as exc:
+            await self._repo.update_status(notification, NotificationStatus.FAILED)
+            logger.error("Video URL notification failed: %s", exc)
+        return wamid

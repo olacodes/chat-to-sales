@@ -323,6 +323,7 @@ async def _send_status_kit() -> None:
     from app.modules.orders.product_images import ProductImage
     from app.infra.storage import upload_product_image as r2_upload
     from app.infra.status_kit import generate_text_card, generate_photo_card
+    from app.infra.status_video import generate_ken_burns_video, pick_effect
 
     now = datetime.now(tz=timezone.utc)
     if not _is_business_hours(now):
@@ -418,7 +419,27 @@ async def _send_status_kit() -> None:
                 else:
                     photo_bytes = None
 
-                if photo_bytes:
+                # Try Ken Burns video for products with photos (alternating days)
+                video_bytes: bytes | None = None
+                use_video = photo_bytes and (day_index % 2 == 0)  # video on even days
+                if use_video and photo_bytes:
+                    effect = pick_effect(day_index, card_count)
+                    video_bytes = await generate_ken_burns_video(
+                        photo_bytes=photo_bytes,
+                        product_name=product_name,
+                        price=price,
+                        trader_name=trader_name,
+                        store_url=store_url,
+                        effect=effect,
+                    )
+
+                if video_bytes:
+                    # Upload video to R2
+                    card_key = f"status-kit/{trader.phone_number}/{day_index}-{_slugify(product_name)}.mp4"
+                    content_type = "video/mp4"
+                    send_bytes = video_bytes
+                    is_video = True
+                elif photo_bytes:
                     card_bytes = generate_photo_card(
                         trader_name=trader_name,
                         product_name=product_name,
@@ -426,6 +447,10 @@ async def _send_status_kit() -> None:
                         store_url=store_url,
                         photo_bytes=photo_bytes,
                     )
+                    card_key = f"status-kit/{trader.phone_number}/{day_index}-{_slugify(product_name)}.jpg"
+                    content_type = "image/jpeg"
+                    send_bytes = card_bytes
+                    is_video = False
                 else:
                     card_bytes = generate_text_card(
                         trader_name=trader_name,
@@ -433,35 +458,54 @@ async def _send_status_kit() -> None:
                         price=price,
                         store_url=store_url,
                     )
-
-                # Upload generated card to R2 for sending via URL
-                card_key = f"status-kit/{trader.phone_number}/{day_index}-{_slugify(product_name)}.jpg"
+                    card_key = f"status-kit/{trader.phone_number}/{day_index}-{_slugify(product_name)}.jpg"
+                    content_type = "image/jpeg"
+                    send_bytes = card_bytes
+                    is_video = False
                 try:
-                    client = _get_client()
-                    if client:
-                        client.put_object(
+                    r2_client = _get_client()
+                    if r2_client:
+                        r2_client.put_object(
                             Bucket=settings.R2_BUCKET_NAME,
                             Key=card_key,
-                            Body=card_bytes,
-                            ContentType="image/jpeg",
+                            Body=send_bytes,
+                            ContentType=content_type,
                         )
                         if settings.R2_PUBLIC_URL:
                             card_url = f"{settings.R2_PUBLIC_URL.rstrip('/')}/{card_key}"
                         else:
                             card_url = f"https://{settings.R2_BUCKET_NAME}.{settings.R2_ACCOUNT_ID}.r2.cloudflarestorage.com/{card_key}"
 
-                        # Send via WhatsApp
+                        caption = f"{product_name} — N{price:,}\n{store_url}"
+
+                        # Send via WhatsApp (video or image)
                         async with async_session_factory.begin() as svc_session:
                             svc = NotificationService(svc_session)
-                            await svc.send_image_url(
-                                tenant_id=platform_tenant_id,
-                                event_id=f"status_kit.{trader.phone_number}.{day_index}.{card_count}",
-                                recipient=trader.phone_number,
-                                image_url=card_url,
-                                caption=f"{product_name} — N{price:,}\n{store_url}",
-                                channel_tenant_id=platform_tenant_id,
-                            )
+                            if is_video:
+                                await svc.send_video_url(
+                                    tenant_id=platform_tenant_id,
+                                    event_id=f"status_kit.{trader.phone_number}.{day_index}.{card_count}",
+                                    recipient=trader.phone_number,
+                                    video_url=card_url,
+                                    caption=caption,
+                                    channel_tenant_id=platform_tenant_id,
+                                )
+                            else:
+                                await svc.send_image_url(
+                                    tenant_id=platform_tenant_id,
+                                    event_id=f"status_kit.{trader.phone_number}.{day_index}.{card_count}",
+                                    recipient=trader.phone_number,
+                                    image_url=card_url,
+                                    caption=caption,
+                                    channel_tenant_id=platform_tenant_id,
+                                )
                         card_count += 1
+                        logger.info(
+                            "Status Kit %s sent: trader=%s product=%s",
+                            "video" if is_video else "image",
+                            trader.phone_number,
+                            product_name,
+                        )
                 except Exception as exc:
                     logger.warning("Status Kit card send failed: %s", exc)
 
