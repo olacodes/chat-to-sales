@@ -4561,8 +4561,15 @@ class OrderService:
         except Exception as exc:
             logger.warning("Status gen: failed to fetch product photo: %s", exc)
 
+        import random as _rand
+        import time as _time
+
         platform_tenant_id = settings.TENANT_ID
         day_index = (datetime.now(tz=timezone.utc) - datetime(2026, 1, 1, tzinfo=timezone.utc)).days
+        # Manual generation: random template + color each time
+        rand_color = _rand.randint(0, 3)
+        rand_template = _rand.randint(0, 2)
+        unique_suffix = int(_time.time()) % 100000  # unique per generation
 
         if mode == "video":
             if not photo_bytes:
@@ -4576,8 +4583,8 @@ class OrderService:
                 )
                 return
 
-            from app.infra.status_video import generate_ken_burns_video, pick_effect
-            effect = pick_effect(day_index)
+            from app.infra.status_video import generate_ken_burns_video, EFFECTS
+            effect = _rand.choice(EFFECTS)
             video_bytes = await generate_ken_burns_video(
                 photo_bytes=photo_bytes,
                 product_name=product_name,
@@ -4598,7 +4605,7 @@ class OrderService:
                 return
 
             # Upload to R2 and send
-            key = f"status-kit/{trader_phone}/manual-{day_index}-{product_name[:20]}.mp4"
+            key = f"status-kit/{trader_phone}/manual-{unique_suffix}-{product_name[:20]}.mp4"
             try:
                 r2_client = _get_client()
                 if r2_client:
@@ -4639,7 +4646,9 @@ class OrderService:
                     price=price,
                     store_url=store_url,
                     photo_bytes=photo_bytes,
-                    color_index=day_index,
+                    color_index=rand_color,
+                    template_index=rand_template,
+                    category=trader.get("business_category", ""),
                 )
             else:
                 card_bytes = generate_text_card(
@@ -4647,11 +4656,13 @@ class OrderService:
                     product_name=product_name,
                     price=price,
                     store_url=store_url,
-                    color_index=day_index,
+                    color_index=rand_color,
+                    template_index=rand_template,
+                    category=trader.get("business_category", ""),
                 )
 
-            # Upload to R2 and send
-            key = f"status-kit/{trader_phone}/manual-{day_index}-{product_name[:20]}.jpg"
+            # Upload to R2 with unique key (avoids WhatsApp CDN cache)
+            key = f"status-kit/{trader_phone}/manual-{unique_suffix}-{product_name[:20]}.jpg"
             try:
                 r2_client = _get_client()
                 if r2_client:
