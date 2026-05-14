@@ -56,6 +56,40 @@ async def set_order_session(
     )
 
 
+# ── Last clarification context (survives order cancel) ───────────────────────
+
+_LAST_CLARIFY_PREFIX = "clarify:last"
+_LAST_CLARIFY_TTL = 10 * 60  # 10 minutes
+
+
+def _last_clarify_key(tenant_id: str, customer_phone: str) -> str:
+    return f"{_LAST_CLARIFY_PREFIX}:{tenant_id}:{customer_phone}"
+
+
+async def save_last_clarification(
+    tenant_id: str, customer_phone: str, data: dict[str, Any],
+) -> None:
+    """Save clarification context (bot_reply + numbered_items) separately."""
+    await get_redis().setex(
+        _last_clarify_key(tenant_id, customer_phone),
+        _LAST_CLARIFY_TTL,
+        json.dumps(data),
+    )
+
+
+async def get_last_clarification(
+    tenant_id: str, customer_phone: str,
+) -> dict[str, Any] | None:
+    """Return last clarification context, or None."""
+    raw = await get_redis().get(_last_clarify_key(tenant_id, customer_phone))
+    return json.loads(raw) if raw else None
+
+
+async def clear_last_clarification(tenant_id: str, customer_phone: str) -> None:
+    """Remove last clarification context."""
+    await get_redis().delete(_last_clarify_key(tenant_id, customer_phone))
+
+
 async def clear_order_session(tenant_id: str, customer_phone: str) -> None:
     """Delete the customer's order session (order placed or cancelled)."""
     await get_redis().delete(_session_key(tenant_id, customer_phone))

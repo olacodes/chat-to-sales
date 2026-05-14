@@ -628,17 +628,45 @@ class OrderService:
                             await self._db.commit()
                         except ConflictError:
                             pass
-                await clear_order_session(tenant_id, customer_phone)
-                await self._reply(
-                    phone=customer_phone,
-                    tenant_id=tenant_id,
-                    event_id=f"order.customer_cancel.{message_id}",
-                    text=wa.order_cancelled_to_customer(trader_name),
-                    channel_tenant_id=channel_tenant_id,
-                )
+
+                # Check if there's a previous clarification to restore
+                from app.modules.orders.session import get_last_clarification
+                last_clarify = await get_last_clarification(tenant_id, customer_phone)
+
+                if last_clarify and last_clarify.get("numbered_items"):
+                    # Restore clarification session so customer can pick a different option
+                    await set_order_session(
+                        tenant_id,
+                        customer_phone,
+                        {
+                            "state": AWAITING_CLARIFICATION,
+                            "original_message": last_clarify.get("original_message", ""),
+                            "bot_reply": last_clarify.get("bot_reply", ""),
+                            "numbered_items": last_clarify.get("numbered_items", []),
+                        },
+                    )
+                    await self._reply(
+                        phone=customer_phone,
+                        tenant_id=tenant_id,
+                        event_id=f"order.cancel_repick.{message_id}",
+                        text=(
+                            f"No problem, that order has been cancelled.\n\n"
+                            f"You can pick a different option from the list above, "
+                            f"or tell me what else you'd like to order."
+                        ),
+                        channel_tenant_id=channel_tenant_id,
+                    )
+                else:
+                    await clear_order_session(tenant_id, customer_phone)
+                    await self._reply(
+                        phone=customer_phone,
+                        tenant_id=tenant_id,
+                        event_id=f"order.customer_cancel.{message_id}",
+                        text=wa.order_cancelled_to_customer(trader_name),
+                        channel_tenant_id=channel_tenant_id,
+                    )
+
                 logger.info("Customer cancelled order customer=%s", customer_phone)
-                from app.modules.orders.session import set_quiet_mode
-                await set_quiet_mode(tenant_id, customer_phone)
                 return
 
             # Customer sent something else — check if it's a new negotiation
@@ -954,6 +982,13 @@ class OrderService:
                         "numbered_items": numbered_items,
                     },
                 )
+                # Also save separately so it survives order cancel
+                from app.modules.orders.session import save_last_clarification
+                await save_last_clarification(tenant_id, customer_phone, {
+                    "original_message": message,
+                    "bot_reply": reply_text,
+                    "numbered_items": numbered_items,
+                })
                 await self._reply(
                     phone=customer_phone,
                     tenant_id=tenant_id,
