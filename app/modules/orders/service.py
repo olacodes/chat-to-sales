@@ -4639,6 +4639,7 @@ class OrderService:
                     price=price,
                     store_url=store_url,
                     photo_bytes=photo_bytes,
+                    color_index=day_index,
                 )
             else:
                 card_bytes = generate_text_card(
@@ -4646,6 +4647,7 @@ class OrderService:
                     product_name=product_name,
                     price=price,
                     store_url=store_url,
+                    color_index=day_index,
                 )
 
             # Upload to R2 and send
