@@ -1575,6 +1575,40 @@ class OrderService:
                 text=text, channel_tenant_id=channel_tenant_id,
             )
             await set_trader_session(trader_phone, {"state": TRADER_AWAITING_BANK_DETAILS})
+        elif tap == "MENU_STATUS_IMAGE":
+            result_tuple = wa.status_product_picker(catalogue, mode="image")
+            if result_tuple is None:
+                await self._reply(
+                    phone=trader_phone, tenant_id=tenant_id,
+                    event_id=f"trader.status_img_empty.{message_id}",
+                    text="Your catalogue is empty — add products first.",
+                    channel_tenant_id=channel_tenant_id,
+                )
+            else:
+                body, btn, sections = result_tuple
+                await self._reply_list(
+                    phone=trader_phone, tenant_id=tenant_id,
+                    event_id=f"trader.status_img_pick.{message_id}",
+                    body_text=body, button_label=btn, sections=sections,
+                    channel_tenant_id=channel_tenant_id,
+                )
+        elif tap == "MENU_STATUS_VIDEO":
+            result_tuple = wa.status_product_picker(catalogue, mode="video")
+            if result_tuple is None:
+                await self._reply(
+                    phone=trader_phone, tenant_id=tenant_id,
+                    event_id=f"trader.status_vid_empty.{message_id}",
+                    text="Your catalogue is empty — add products first.",
+                    channel_tenant_id=channel_tenant_id,
+                )
+            else:
+                body, btn, sections = result_tuple
+                await self._reply_list(
+                    phone=trader_phone, tenant_id=tenant_id,
+                    event_id=f"trader.status_vid_pick.{message_id}",
+                    body_text=body, button_label=btn, sections=sections,
+                    channel_tenant_id=channel_tenant_id,
+                )
         elif tap == "MENU_ORDERS":
             await self._do_list_pending_orders(
                 trader_phone=trader_phone,
@@ -3664,6 +3698,34 @@ class OrderService:
                 if handled:
                     return
 
+        # ── Handle Status Image product tap (STIMG_*) ─────────────────────
+        if stripped.startswith("STIMG_"):
+            product_name = message.strip()[6:]  # preserve case
+            await self._generate_and_send_status(
+                mode="image",
+                product_name=product_name,
+                trader_phone=trader_phone,
+                trader=trader,
+                message_id=message_id,
+                tenant_id=tenant_id,
+                channel_tenant_id=channel_tenant_id,
+            )
+            return
+
+        # ── Handle Status Video product tap (STVID_*) ─────────────────────
+        if stripped.startswith("STVID_"):
+            product_name = message.strip()[6:]  # preserve case
+            await self._generate_and_send_status(
+                mode="video",
+                product_name=product_name,
+                trader_phone=trader_phone,
+                trader=trader,
+                message_id=message_id,
+                tenant_id=tenant_id,
+                channel_tenant_id=channel_tenant_id,
+            )
+            return
+
         # ── Handle payment receipt taps (PAYRCVD *, PAYNOTRCVD *) ────────
         if stripped.startswith("PAYRCVD ") or stripped.startswith("PAYNOTRCVD "):
             is_received = stripped.startswith("PAYRCVD ")
@@ -4376,6 +4438,186 @@ class OrderService:
                 event_id,
                 exc,
             )
+
+    async def _generate_and_send_status(
+        self,
+        *,
+        mode: str,  # "image" or "video"
+        product_name: str,
+        trader_phone: str,
+        trader: dict[str, Any],
+        message_id: str,
+        tenant_id: str,
+        channel_tenant_id: str | None = None,
+    ) -> None:
+        """Generate a Status image or video for a product and send it to the trader."""
+        from app.infra.storage import _get_client
+        from app.core.config import get_settings
+        from datetime import datetime, timezone
+
+        settings = get_settings()
+        catalogue: dict[str, int] = trader.get("catalogue", {})
+        trader_name = trader.get("business_name", "My Store")
+        store_slug = trader.get("store_slug", "")
+        store_url = f"chattosales.com/stores/{store_slug}" if store_slug else "chattosales.com"
+
+        # Find price
+        price = catalogue.get(product_name, 0)
+        if not price:
+            for k, v in catalogue.items():
+                if k.lower() == product_name.lower():
+                    product_name = k
+                    price = v
+                    break
+
+        # Notify trader we're working on it
+        await self._reply(
+            phone=trader_phone, tenant_id=tenant_id,
+            event_id=f"status.generating.{message_id}",
+            text=wa.status_generating(mode),
+            channel_tenant_id=channel_tenant_id,
+        )
+
+        # Fetch product photo if available
+        photo_bytes: bytes | None = None
+        try:
+            from app.modules.orders.product_images import ProductImageRepository
+            async with async_session_factory() as img_session:
+                img_repo = ProductImageRepository(img_session)
+                img = await img_repo.get(trader_phone, product_name)
+                if img and img.image_url:
+                    import httpx
+                    async with httpx.AsyncClient(timeout=10.0) as http:
+                        resp = await http.get(img.image_url)
+                        if resp.is_success:
+                            photo_bytes = resp.content
+        except Exception as exc:
+            logger.warning("Status gen: failed to fetch product photo: %s", exc)
+
+        platform_tenant_id = settings.TENANT_ID
+        day_index = (datetime.now(tz=timezone.utc) - datetime(2026, 1, 1, tzinfo=timezone.utc)).days
+
+        if mode == "video":
+            if not photo_bytes:
+                await self._reply(
+                    phone=trader_phone, tenant_id=tenant_id,
+                    event_id=f"status.nophoto.{message_id}",
+                    text=wa.status_no_photo_for_video(product_name),
+                    channel_tenant_id=channel_tenant_id,
+                )
+                return
+
+            from app.infra.status_video import generate_ken_burns_video, pick_effect
+            effect = pick_effect(day_index)
+            video_bytes = await generate_ken_burns_video(
+                photo_bytes=photo_bytes,
+                product_name=product_name,
+                price=price,
+                trader_name=trader_name,
+                store_url=store_url,
+                effect=effect,
+            )
+            if not video_bytes:
+                await self._reply(
+                    phone=trader_phone, tenant_id=tenant_id,
+                    event_id=f"status.vidfail.{message_id}",
+                    text="Could not generate the video. Try *Status Image* instead.",
+                    channel_tenant_id=channel_tenant_id,
+                )
+                return
+
+            # Upload to R2 and send
+            key = f"status-kit/{trader_phone}/manual-{day_index}-{product_name[:20]}.mp4"
+            try:
+                r2_client = _get_client()
+                if r2_client:
+                    r2_client.put_object(
+                        Bucket=settings.R2_BUCKET_NAME,
+                        Key=key,
+                        Body=video_bytes,
+                        ContentType="video/mp4",
+                    )
+                    url = f"{settings.R2_PUBLIC_URL.rstrip('/')}/{key}" if settings.R2_PUBLIC_URL else f"https://{settings.R2_BUCKET_NAME}.{settings.R2_ACCOUNT_ID}.r2.cloudflarestorage.com/{key}"
+                    async with async_session_factory.begin() as svc_session:
+                        from app.modules.notifications.service import NotificationService as _NS
+                        svc = _NS(svc_session)
+                        await svc.send_video_url(
+                            tenant_id=platform_tenant_id,
+                            event_id=f"status.manual.vid.{trader_phone}.{message_id}",
+                            recipient=trader_phone,
+                            video_url=url,
+                            caption=f"{product_name} — N{price:,}\n{store_url}",
+                            channel_tenant_id=platform_tenant_id,
+                        )
+            except Exception as exc:
+                logger.warning("Status video send failed: %s", exc)
+                await self._reply(
+                    phone=trader_phone, tenant_id=tenant_id,
+                    event_id=f"status.viderr.{message_id}",
+                    text="Failed to send the video. Please try again.",
+                    channel_tenant_id=channel_tenant_id,
+                )
+                return
+        else:
+            # Image mode
+            from app.infra.status_kit import generate_photo_card, generate_text_card
+            if photo_bytes:
+                card_bytes = generate_photo_card(
+                    trader_name=trader_name,
+                    product_name=product_name,
+                    price=price,
+                    store_url=store_url,
+                    photo_bytes=photo_bytes,
+                )
+            else:
+                card_bytes = generate_text_card(
+                    trader_name=trader_name,
+                    product_name=product_name,
+                    price=price,
+                    store_url=store_url,
+                )
+
+            # Upload to R2 and send
+            key = f"status-kit/{trader_phone}/manual-{day_index}-{product_name[:20]}.jpg"
+            try:
+                r2_client = _get_client()
+                if r2_client:
+                    r2_client.put_object(
+                        Bucket=settings.R2_BUCKET_NAME,
+                        Key=key,
+                        Body=card_bytes,
+                        ContentType="image/jpeg",
+                    )
+                    url = f"{settings.R2_PUBLIC_URL.rstrip('/')}/{key}" if settings.R2_PUBLIC_URL else f"https://{settings.R2_BUCKET_NAME}.{settings.R2_ACCOUNT_ID}.r2.cloudflarestorage.com/{key}"
+                    async with async_session_factory.begin() as svc_session:
+                        from app.modules.notifications.service import NotificationService as _NS
+                        svc = _NS(svc_session)
+                        await svc.send_image_url(
+                            tenant_id=platform_tenant_id,
+                            event_id=f"status.manual.img.{trader_phone}.{message_id}",
+                            recipient=trader_phone,
+                            image_url=url,
+                            caption=f"{product_name} — N{price:,}\n{store_url}",
+                            channel_tenant_id=platform_tenant_id,
+                        )
+            except Exception as exc:
+                logger.warning("Status image send failed: %s", exc)
+                await self._reply(
+                    phone=trader_phone, tenant_id=tenant_id,
+                    event_id=f"status.imgerr.{message_id}",
+                    text="Failed to send the image. Please try again.",
+                    channel_tenant_id=channel_tenant_id,
+                )
+                return
+
+        # Success prompt
+        await self._reply(
+            phone=trader_phone, tenant_id=tenant_id,
+            event_id=f"status.done.{message_id}",
+            text=wa.status_share_prompt(),
+            channel_tenant_id=channel_tenant_id,
+        )
+        logger.info("Status %s generated: trader=%s product=%s", mode, trader_phone, product_name)
 
     async def _reply_with_cancel(
         self,

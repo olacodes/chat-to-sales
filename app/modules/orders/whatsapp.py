@@ -472,6 +472,13 @@ def trader_menu() -> tuple[str, str, list[dict]]:
                 {"id": "MENU_BANK", "title": "\U0001f3e6 Bank Details", "description": "Set or update bank account"},
             ],
         },
+        {
+            "title": "Marketing",
+            "rows": [
+                {"id": "MENU_STATUS_IMAGE", "title": "\U0001f4f8 Status Image", "description": "Generate a product image for Status"},
+                {"id": "MENU_STATUS_VIDEO", "title": "\U0001f3ac Status Video", "description": "Generate a Ken Burns video for Status"},
+            ],
+        },
     ]
     return body, button_label, sections
 
@@ -859,6 +866,51 @@ def product_photo_which_product(
         rows = rows[:10]
     sections = [{"title": "Your products", "rows": rows}]
     return body, button_label, sections
+
+
+# ── Status generation templates ──────────────────────────────────────────────
+
+
+def status_product_picker(
+    catalogue: dict[str, int], mode: str = "image",
+) -> tuple[str, str, list[dict]] | None:
+    """Return (body, button_label, sections) for picking a product to generate Status content."""
+    if not catalogue:
+        return None
+    label = "Status image" if mode == "image" else "Status video"
+    prefix = "STIMG" if mode == "image" else "STVID"
+    body = f"Which product do you want to create a {label} for?"
+    button_label = "Select product"
+    rows = []
+    for name, price in sorted(catalogue.items()):
+        rows.append({
+            "id": f"{prefix}_{name}"[:72],
+            "title": name[:24],
+            "description": _naira(price),
+        })
+    if len(rows) > 10:
+        rows = rows[:10]
+    sections = [{"title": "Your products", "rows": rows}]
+    return body, button_label, sections
+
+
+def status_generating(mode: str = "image") -> str:
+    label = "image" if mode == "image" else "video"
+    return f"Generating your Status {label}... This may take a moment."
+
+
+def status_no_photo_for_video(product_name: str) -> str:
+    return (
+        f"No photo found for *{product_name}*. "
+        "Videos need a product photo. Send a photo of this product first, "
+        "or try *Status Image* instead (works without a photo)."
+    )
+
+
+def status_share_prompt() -> str:
+    return (
+        "Your Status content is ready! Save it and share to your WhatsApp Status."
+    )
 
 
 def bank_details_prompt() -> str:
