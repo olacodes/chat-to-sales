@@ -431,6 +431,20 @@ async def handle_order_intent(event: Event) -> None:
             },
         )
 
+        # Persist in DB so routing survives Redis expiry
+        try:
+            from app.modules.orders.customer_routing import CustomerRoutingRepository
+            async with async_session_factory.begin() as route_session:
+                route_repo = CustomerRoutingRepository(route_session)
+                await route_repo.upsert(
+                    customer_phone=sender_phone,
+                    trader_phone=store_trader.get("phone_number", ""),
+                    store_slug=slug,
+                    tenant_id=trader_tenant_id,
+                )
+        except Exception as exc:
+            logger.warning("Persistent routing save failed: %s", exc)
+
         logger.info(
             "Order handler: cart order sender=%s slug=%s tenant=%s event_id=%s",
             sender_phone,
@@ -546,6 +560,62 @@ async def handle_order_intent(event: Event) -> None:
                     customer_name=sender_name,
                 )
         return
+
+    # ── Fallback: check persistent DB routing ────────────────────────────────
+    try:
+        from app.modules.orders.customer_routing import CustomerRoutingRepository
+        async with async_session_factory() as route_session:
+            route_repo = CustomerRoutingRepository(route_session)
+            db_route = await route_repo.get_by_customer(sender_phone)
+
+        if db_route:
+            # Restore Redis routing from DB
+            db_trader = await _get_trader_by_slug(db_route.store_slug)
+            if db_trader and db_trader.get("tenant_id"):
+                trader_tenant_id = db_trader["tenant_id"]
+                await set_customer_routing(
+                    sender_phone,
+                    {
+                        "slug": db_route.store_slug,
+                        "tenant_id": trader_tenant_id,
+                        "trader_phone": db_trader.get("phone_number", ""),
+                        "trader_name": db_trader.get("business_name", ""),
+                        "catalogue": db_trader.get("catalogue", {}),
+                    },
+                )
+                logger.info(
+                    "Order handler: restored routing from DB sender=%s slug=%s event_id=%s",
+                    sender_phone, db_route.store_slug, event.event_id,
+                )
+                async with async_session_factory.begin() as session:
+                    svc = OrderService(session)
+                    if image_bytes is not None:
+                        await svc.handle_image_inquiry(
+                            tenant_id=trader_tenant_id,
+                            conversation_id=conversation_id,
+                            customer_phone=sender_phone,
+                            message=message,
+                            message_id=message_id,
+                            image_bytes=image_bytes,
+                            media_id=media_id,
+                            trader=db_trader,
+                            channel_tenant_id=platform_tenant_id,
+                            customer_name=sender_name,
+                        )
+                    else:
+                        await svc.handle_inbound_customer_message(
+                            tenant_id=trader_tenant_id,
+                            conversation_id=conversation_id,
+                            customer_phone=sender_phone,
+                            message=message,
+                            message_id=message_id,
+                            trader=db_trader,
+                            channel_tenant_id=platform_tenant_id,
+                            customer_name=sender_name,
+                        )
+                return
+    except Exception as exc:
+        logger.warning("DB routing fallback failed: %s", exc)
 
     # ── No trader context — prompt customer to use store link ─────────────────
     logger.debug(

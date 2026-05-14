@@ -164,7 +164,7 @@ async def cache_trader_by_slug(store_slug: str, data: dict[str, Any]) -> None:
 # ── Customer → trader routing session ─────────────────────────────────────────
 
 _CUSTOMER_ROUTING_PREFIX = "customer:routing"
-_CUSTOMER_ROUTING_TTL = 4 * 60 * 60  # 4 hours
+_CUSTOMER_ROUTING_TTL = 7 * 24 * 60 * 60  # 7 days
 
 
 def _customer_routing_key(phone: str) -> str:
@@ -185,7 +185,7 @@ async def get_customer_routing(phone: str) -> dict[str, Any] | None:
 
 
 async def set_customer_routing(phone: str, data: dict[str, Any]) -> None:
-    """Map customer phone -> trader routing context with a 4-hour TTL."""
+    """Map customer phone -> trader routing context with a 7-day TTL."""
     await get_redis().setex(_customer_routing_key(phone), _CUSTOMER_ROUTING_TTL, json.dumps(data))
 
 
