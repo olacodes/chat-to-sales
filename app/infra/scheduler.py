@@ -447,6 +447,8 @@ async def _send_status_kit() -> None:
                         store_url=store_url,
                         photo_bytes=photo_bytes,
                         color_index=day_index,
+                        product_index=card_count,
+                        category=trader.business_category or "",
                     )
                     card_key = f"status-kit/{trader.phone_number}/{day_index}-{_slugify(product_name)}.jpg"
                     content_type = "image/jpeg"
@@ -459,6 +461,8 @@ async def _send_status_kit() -> None:
                         price=price,
                         store_url=store_url,
                         color_index=day_index,
+                        product_index=card_count,
+                        category=trader.business_category or "",
                     )
                     card_key = f"status-kit/{trader.phone_number}/{day_index}-{_slugify(product_name)}.jpg"
                     content_type = "image/jpeg"
