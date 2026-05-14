@@ -4158,6 +4158,8 @@ class OrderService:
 
         customer_phone: str = order.customer_phone or ""
         cust_name: str | None = order.customer_name or None
+        # Display name: prefer customer_name, fall back to +phone
+        cust_display: str = cust_name or (f"+{customer_phone}" if customer_phone else "Customer")
 
         if result.intent == TRADER_CONFIRM:
             try:

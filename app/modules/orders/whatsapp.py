@@ -954,9 +954,9 @@ def no_pending_orders() -> str:
 
 def order_credit_to_trader(order_ref: str, customer_display: str, amount: int) -> str:
     return (
-        f"\U0001f4dd Order {order_ref} marked as credit.\n\n"
-        f"Customer: {customer_display}\n"
-        f"Amount: {_naira(amount)}\n\n"
+        f"\U0001f4dd *{customer_display}*'s order marked as credit.\n\n"
+        f"Amount: {_naira(amount)}\n"
+        f"Ref: {order_ref}\n\n"
         "I'll track this for you. Type _WHO OWES ME_ to see your debt book."
     )
 
