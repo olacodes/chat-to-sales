@@ -717,7 +717,7 @@ class OrderService:
 
             # Quick-pick: customer replies with a number matching a numbered list
             import re as _pick_re
-            num_match = _pick_re.match(r"^\s*(\d{1,2})\s*$", message.strip())
+            num_match = _pick_re.match(r"^\s*(\d{1,3})\s*$", message.strip())
             if num_match and numbered_items:
                 picked_num = int(num_match.group(1))
                 picked = next((it for it in numbered_items if it["index"] == picked_num), None)
@@ -731,13 +731,40 @@ class OrderService:
                     await clear_order_session(tenant_id, customer_phone)
                     logger.info("Quick-pick: customer chose #%d -> %s", picked_num, picked["name"])
                 else:
-                    await self._reply(
-                        phone=customer_phone, tenant_id=tenant_id,
-                        event_id=f"order.pick_invalid.{message_id}",
-                        text=f"There's no item #{picked_num} in the list. Please pick a number from the list, or tell me what you want.",
-                        channel_tenant_id=channel_tenant_id,
+                    # Number doesn't match list — pass to Claude with context
+                    # (e.g. "128" might mean 128GB, not item #128)
+                    extra_history_fb: list[dict[str, str]] = []
+                    if original:
+                        extra_history_fb.append({"role": "user", "content": original})
+                    if bot_reply:
+                        extra_history_fb.append({"role": "assistant", "content": bot_reply})
+                    try:
+                        result = await self._smart_parse(
+                            message, category, catalogue, conversation_id,
+                            extra_history=extra_history_fb,
+                        )
+                    except Exception as exc:
+                        logger.error("Smart parse failed (number fallback): %s", exc, exc_info=True)
+                        from app.modules.orders.nlp import ParseResult
+                        result = ParseResult(intent=UNKNOWN, confidence=0.0)
+                    await clear_order_session(tenant_id, customer_phone)
+            elif num_match and not numbered_items and bot_reply:
+                # Customer typed a number but no list was extracted — still pass with context
+                extra_history_nb: list[dict[str, str]] = []
+                if original:
+                    extra_history_nb.append({"role": "user", "content": original})
+                if bot_reply:
+                    extra_history_nb.append({"role": "assistant", "content": bot_reply})
+                try:
+                    result = await self._smart_parse(
+                        message, category, catalogue, conversation_id,
+                        extra_history=extra_history_nb,
                     )
-                    return
+                except Exception as exc:
+                    logger.error("Smart parse failed (number no-list): %s", exc, exc_info=True)
+                    from app.modules.orders.nlp import ParseResult
+                    result = ParseResult(intent=UNKNOWN, confidence=0.0)
+                await clear_order_session(tenant_id, customer_phone)
             else:
                 # Re-parse with full conversation context (original + bot reply + new message)
                 extra_history: list[dict[str, str]] = []
@@ -901,14 +928,20 @@ class OrderService:
                 reply_text = result.clarification_question
 
                 # Extract numbered items from the reply for quick-pick
+                # Matches: "1. Name - N330,000" / "1. Name: ₦330,000" / "1. Name — N330k"
                 import re as _cl_re
                 numbered_items: list[dict[str, Any]] = []
-                for m in _cl_re.finditer(r"(\d+)\.\s+(.+?)\s*[-\u2013]\s*N([\d,]+)", reply_text):
-                    numbered_items.append({
-                        "index": int(m.group(1)),
-                        "name": m.group(2).strip(),
-                        "price": int(m.group(3).replace(",", "")),
-                    })
+                for m in _cl_re.finditer(
+                    r"(\d+)\.\s+(.+?)\s*[-\u2013:]\s*[N\u20a6]?\s*([\d,]+(?:\.\d+)?)",
+                    reply_text,
+                ):
+                    price_str = m.group(3).replace(",", "").split(".")[0]
+                    if price_str.isdigit():
+                        numbered_items.append({
+                            "index": int(m.group(1)),
+                            "name": m.group(2).strip(),
+                            "price": int(price_str),
+                        })
 
                 # Save context including bot reply and numbered items
                 await set_order_session(
