@@ -4624,7 +4624,7 @@ class OrderService:
                             event_id=f"status.manual.vid.{trader_phone}.{message_id}",
                             recipient=trader_phone,
                             video_url=url,
-                            caption=f"{product_name} — N{price:,}\n{store_url}",
+                            caption=f"Share to your Status! {store_url}",
                             channel_tenant_id=platform_tenant_id,
                         )
             except Exception as exc:
@@ -4669,7 +4669,7 @@ class OrderService:
                             event_id=f"status.manual.img.{trader_phone}.{message_id}",
                             recipient=trader_phone,
                             image_url=url,
-                            caption=f"{product_name} — N{price:,}\n{store_url}",
+                            caption=f"Share to your Status! {store_url}",
                             channel_tenant_id=platform_tenant_id,
                         )
             except Exception as exc:

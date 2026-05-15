@@ -1,6 +1,5 @@
 """
 Template: Maison — Centered hero, luxury serif branding, radial glow.
-Inspired by Ferragamo/Qing Hua style.
 """
 
 from app.infra.templates.base import BaseTemplate, CardContext
@@ -54,47 +53,40 @@ class MaisonTemplate(BaseTemplate):
 .product-stage {{
     position: relative; z-index: 2;
     display: flex; align-items: center; justify-content: center;
-    margin: 30px 0 20px;
+    margin: 10px 0 10px;
 }}
 .product-stage::before {{
-    content: ""; position: absolute; width: 70%; height: 70%; border-radius: 50%;
-    background: radial-gradient(circle, rgba(255,255,255,.05) 0%, transparent 60%);
-    filter: blur(30px);
+    content: ""; position: absolute; width: 75%; height: 75%; border-radius: 50%;
+    background: radial-gradient(circle, rgba(255,255,255,.06) 0%, transparent 55%);
+    filter: blur(35px);
 }}
 .product-image {{
     position: relative; z-index: 2;
-    max-width: 85%; max-height: 100%; object-fit: contain;
-    filter: drop-shadow(0 40px 60px rgba(0,0,0,.7)) drop-shadow(0 10px 20px rgba(0,0,0,.5));
-    border-radius: 5px;
+    max-width: 92%; max-height: 100%; object-fit: contain;
+    mix-blend-mode: lighten;
+    filter: drop-shadow(0 30px 50px rgba(0,0,0,.6)) drop-shadow(0 8px 16px rgba(0,0,0,.4));
 }}
-.text-hero {{
-    flex-direction: column; gap: 30px;
-}}
-.hero-diamond {{
-    font-size: 80px; color: var(--accent); opacity: 0.3;
-}}
+.text-hero {{ flex-direction: column; gap: 30px; }}
+.hero-diamond {{ font-size: 80px; color: var(--accent); opacity: 0.3; }}
 .hero-name {{
     font-family: 'Cormorant Garamond', serif; font-size: 72px; font-weight: 600;
     color: var(--ink); text-align: center; line-height: 1.15; max-width: 85%;
 }}
 .footer-block {{ text-align: center; position: relative; z-index: 2; }}
 .product-code {{
-    font-size: 15px; font-weight: 600; letter-spacing: .32em;
-    text-transform: uppercase; color: var(--ink); margin-bottom: 10px;
+    font-size: 16px; font-weight: 600; letter-spacing: .32em;
+    text-transform: uppercase; color: var(--ink); margin-bottom: 12px;
 }}
 .product-price {{
-    font-size: 64px; font-weight: 300; letter-spacing: .02em;
+    font-size: 68px; font-weight: 300; letter-spacing: .02em;
     color: var(--accent); margin-bottom: 28px; line-height: 1;
 }}
-.product-price span {{
-    font-size: 28px; vertical-align: super; margin-right: 2px;
-}}
+.product-price span {{ font-size: 28px; vertical-align: super; margin-right: 2px; }}
 .cta-btn {{
-    display: inline-block; padding: 18px 56px;
+    display: inline-block; padding: 20px 60px;
     background: var(--accent); color: var(--bg-outer);
     font-size: 16px; font-weight: 600; letter-spacing: .28em; text-transform: uppercase;
-    text-decoration: none; margin-bottom: 24px;
-    border-radius: 4px;
+    text-decoration: none; margin-bottom: 20px; border-radius: 4px;
 }}
 .website {{
     font-size: 13px; font-weight: 500; letter-spacing: .28em; text-transform: uppercase;
@@ -108,9 +100,7 @@ class MaisonTemplate(BaseTemplate):
         <div class="brand-name">{ctx.trader_name}</div>
         <div class="brand-category">{ctx.category or 'Curated Selection'}</div>
     </div>
-
     {photo_block}
-
     <div class="footer-block">
         <div class="product-code">{ctx.product_name}</div>
         <div class="product-price"><span>N</span>{ctx.price:,}</div>

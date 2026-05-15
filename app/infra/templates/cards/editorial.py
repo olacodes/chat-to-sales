@@ -1,6 +1,5 @@
 """
 Template: Editorial — Brand header with badge, product hero, elegant price section.
-Magazine advertisement style.
 """
 
 from app.infra.templates.base import BaseTemplate, CardContext
@@ -44,9 +43,8 @@ class EditorialTemplate(BaseTemplate):
 }}
 .header {{
     display: flex; justify-content: space-between; align-items: flex-start;
-    position: relative; z-index: 2; margin-bottom: 30px;
+    position: relative; z-index: 2; margin-bottom: 20px;
 }}
-.brand {{}}
 .brand-name {{
     font-family: 'Cormorant Garamond', serif; font-style: italic; font-weight: 500;
     font-size: 48px; color: var(--accent); line-height: 1;
@@ -66,63 +64,49 @@ class EditorialTemplate(BaseTemplate):
     position: relative; z-index: 2;
 }}
 .product-stage::before {{
-    content: ""; position: absolute; width: 65%; height: 65%; border-radius: 50%;
-    background: radial-gradient(circle, rgba(255,255,255,.04) 0%, transparent 55%);
+    content: ""; position: absolute; width: 70%; height: 70%; border-radius: 50%;
+    background: radial-gradient(circle, rgba(255,255,255,.05) 0%, transparent 55%);
     filter: blur(25px);
 }}
 .product-image {{
     position: relative; z-index: 2;
-    max-width: 82%; max-height: 100%; object-fit: contain;
-    filter: drop-shadow(0 35px 55px rgba(0,0,0,.65)) drop-shadow(0 8px 18px rgba(0,0,0,.45));
-    border-radius: 5px;
+    max-width: 92%; max-height: 100%; object-fit: contain;
+    mix-blend-mode: lighten;
+    filter: drop-shadow(0 30px 50px rgba(0,0,0,.6)) drop-shadow(0 8px 16px rgba(0,0,0,.4));
 }}
-.text-only {{
-    flex-direction: column; gap: 25px;
-}}
+.text-only {{ flex-direction: column; gap: 25px; }}
 .text-ornament {{ font-size: 60px; color: var(--accent); opacity: 0.25; }}
 .text-ornament-sm {{ font-size: 20px; color: var(--accent); opacity: 0.3; }}
 .text-product {{
     font-family: 'Cormorant Garamond', serif; font-size: 68px; font-weight: 600;
     color: var(--ink); text-align: center; line-height: 1.15; max-width: 90%;
 }}
-.bottom {{
-    position: relative; z-index: 2;
-}}
-.divider {{
-    height: 1px; background: var(--accent); opacity: 0.2; margin: 20px 0;
-}}
-.product-label {{
-    font-size: 14px; font-weight: 500; letter-spacing: .35em;
-    text-transform: uppercase; color: var(--ink-muted); text-align: center;
-    margin-bottom: 8px;
-}}
+.bottom {{ position: relative; z-index: 2; }}
 .product-title {{
-    font-size: 15px; font-weight: 600; letter-spacing: .25em;
+    font-size: 16px; font-weight: 600; letter-spacing: .25em;
     text-transform: uppercase; color: var(--ink); text-align: center;
-    margin-bottom: 20px;
+    margin-bottom: 18px;
 }}
 .price-row {{
     display: flex; justify-content: space-between; align-items: baseline;
     padding: 16px 0;
     border-top: 1px solid rgba(255,255,255,.1);
     border-bottom: 1px solid rgba(255,255,255,.1);
-    margin-bottom: 28px;
+    margin-bottom: 24px;
 }}
 .price-label {{
     font-size: 14px; font-weight: 400; letter-spacing: .2em;
     text-transform: uppercase; color: var(--ink-fine);
 }}
 .price-value {{
-    font-size: 56px; font-weight: 300; color: var(--accent); line-height: 1;
+    font-size: 58px; font-weight: 300; color: var(--accent); line-height: 1;
 }}
-.price-value span {{
-    font-size: 22px; vertical-align: super;
-}}
+.price-value span {{ font-size: 22px; vertical-align: super; }}
 .cta-btn {{
-    display: block; text-align: center; padding: 20px;
+    display: block; text-align: center; padding: 22px;
     background: var(--accent); color: var(--bg-outer);
     font-size: 16px; font-weight: 600; letter-spacing: .3em; text-transform: uppercase;
-    text-decoration: none; margin-bottom: 20px; border-radius: 4px;
+    text-decoration: none; margin-bottom: 18px; border-radius: 4px;
 }}
 .footer-row {{
     display: flex; justify-content: space-between;
@@ -133,18 +117,14 @@ class EditorialTemplate(BaseTemplate):
 <body>
 <div class="ad">
     <div class="header">
-        <div class="brand">
+        <div>
             <div class="brand-name">{ctx.trader_name}</div>
             <div class="brand-sub">{ctx.category or 'Curated Selection'}</div>
         </div>
         <div class="badge">&#9733; Authentic</div>
     </div>
-
     {photo_block}
-
     <div class="bottom">
-        <div class="divider"></div>
-        <div class="product-label">{ctx.category or 'Collection'}</div>
         <div class="product-title">{ctx.product_name}</div>
         <div class="price-row">
             <div class="price-label">Investment</div>

@@ -471,7 +471,7 @@ async def _send_status_kit() -> None:
                         else:
                             card_url = f"https://{settings.R2_BUCKET_NAME}.{settings.R2_ACCOUNT_ID}.r2.cloudflarestorage.com/{card_key}"
 
-                        caption = f"{product_name} — N{price:,}\n{store_url}"
+                        caption = f"Share to your Status! {store_url}"
 
                         # Send via WhatsApp (video or image)
                         async with async_session_factory.begin() as svc_session:

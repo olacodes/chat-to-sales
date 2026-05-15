@@ -1,6 +1,5 @@
 """
 Template: Showcase — Bold, modern. Brand top, large product, prominent price + CTA.
-BoxFashion / social media ad style.
 """
 
 from app.infra.templates.base import BaseTemplate, CardContext
@@ -30,7 +29,7 @@ class ShowcaseTemplate(BaseTemplate):
 }}
 .ad {{
     width: 1080px; height: 1920px;
-    background: radial-gradient(ellipse 80% 60% at 50% 50%, var(--bg-stage) 0%, var(--bg-outer) 55%, var(--bg-vignette) 100%);
+    background: radial-gradient(ellipse 80% 60% at 50% 48%, var(--bg-stage) 0%, var(--bg-outer) 55%, var(--bg-vignette) 100%);
     color: var(--ink); position: relative; overflow: hidden;
     display: flex; flex-direction: column; align-items: center;
     padding: 50px 60px 40px;
@@ -42,26 +41,26 @@ class ShowcaseTemplate(BaseTemplate):
 }}
 /* Decorative glow wave */
 .ad::after {{
-    content: ""; position: absolute; top: 15%; left: -20%; width: 140%; height: 50%;
+    content: ""; position: absolute; top: 20%; left: -20%; width: 140%; height: 40%;
     background: radial-gradient(ellipse at center, rgba(255,255,255,.03) 0%, transparent 70%);
     transform: rotate(-8deg); pointer-events: none;
 }}
 .brand {{
-    text-align: center; position: relative; z-index: 2; margin-bottom: 16px;
+    text-align: center; position: relative; z-index: 2; margin-bottom: 10px;
 }}
 .brand-name {{
     font-size: 18px; font-weight: 600; letter-spacing: .4em;
     text-transform: uppercase; color: var(--accent);
 }}
 .hero-title {{
-    text-align: center; position: relative; z-index: 2; margin-bottom: 8px;
+    text-align: center; position: relative; z-index: 2; margin-bottom: 4px;
 }}
 .hero-label {{
     font-size: 14px; font-weight: 500; letter-spacing: .35em;
     text-transform: uppercase; color: var(--accent); margin-bottom: 6px;
 }}
 .hero-name {{
-    font-family: 'Cormorant Garamond', serif; font-size: 58px; font-weight: 600;
+    font-family: 'Cormorant Garamond', serif; font-size: 56px; font-weight: 600;
     color: var(--ink); line-height: 1.1;
 }}
 .product-stage {{
@@ -69,19 +68,17 @@ class ShowcaseTemplate(BaseTemplate):
     position: relative; z-index: 2; width: 100%;
 }}
 .product-stage::before {{
-    content: ""; position: absolute; width: 60%; height: 55%; border-radius: 50%;
-    background: radial-gradient(circle, rgba(255,255,255,.04) 0%, transparent 55%);
+    content: ""; position: absolute; width: 65%; height: 60%; border-radius: 50%;
+    background: radial-gradient(circle, rgba(255,255,255,.05) 0%, transparent 55%);
     filter: blur(30px);
 }}
 .product-image {{
     position: relative; z-index: 2;
-    max-width: 88%; max-height: 100%; object-fit: contain;
-    filter: drop-shadow(0 40px 65px rgba(0,0,0,.7)) drop-shadow(0 10px 22px rgba(0,0,0,.5));
-    border-radius: 5px;
+    max-width: 92%; max-height: 100%; object-fit: contain;
+    mix-blend-mode: lighten;
+    filter: drop-shadow(0 30px 55px rgba(0,0,0,.6)) drop-shadow(0 8px 18px rgba(0,0,0,.4));
 }}
-.text-only {{
-    align-items: center; justify-content: center;
-}}
+.text-only {{ align-items: center; justify-content: center; }}
 .big-name {{
     font-family: 'Cormorant Garamond', serif; font-size: 80px; font-weight: 600;
     color: var(--ink); text-align: center; line-height: 1.1; max-width: 90%;
@@ -90,17 +87,15 @@ class ShowcaseTemplate(BaseTemplate):
     text-align: center; position: relative; z-index: 2; width: 100%;
 }}
 .price {{
-    font-size: 68px; font-weight: 300; color: var(--accent); line-height: 1;
-    margin-bottom: 28px;
+    font-size: 72px; font-weight: 300; color: var(--accent); line-height: 1;
+    margin-bottom: 24px;
 }}
-.price span {{
-    font-size: 26px; vertical-align: super; margin-right: 2px;
-}}
+.price span {{ font-size: 26px; vertical-align: super; margin-right: 2px; }}
 .cta-btn {{
-    display: inline-block; padding: 20px 64px;
+    display: inline-block; padding: 22px 68px;
     background: var(--accent); color: var(--bg-outer);
     font-size: 16px; font-weight: 600; letter-spacing: .3em; text-transform: uppercase;
-    text-decoration: none; margin-bottom: 24px; border-radius: 4px;
+    text-decoration: none; margin-bottom: 20px; border-radius: 4px;
 }}
 .footer {{
     display: flex; justify-content: space-between; width: 100%;
@@ -114,14 +109,11 @@ class ShowcaseTemplate(BaseTemplate):
     <div class="brand">
         <div class="brand-name">{ctx.trader_name}</div>
     </div>
-
     <div class="hero-title">
         <div class="hero-label">{ctx.category or 'New Collection'}</div>
         <div class="hero-name">{ctx.product_name}</div>
     </div>
-
     {photo_block}
-
     <div class="bottom">
         <div class="price"><span>N</span>{ctx.price:,}</div>
         <a class="cta-btn" href="#">Order Now &nbsp;&rarr;</a>
