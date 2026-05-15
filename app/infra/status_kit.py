@@ -591,6 +591,7 @@ async def generate_card_async(
     Args:
         random_mode: if True, picks random template + color (for manual generation)
     """
+    logger.info("generate_card_async: attempting HTML renderer (random_mode=%s)", random_mode)
     try:
         if random_mode:
             from app.infra.templates.renderer import render_random_status_card
@@ -616,11 +617,14 @@ async def generate_card_async(
                 product_index=product_index,
             )
         if result:
+            logger.info("generate_card_async: HTML renderer succeeded (%d bytes)", len(result))
             return result
+        logger.warning("generate_card_async: HTML renderer returned None")
     except Exception as exc:
-        logger.warning("HTML renderer failed, falling back to Pillow: %s", exc)
+        logger.error("generate_card_async: HTML renderer failed: %s", exc, exc_info=True)
 
     # Fallback to Pillow
+    logger.info("generate_card_async: using Pillow fallback")
     if photo_bytes:
         return generate_photo_card(
             trader_name=trader_name, product_name=product_name,

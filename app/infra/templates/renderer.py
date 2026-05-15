@@ -33,11 +33,13 @@ async def render_card(
 
     try:
         from playwright.async_api import async_playwright
+        logger.info("Playwright import OK")
     except ImportError:
         logger.warning("Playwright not installed — falling back to Pillow renderer")
         return None
 
     try:
+        logger.info("Launching Chromium...")
         async with async_playwright() as p:
             browser = await p.chromium.launch(
                 args=["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage"],
