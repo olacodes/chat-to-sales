@@ -36,6 +36,9 @@ imagehash==4.3.2
 # ── Storage (Cloudflare R2 — S3-compatible) ──────────────────────────────────
 boto3==1.38.0
 
+# ── HTML rendering (Status Kit templates) ─────────────────────────────────────
+playwright==1.52.0
+
 # ── Testing ───────────────────────────────────────────────────────────────────
 pytest==8.3.4
 pytest-asyncio==0.24.0

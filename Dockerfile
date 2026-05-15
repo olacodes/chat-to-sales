@@ -21,11 +21,19 @@ RUN pip install --upgrade pip \
 # ── Runtime stage ─────────────────────────────────────────────────────────────
 FROM python:3.11-slim AS runtime
 
-# ffmpeg for audio conversion, fonts for Status Kit image generation
+# ffmpeg for audio conversion, fonts for Status Kit image generation,
+# Playwright Chromium deps for HTML template rendering
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ffmpeg \
         fonts-dejavu-core \
+        # Chromium deps for Playwright
+        libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \
+        libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 \
+        libgbm1 libpango-1.0-0 libcairo2 libasound2 libatspi2.0-0 \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Playwright Chromium browser
+RUN pip install playwright==1.52.0 && playwright install chromium
 
 # Non-root user for security
 RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser

@@ -566,3 +566,71 @@ def generate_text_card(
     buf = io.BytesIO()
     img.save(buf, format="JPEG", quality=92)
     return buf.getvalue()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ASYNC API — tries HTML templates (Playwright) first, falls back to Pillow
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def generate_card_async(
+    *,
+    trader_name: str,
+    product_name: str,
+    price: int,
+    store_url: str,
+    photo_bytes: bytes | None = None,
+    color_index: int = 0,
+    template_index: int | None = None,
+    product_index: int = 0,
+    category: str = "",
+    random_mode: bool = False,
+) -> bytes:
+    """
+    Generate a Status card — tries HTML/Playwright first, falls back to Pillow.
+
+    Args:
+        random_mode: if True, picks random template + color (for manual generation)
+    """
+    try:
+        if random_mode:
+            from app.infra.templates.renderer import render_random_status_card
+            result = await render_random_status_card(
+                trader_name=trader_name,
+                product_name=product_name,
+                price=price,
+                store_url=store_url,
+                category=category,
+                photo_bytes=photo_bytes,
+            )
+        else:
+            from app.infra.templates.renderer import render_status_card
+            result = await render_status_card(
+                trader_name=trader_name,
+                product_name=product_name,
+                price=price,
+                store_url=store_url,
+                category=category,
+                photo_bytes=photo_bytes,
+                color_index=color_index,
+                day_index=color_index,
+                product_index=product_index,
+            )
+        if result:
+            return result
+    except Exception as exc:
+        logger.warning("HTML renderer failed, falling back to Pillow: %s", exc)
+
+    # Fallback to Pillow
+    if photo_bytes:
+        return generate_photo_card(
+            trader_name=trader_name, product_name=product_name,
+            price=price, store_url=store_url, photo_bytes=photo_bytes,
+            color_index=color_index, template_index=template_index,
+            product_index=product_index, category=category,
+        )
+    return generate_text_card(
+        trader_name=trader_name, product_name=product_name,
+        price=price, store_url=store_url,
+        color_index=color_index, template_index=template_index,
+        product_index=product_index, category=category,
+    )
