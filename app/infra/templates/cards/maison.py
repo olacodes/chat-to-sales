@@ -63,7 +63,6 @@ class MaisonTemplate(BaseTemplate):
 .product-image {{
     position: relative; z-index: 2;
     max-width: 92%; max-height: 100%; object-fit: contain;
-    mix-blend-mode: lighten;
     filter: drop-shadow(0 30px 50px rgba(0,0,0,.6)) drop-shadow(0 8px 16px rgba(0,0,0,.4));
 }}
 .text-hero {{ flex-direction: column; gap: 30px; }}
