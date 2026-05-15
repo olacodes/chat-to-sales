@@ -50,7 +50,8 @@ async def render_video(
             )
             context = await browser.new_context(
                 viewport=_VIEWPORT,
-                record_video={"dir": tmp_dir, "size": _VIEWPORT},
+                record_video_dir=tmp_dir,
+                record_video_size=_VIEWPORT,
             )
             page = await context.new_page()
 
