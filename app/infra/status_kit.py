@@ -137,57 +137,52 @@ def _prep_photo(photo_bytes: bytes, w: int, h: int) -> Image.Image | None:
     return img
 
 
-def _feather_photo(photo: Image.Image, bg_color: tuple, feather: int = 60, radius: int = 5) -> Image.Image:
+def _paste_photo(img: Image.Image, photo: Image.Image, x: int, y: int,
+                  bg_color: tuple, bottom_fade: int = 50, radius: int = 5,
+                  shadow: bool = True) -> None:
     """
-    Apply edge feathering + rounded corners to a photo so it blends into the background.
+    Paste a photo with rounded corners, bottom fade, and drop shadow.
 
-    Creates an elliptical alpha gradient: fully opaque in the center,
-    fading to transparent at the edges. Also applies rounded corners.
+    - Rounded corners (radius px)
+    - Bottom edge fades into bg_color (bottom_fade px)
+    - Optional drop shadow for depth
+    - Left/right/top edges are clean — dark padding handles those
     """
     w, h = photo.size
     photo_rgba = photo.convert("RGBA")
 
-    # Create alpha mask — full white center, fading to black at edges
-    mask = Image.new("L", (w, h), 255)
-    mask_draw = ImageDraw.Draw(mask)
-
-    # Fade edges: draw decreasing-opacity borders
-    for i in range(feather):
-        alpha = int(255 * (i / feather))
-        # Top edge
-        mask_draw.line([(0, i), (w, i)], fill=alpha)
-        # Bottom edge
-        mask_draw.line([(0, h - 1 - i), (w, h - 1 - i)], fill=alpha)
-        # Left edge
-        mask_draw.line([(i, 0), (i, h)], fill=alpha)
-        # Right edge
-        mask_draw.line([(w - 1 - i, 0), (w - 1 - i, h)], fill=alpha)
-
     # Rounded corners mask
-    if radius > 0:
-        corner_mask = Image.new("L", (w, h), 255)
-        cm_draw = ImageDraw.Draw(corner_mask)
-        cm_draw.rounded_rectangle([0, 0, w, h], radius=radius, fill=255, outline=None)
-        # Black outside the rounded rect
-        full = Image.new("L", (w, h), 0)
-        full_draw = ImageDraw.Draw(full)
-        full_draw.rounded_rectangle([0, 0, w, h], radius=radius, fill=255)
-        # Combine: min of feather mask and corner mask
-        from PIL import ImageChops
-        mask = ImageChops.multiply(mask, full)
+    mask = Image.new("L", (w, h), 0)
+    mask_draw = ImageDraw.Draw(mask)
+    mask_draw.rounded_rectangle([0, 0, w, h], radius=radius, fill=255)
 
-    # Create result: bg color where transparent, photo where opaque
-    result = Image.new("RGBA", (w, h), (*bg_color, 255))
-    result.paste(photo_rgba, (0, 0), mask)
-    return result
+    # Bottom fade: gradually reduce alpha at the bottom edge only
+    if bottom_fade > 0:
+        for i in range(bottom_fade):
+            alpha = int(255 * (1 - i / bottom_fade))
+            mask_draw.line([(0, h - 1 - i), (w, h - 1 - i)], fill=alpha)
 
+    # Drop shadow
+    if shadow:
+        shadow_offset = 8
+        shadow_blur = 25
+        shadow_img = Image.new("RGBA", (w + 60, h + 60), (0, 0, 0, 0))
+        shadow_mask = Image.new("L", (w, h), 0)
+        sd = ImageDraw.Draw(shadow_mask)
+        sd.rounded_rectangle([0, 0, w, h], radius=radius, fill=80)
+        shadow_mask = shadow_mask.filter(ImageFilter.GaussianBlur(radius=shadow_blur))
+        shadow_layer = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+        shadow_layer.putalpha(shadow_mask)
 
-def _paste_feathered(img: Image.Image, photo: Image.Image, x: int, y: int,
-                     bg_color: tuple, feather: int = 60, radius: int = 5) -> None:
-    """Paste a feathered + rounded photo onto the canvas."""
-    feathered = _feather_photo(photo, bg_color, feather=feather, radius=radius)
+        img_rgba = img.convert("RGBA")
+        img_rgba.paste(shadow_layer, (x + shadow_offset, y + shadow_offset), shadow_layer)
+        img.paste(img_rgba.convert("RGB"))
+
+    # Paste the photo with the mask
+    canvas = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    canvas.paste(photo_rgba, (x, y), mask)
     img_rgba = img.convert("RGBA")
-    img_rgba.paste(feathered, (x, y), feathered)
+    img_rgba = Image.alpha_composite(img_rgba, canvas)
     img.paste(img_rgba.convert("RGB"))
 
 
@@ -237,12 +232,12 @@ def _tpl_centered_photo(img: Image.Image, s: dict, photo: Image.Image,
     _draw_glow(img, _W // 2, 550, 400, s["glow"], intensity=25)
     draw = ImageDraw.Draw(img)  # refresh after glow
 
-    # Product photo — large, centered, feathered edges
-    photo_w, photo_h = 800, 800
+    # Product photo — centered with padding, shadow, bottom fade
+    photo_w, photo_h = 700, 700
     photo_r = photo.resize((photo_w, photo_h), Image.LANCZOS)
     px = (_W - photo_w) // 2
-    py = 200
-    _paste_feathered(img, photo_r, px, py, s["bg"], feather=70, radius=5)
+    py = 220
+    _paste_photo(img, photo_r, px, py, s["bg"], bottom_fade=45, radius=5)
     draw = ImageDraw.Draw(img)
 
     # Product name below photo
@@ -334,11 +329,11 @@ def _tpl_poster_photo(img: Image.Image, s: dict, photo: Image.Image,
     _draw_glow(img, _W // 2, y + 350, 380, s["glow"], intensity=30)
     draw = ImageDraw.Draw(img)
 
-    # Photo — large centered, feathered edges
-    photo_w, photo_h = 850, 750
+    # Photo — centered with padding, shadow, bottom fade
+    photo_w, photo_h = 720, 650
     photo_r = photo.resize((photo_w, photo_h), Image.LANCZOS)
     px = (_W - photo_w) // 2
-    _paste_feathered(img, photo_r, px, y, s["bg"], feather=65, radius=5)
+    _paste_photo(img, photo_r, px, y, s["bg"], bottom_fade=40, radius=5)
     draw = ImageDraw.Draw(img)
     y += photo_h + 50
 
@@ -401,21 +396,22 @@ def _tpl_poster_text(img: Image.Image, s: dict,
 
 def _tpl_bleed_photo(img: Image.Image, s: dict, photo: Image.Image,
                      trader: str, product: str, price: int, url: str) -> None:
-    # Photo fills top 62% with feathered bottom edge
-    photo_h = int(_H * 0.62)
-    photo_r = _prep_photo_fill(photo, _W - _PAD * 2, photo_h)
+    # Photo fills top ~55% with bottom fade into dark
+    photo_h = int(_H * 0.55)
+    photo_w = _W - _PAD * 2
+    photo_r = _prep_photo_fill(photo, photo_w, photo_h)
     if photo_r:
-        _paste_feathered(img, photo_r, _PAD, 0, s["bg"], feather=80, radius=5)
+        _paste_photo(img, photo_r, _PAD, 30, s["bg"], bottom_fade=80, radius=5, shadow=False)
 
-    # Extra gradient fade at bottom for smooth transition
+    # Extra gradient fade for smooth transition
     img_rgba = img.convert("RGBA")
-    fade_h = 150
+    fade_h = 120
     fade = Image.new("RGBA", (_W, fade_h), (0, 0, 0, 0))
     fd = ImageDraw.Draw(fade)
     for i in range(fade_h):
         alpha = int(255 * (i / fade_h))
         fd.line([(0, i), (_W, i)], fill=(*s["bg"], alpha))
-    img_rgba.paste(fade, (0, photo_h - fade_h - 40), fade)
+    img_rgba.paste(fade, (0, photo_h - fade_h + 10), fade)
     img.paste(img_rgba.convert("RGB"))
 
     draw = ImageDraw.Draw(img)
@@ -424,7 +420,7 @@ def _tpl_bleed_photo(img: Image.Image, s: dict, photo: Image.Image,
     _spaced(draw, trader, 40, _font(26, bold=True), s["text"], spacing=5)
 
     # Product name below photo
-    y = photo_h + 20
+    y = photo_h + 60
     f_name = _font(58, bold=True)
     lines = _wrap(draw, product, f_name, _W - _PAD * 2)
     for line in lines:
