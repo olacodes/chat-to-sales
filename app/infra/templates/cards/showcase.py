@@ -31,29 +31,29 @@ class ShowcaseTemplate(BaseTemplate):
     width: 1080px; height: 1920px;
     background: radial-gradient(ellipse 80% 60% at 50% 48%, var(--bg-stage) 0%, var(--bg-outer) 55%, var(--bg-vignette) 100%);
     color: var(--ink); position: relative; overflow: hidden;
-    display: flex; flex-direction: column; align-items: center;
-    padding: 50px 60px 40px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 40px 60px;
+    gap: 16px;
 }}
 .ad::before {{
     content: ""; position: absolute; inset: 0; pointer-events: none;
     background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,.018) 1px, transparent 0);
     background-size: 3px 3px;
 }}
-/* Decorative glow wave */
 .ad::after {{
     content: ""; position: absolute; top: 20%; left: -20%; width: 140%; height: 40%;
     background: radial-gradient(ellipse at center, rgba(255,255,255,.03) 0%, transparent 70%);
     transform: rotate(-8deg); pointer-events: none;
 }}
 .brand {{
-    text-align: center; position: relative; z-index: 2; margin-bottom: 10px;
+    text-align: center; position: relative; z-index: 2;
 }}
 .brand-name {{
     font-size: 18px; font-weight: 600; letter-spacing: .4em;
     text-transform: uppercase; color: var(--accent);
 }}
 .hero-title {{
-    text-align: center; position: relative; z-index: 2; margin-bottom: 4px;
+    text-align: center; position: relative; z-index: 2;
 }}
 .hero-label {{
     font-size: 14px; font-weight: 500; letter-spacing: .35em;
@@ -64,8 +64,9 @@ class ShowcaseTemplate(BaseTemplate):
     color: var(--ink); line-height: 1.1;
 }}
 .product-stage {{
-    flex: 1; display: flex; align-items: center; justify-content: center;
+    display: flex; align-items: center; justify-content: center;
     position: relative; z-index: 2; width: 100%;
+    max-height: 900px;
 }}
 .product-stage::before {{
     content: ""; position: absolute; width: 65%; height: 60%; border-radius: 50%;
@@ -74,7 +75,7 @@ class ShowcaseTemplate(BaseTemplate):
 }}
 .product-image {{
     position: relative; z-index: 2;
-    max-width: 92%; max-height: 100%; object-fit: contain;
+    max-width: 95%; max-height: 850px; object-fit: contain;
     border-radius: 8px;
     filter: drop-shadow(0 30px 55px rgba(0,0,0,.7)) drop-shadow(0 10px 20px rgba(0,0,0,.5));
 }}
@@ -88,20 +89,20 @@ class ShowcaseTemplate(BaseTemplate):
 }}
 .price {{
     font-size: 72px; font-weight: 300; color: var(--accent); line-height: 1;
-    margin-bottom: 24px;
+    margin-bottom: 20px;
 }}
 .price span {{ font-size: 26px; vertical-align: super; margin-right: 2px; }}
 .cta-btn {{
     display: inline-block; padding: 22px 68px;
     background: var(--accent); color: var(--bg-outer);
     font-size: 16px; font-weight: 600; letter-spacing: .3em; text-transform: uppercase;
-    text-decoration: none; margin-bottom: 20px; border-radius: 4px;
+    text-decoration: none; margin-bottom: 16px; border-radius: 4px;
 }}
 .footer {{
     display: flex; justify-content: space-between; width: 100%;
-    font-size: 12px; font-weight: 500; letter-spacing: .2em;
-    text-transform: uppercase; color: var(--ink-fine);
-    padding-top: 12px; border-top: 1px solid rgba(255,255,255,.08);
+    font-size: 14px; font-weight: 500; letter-spacing: .18em;
+    text-transform: uppercase; color: var(--ink-muted);
+    padding-top: 12px; border-top: 1px solid rgba(255,255,255,.12);
 }}
 </style></head>
 <body>

@@ -27,14 +27,14 @@ class MaisonTemplate(BaseTemplate):
 {self.base_styles()}
 :root {{
 {self.css_vars(scheme)}
-    --side-pad: 60px;
 }}
 .ad {{
     width: 1080px; height: 1920px;
     background: radial-gradient(ellipse 70% 55% at 50% 42%, var(--bg-stage) 0%, var(--bg-outer) 60%, var(--bg-vignette) 100%);
     color: var(--ink); position: relative; overflow: hidden;
-    display: grid; grid-template-rows: auto 1fr auto;
-    padding: 50px var(--side-pad) 40px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 40px 60px;
+    gap: 20px;
 }}
 .ad::before {{
     content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 1;
@@ -53,7 +53,7 @@ class MaisonTemplate(BaseTemplate):
 .product-stage {{
     position: relative; z-index: 2;
     display: flex; align-items: center; justify-content: center;
-    margin: 10px 0 10px;
+    max-height: 900px;
 }}
 .product-stage::before {{
     content: ""; position: absolute; width: 75%; height: 75%; border-radius: 50%;
@@ -62,7 +62,7 @@ class MaisonTemplate(BaseTemplate):
 }}
 .product-image {{
     position: relative; z-index: 2;
-    max-width: 92%; max-height: 100%; object-fit: contain;
+    max-width: 95%; max-height: 850px; object-fit: contain;
     border-radius: 8px;
     filter: drop-shadow(0 30px 50px rgba(0,0,0,.7)) drop-shadow(0 10px 20px rgba(0,0,0,.5));
 }}
@@ -79,19 +79,19 @@ class MaisonTemplate(BaseTemplate):
 }}
 .product-price {{
     font-size: 68px; font-weight: 300; letter-spacing: .02em;
-    color: var(--accent); margin-bottom: 28px; line-height: 1;
+    color: var(--accent); margin-bottom: 24px; line-height: 1;
 }}
 .product-price span {{ font-size: 28px; vertical-align: super; margin-right: 2px; }}
 .cta-btn {{
     display: inline-block; padding: 20px 60px;
     background: var(--accent); color: var(--bg-outer);
     font-size: 16px; font-weight: 600; letter-spacing: .28em; text-transform: uppercase;
-    text-decoration: none; margin-bottom: 20px; border-radius: 4px;
+    text-decoration: none; margin-bottom: 16px; border-radius: 4px;
 }}
 .website {{
-    font-size: 13px; font-weight: 500; letter-spacing: .28em; text-transform: uppercase;
-    color: var(--ink-fine);
-    border-top: 1px solid rgba(255,255,255,.12); padding-top: 14px; margin-top: 6px;
+    font-size: 14px; font-weight: 500; letter-spacing: .22em; text-transform: uppercase;
+    color: var(--ink-muted);
+    border-top: 1px solid rgba(255,255,255,.15); padding-top: 14px; margin-top: 4px;
 }}
 </style></head>
 <body>

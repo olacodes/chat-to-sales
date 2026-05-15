@@ -34,7 +34,7 @@ class EditorialTemplate(BaseTemplate):
     background: linear-gradient(170deg, var(--bg-stage) 0%, var(--bg-outer) 40%, var(--bg-vignette) 100%);
     color: var(--ink); position: relative; overflow: hidden;
     display: flex; flex-direction: column;
-    padding: 50px 60px 40px;
+    padding: 40px 60px;
 }}
 .ad::before {{
     content: ""; position: absolute; inset: 0; pointer-events: none;
@@ -43,7 +43,7 @@ class EditorialTemplate(BaseTemplate):
 }}
 .header {{
     display: flex; justify-content: space-between; align-items: flex-start;
-    position: relative; z-index: 2; margin-bottom: 20px;
+    position: relative; z-index: 2; margin-bottom: 16px;
 }}
 .brand-name {{
     font-family: 'Cormorant Garamond', serif; font-style: italic; font-weight: 500;
@@ -60,8 +60,9 @@ class EditorialTemplate(BaseTemplate):
     border-radius: 4px;
 }}
 .product-stage {{
-    flex: 1; display: flex; align-items: center; justify-content: center;
+    display: flex; align-items: center; justify-content: center;
     position: relative; z-index: 2;
+    flex: 1; min-height: 0;
 }}
 .product-stage::before {{
     content: ""; position: absolute; width: 70%; height: 70%; border-radius: 50%;
@@ -70,7 +71,7 @@ class EditorialTemplate(BaseTemplate):
 }}
 .product-image {{
     position: relative; z-index: 2;
-    max-width: 92%; max-height: 100%; object-fit: contain;
+    max-width: 95%; max-height: 100%; object-fit: contain;
     border-radius: 8px;
     filter: drop-shadow(0 30px 50px rgba(0,0,0,.7)) drop-shadow(0 10px 20px rgba(0,0,0,.5));
 }}
@@ -81,22 +82,24 @@ class EditorialTemplate(BaseTemplate):
     font-family: 'Cormorant Garamond', serif; font-size: 68px; font-weight: 600;
     color: var(--ink); text-align: center; line-height: 1.15; max-width: 90%;
 }}
-.bottom {{ position: relative; z-index: 2; }}
+.bottom {{
+    position: relative; z-index: 2; margin-top: 16px;
+}}
 .product-title {{
     font-size: 16px; font-weight: 600; letter-spacing: .25em;
     text-transform: uppercase; color: var(--ink); text-align: center;
-    margin-bottom: 18px;
+    margin-bottom: 16px;
 }}
 .price-row {{
     display: flex; justify-content: space-between; align-items: baseline;
-    padding: 16px 0;
-    border-top: 1px solid rgba(255,255,255,.1);
-    border-bottom: 1px solid rgba(255,255,255,.1);
-    margin-bottom: 24px;
+    padding: 14px 0;
+    border-top: 1px solid rgba(255,255,255,.12);
+    border-bottom: 1px solid rgba(255,255,255,.12);
+    margin-bottom: 20px;
 }}
 .price-label {{
     font-size: 14px; font-weight: 400; letter-spacing: .2em;
-    text-transform: uppercase; color: var(--ink-fine);
+    text-transform: uppercase; color: var(--ink-muted);
 }}
 .price-value {{
     font-size: 58px; font-weight: 300; color: var(--accent); line-height: 1;
@@ -106,12 +109,13 @@ class EditorialTemplate(BaseTemplate):
     display: block; text-align: center; padding: 22px;
     background: var(--accent); color: var(--bg-outer);
     font-size: 16px; font-weight: 600; letter-spacing: .3em; text-transform: uppercase;
-    text-decoration: none; margin-bottom: 18px; border-radius: 4px;
+    text-decoration: none; margin-bottom: 16px; border-radius: 4px;
 }}
 .footer-row {{
     display: flex; justify-content: space-between;
-    font-size: 12px; font-weight: 500; letter-spacing: .2em;
-    text-transform: uppercase; color: var(--ink-fine);
+    font-size: 14px; font-weight: 500; letter-spacing: .18em;
+    text-transform: uppercase; color: var(--ink-muted);
+    border-top: 1px solid rgba(255,255,255,.1); padding-top: 12px;
 }}
 </style></head>
 <body>
