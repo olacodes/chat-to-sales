@@ -71,19 +71,22 @@ async def upload_product_image(
     trader_phone: str,
     product_name: str,
     image_bytes: bytes,
-) -> str | None:
+) -> tuple[str | None, str | None]:
     """
-    Upload a product image to R2 and return the public URL.
+    Upload a product image to R2 and return (image_url, image_nobg_url).
 
-    Returns None if R2 is not configured (dev mode).
-    Resizes to max 800px before upload to keep files small.
+    Uploads two versions:
+    1. Original JPEG (resized to 800px) — for store page, thumbnails
+    2. Transparent PNG (background removed by rembg) — for Status cards
+
+    Returns (None, None) if R2 is not configured.
     """
     from PIL import Image
 
     client = _get_client()
     if client is None:
         logger.warning("R2 not configured — skipping product image upload")
-        return None
+        return None, None
 
     settings = get_settings()
 
@@ -101,8 +104,8 @@ async def upload_product_image(
         logger.warning("Image resize failed: %s", exc)
         upload_bytes = image_bytes
 
+    # Upload original JPEG
     key = _make_key(trader_phone, product_name)
-
     try:
         client.put_object(
             Bucket=settings.R2_BUCKET_NAME,
@@ -112,16 +115,35 @@ async def upload_product_image(
         )
     except Exception as exc:
         logger.error("R2 upload failed key=%s: %s", key, exc)
-        return None
+        return None, None
 
-    # Build public URL
-    if settings.R2_PUBLIC_URL:
-        url = f"{settings.R2_PUBLIC_URL.rstrip('/')}/{key}"
-    else:
-        url = f"https://{settings.R2_BUCKET_NAME}.{settings.R2_ACCOUNT_ID}.r2.cloudflarestorage.com/{key}"
+    def _build_url(k: str) -> str:
+        if settings.R2_PUBLIC_URL:
+            return f"{settings.R2_PUBLIC_URL.rstrip('/')}/{k}"
+        return f"https://{settings.R2_BUCKET_NAME}.{settings.R2_ACCOUNT_ID}.r2.cloudflarestorage.com/{k}"
 
+    image_url = _build_url(key)
     logger.info("Product image uploaded: %s (%d bytes)", key, len(upload_bytes))
-    return url
+
+    # Upload transparent PNG (background removed)
+    nobg_url: str | None = None
+    try:
+        from app.infra.bg_remove import remove_background
+        nobg_bytes = await remove_background(upload_bytes)
+        if nobg_bytes:
+            nobg_key = f"products/{trader_phone}/{_slugify(product_name)}-nobg.png"
+            client.put_object(
+                Bucket=settings.R2_BUCKET_NAME,
+                Key=nobg_key,
+                Body=nobg_bytes,
+                ContentType="image/png",
+            )
+            nobg_url = _build_url(nobg_key)
+            logger.info("Product image (no-bg) uploaded: %s (%d bytes)", nobg_key, len(nobg_bytes))
+    except Exception as exc:
+        logger.warning("Background removal/upload failed (non-fatal): %s", exc)
+
+    return image_url, nobg_url
 
 
 async def delete_product_image(

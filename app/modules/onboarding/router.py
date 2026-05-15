@@ -200,7 +200,7 @@ async def upload_product_image_endpoint(
     if not image_bytes:
         raise HTTPException(status_code=400, detail="Empty file.")
 
-    url = await r2_upload(trader_phone=phone, product_name=product_name, image_bytes=image_bytes)
+    url, nobg_url = await r2_upload(trader_phone=phone, product_name=product_name, image_bytes=image_bytes)
     if not url:
         raise HTTPException(status_code=500, detail="Image upload failed.")
 
@@ -215,6 +215,7 @@ async def upload_product_image_endpoint(
         trader_phone=phone,
         product_name=product_name,
         image_url=url,
+        image_nobg_url=nobg_url,
         image_hash=image_hash,
     )
     await db.commit()

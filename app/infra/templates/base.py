@@ -31,7 +31,9 @@ class CardContext:
     def photo_data_uri(self) -> str:
         if not self.photo_b64:
             return ""
-        return f"data:image/jpeg;base64,{self.photo_b64}"
+        # PNG starts with iVBOR in base64, JPEG with /9j/
+        mime = "image/png" if self.photo_b64.startswith("iVBOR") else "image/jpeg"
+        return f"data:{mime};base64,{self.photo_b64}"
 
     @property
     def slug(self) -> str:

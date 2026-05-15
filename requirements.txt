@@ -39,6 +39,9 @@ boto3==1.38.0
 # ── HTML rendering (Status Kit templates) ─────────────────────────────────────
 playwright==1.52.0
 
+# ── AI background removal for product photos ──────────────────────────────────
+rembg[cpu]==2.0.57
+
 # ── Testing ───────────────────────────────────────────────────────────────────
 pytest==8.3.4
 pytest-asyncio==0.24.0

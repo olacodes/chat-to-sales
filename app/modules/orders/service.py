@@ -1230,7 +1230,7 @@ class OrderService:
             try:
                 from app.infra.storage import upload_product_image as _r2_upload
                 temp_name = f"_pending_{image_hash or customer_phone}"
-                url = await _r2_upload(
+                url, _ = await _r2_upload(
                     trader_phone=trader_phone,
                     product_name=temp_name,
                     image_bytes=image_bytes,
@@ -2470,7 +2470,7 @@ class OrderService:
         from app.modules.orders.product_images import ProductImageRepository
         from app.modules.onboarding.media import compute_phash
 
-        url = await upload_product_image(
+        url, nobg_url = await upload_product_image(
             trader_phone=trader_phone,
             product_name=product_name,
             image_bytes=image_bytes,
@@ -2491,6 +2491,7 @@ class OrderService:
                 trader_phone=trader_phone,
                 product_name=product_name,
                 image_url=url,
+                image_nobg_url=nobg_url,
                 image_hash=image_hash,
             )
 
@@ -4545,19 +4546,22 @@ class OrderService:
                 channel_tenant_id=channel_tenant_id,
             )
 
-        # Fetch product photo if available
+        # Fetch product photo — prefer nobg (transparent) for Status cards
         photo_bytes: bytes | None = None
         try:
             from app.modules.orders.product_images import ProductImageRepository
             async with async_session_factory() as img_session:
                 img_repo = ProductImageRepository(img_session)
                 img = await img_repo.get(trader_phone, product_name)
-                if img and img.image_url:
-                    import httpx
-                    async with httpx.AsyncClient(timeout=10.0) as http:
-                        resp = await http.get(img.image_url)
-                        if resp.is_success:
-                            photo_bytes = resp.content
+                if img:
+                    # Prefer transparent version for Status cards
+                    photo_url = img.image_nobg_url or img.image_url
+                    if photo_url:
+                        import httpx
+                        async with httpx.AsyncClient(timeout=10.0) as http:
+                            resp = await http.get(photo_url)
+                            if resp.is_success:
+                                photo_bytes = resp.content
         except Exception as exc:
             logger.warning("Status gen: failed to fetch product photo: %s", exc)
 

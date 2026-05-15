@@ -24,6 +24,7 @@ class ProductImage(BaseModel):
     trader_phone: Mapped[str] = mapped_column(String(20), nullable=False)
     product_name: Mapped[str] = mapped_column(String(255), nullable=False)
     image_url: Mapped[str] = mapped_column(String(500), nullable=False)
+    image_nobg_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     image_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
@@ -46,12 +47,15 @@ class ProductImageRepository:
         trader_phone: str,
         product_name: str,
         image_url: str,
+        image_nobg_url: str | None = None,
         image_hash: str | None = None,
     ) -> ProductImage:
         """Insert or update the image for a product."""
         existing = await self.get(trader_phone, product_name)
         if existing:
             existing.image_url = image_url
+            if image_nobg_url is not None:
+                existing.image_nobg_url = image_nobg_url
             if image_hash:
                 existing.image_hash = image_hash
             await self._session.flush()
@@ -61,6 +65,7 @@ class ProductImageRepository:
             trader_phone=trader_phone,
             product_name=product_name,
             image_url=image_url,
+            image_nobg_url=image_nobg_url,
             image_hash=image_hash,
         )
         self._session.add(img)

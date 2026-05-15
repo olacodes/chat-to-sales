@@ -42,6 +42,10 @@ RUN pip install playwright==1.52.0 \
     && playwright install chromium \
     && chmod -R 755 /opt/playwright
 
+# Pre-download rembg U2-Net model so first image upload doesn't take 2 min
+RUN pip install rembg[cpu]==2.0.57 \
+    && python -c "from rembg import new_session; new_session('u2net')" 2>/dev/null || true
+
 WORKDIR /app
 
 # Copy pre-built site-packages from builder
