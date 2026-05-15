@@ -35,16 +35,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Non-root user for security
 RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser
 
-# Install Playwright Chromium (must be after user creation, with writable cache)
+# Writable cache dirs for non-root user
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright
+ENV NUMBA_CACHE_DIR=/tmp/numba_cache
+ENV MPLCONFIGDIR=/tmp/matplotlib
 RUN pip install playwright==1.52.0 \
     && mkdir -p /opt/playwright \
     && playwright install chromium \
     && chmod -R 755 /opt/playwright
 
-# Pre-download rembg U2-Net model so first image upload doesn't take 2 min
+# Pre-download rembg U2-Net model and pre-compile numba cache
 RUN pip install rembg[cpu]==2.0.57 \
-    && python -c "from rembg import new_session; new_session('u2net')" 2>/dev/null || true
+    && mkdir -p /tmp/numba_cache \
+    && NUMBA_CACHE_DIR=/tmp/numba_cache python -c "from rembg import remove; from PIL import Image; from io import BytesIO; img=Image.new('RGB',(10,10),(255,255,255)); remove(img)" 2>/dev/null || true \
+    && chmod -R 777 /tmp/numba_cache
 
 WORKDIR /app
 
