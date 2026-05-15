@@ -4587,15 +4587,15 @@ class OrderService:
                 )
                 return
 
-            from app.infra.status_video import generate_ken_burns_video, EFFECTS
-            effect = _rand.choice(EFFECTS)
-            video_bytes = await generate_ken_burns_video(
-                photo_bytes=photo_bytes,
+            from app.infra.status_video_html import generate_status_video
+            video_bytes = await generate_status_video(
+                trader_name=trader_name,
                 product_name=product_name,
                 price=price,
-                trader_name=trader_name,
                 store_url=store_url,
-                effect=effect,
+                category=trader.get("business_category", ""),
+                photo_bytes=photo_bytes,
+                random_mode=True,
             )
             if not video_bytes:
                 if silent:
