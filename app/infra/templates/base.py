@@ -31,9 +31,6 @@ class CardContext:
     def photo_data_uri(self) -> str:
         if not self.photo_b64:
             return ""
-        # Detect PNG (starts with iVBOR) vs JPEG (starts with /9j/)
-        if self.photo_b64.startswith("iVBOR"):
-            return f"data:image/png;base64,{self.photo_b64}"
         return f"data:image/jpeg;base64,{self.photo_b64}"
 
     @property

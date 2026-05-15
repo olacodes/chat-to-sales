@@ -71,7 +71,8 @@ class EditorialTemplate(BaseTemplate):
 .product-image {{
     position: relative; z-index: 2;
     max-width: 92%; max-height: 100%; object-fit: contain;
-    filter: drop-shadow(0 30px 50px rgba(0,0,0,.6)) drop-shadow(0 8px 16px rgba(0,0,0,.4));
+    border-radius: 8px;
+    filter: drop-shadow(0 30px 50px rgba(0,0,0,.7)) drop-shadow(0 10px 20px rgba(0,0,0,.5));
 }}
 .text-only {{ flex-direction: column; gap: 25px; }}
 .text-ornament {{ font-size: 60px; color: var(--accent); opacity: 0.25; }}

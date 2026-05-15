@@ -75,7 +75,8 @@ class ShowcaseTemplate(BaseTemplate):
 .product-image {{
     position: relative; z-index: 2;
     max-width: 92%; max-height: 100%; object-fit: contain;
-    filter: drop-shadow(0 30px 55px rgba(0,0,0,.6)) drop-shadow(0 8px 18px rgba(0,0,0,.4));
+    border-radius: 8px;
+    filter: drop-shadow(0 30px 55px rgba(0,0,0,.7)) drop-shadow(0 10px 20px rgba(0,0,0,.5));
 }}
 .text-only {{ align-items: center; justify-content: center; }}
 .big-name {{

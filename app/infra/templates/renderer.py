@@ -83,17 +83,10 @@ async def render_status_card(
     """
     from app.infra.templates import pick_template, pick_random_template, get_template
 
-    # Remove background from product photo before encoding
+    # Encode photo as-is (no background removal — works for all photo types)
     photo_b64 = ""
     if photo_bytes:
-        try:
-            from app.infra.templates.bg_remove import remove_background
-            clean_photo = remove_background(photo_bytes)
-            photo_b64 = base64.b64encode(clean_photo).decode("ascii")
-            logger.info("Photo background removed, encoding as PNG")
-        except Exception as exc:
-            logger.warning("Background removal failed, using original: %s", exc)
-            photo_b64 = base64.b64encode(photo_bytes).decode("ascii")
+        photo_b64 = base64.b64encode(photo_bytes).decode("ascii")
 
     ctx = CardContext(
         trader_name=trader_name,
@@ -136,12 +129,7 @@ async def render_random_status_card(
 
     photo_b64 = ""
     if photo_bytes:
-        try:
-            from app.infra.templates.bg_remove import remove_background
-            clean_photo = remove_background(photo_bytes)
-            photo_b64 = base64.b64encode(clean_photo).decode("ascii")
-        except Exception:
-            photo_b64 = base64.b64encode(photo_bytes).decode("ascii")
+        photo_b64 = base64.b64encode(photo_bytes).decode("ascii")
 
     ctx = CardContext(
         trader_name=trader_name,
