@@ -4637,29 +4637,17 @@ class OrderService:
                 )
                 return
         else:
-            # Image mode
-            from app.infra.status_kit import generate_photo_card, generate_text_card
-            if photo_bytes:
-                card_bytes = generate_photo_card(
-                    trader_name=trader_name,
-                    product_name=product_name,
-                    price=price,
-                    store_url=store_url,
-                    photo_bytes=photo_bytes,
-                    color_index=rand_color,
-                    template_index=rand_template,
-                    category=trader.get("business_category", ""),
-                )
-            else:
-                card_bytes = generate_text_card(
-                    trader_name=trader_name,
-                    product_name=product_name,
-                    price=price,
-                    store_url=store_url,
-                    color_index=rand_color,
-                    template_index=rand_template,
-                    category=trader.get("business_category", ""),
-                )
+            # Image mode — try HTML/Playwright first, fall back to Pillow
+            from app.infra.status_kit import generate_card_async
+            card_bytes = await generate_card_async(
+                trader_name=trader_name,
+                product_name=product_name,
+                price=price,
+                store_url=store_url,
+                photo_bytes=photo_bytes,
+                category=trader.get("business_category", ""),
+                random_mode=True,
+            )
 
             # Upload to R2 with unique key (avoids WhatsApp CDN cache)
             key = f"status-kit/{trader_phone}/manual-{unique_suffix}-{product_name[:20]}.jpg"

@@ -322,7 +322,8 @@ async def _send_status_kit() -> None:
     from app.modules.onboarding.models import OnboardingStatus, Trader
     from app.modules.orders.product_images import ProductImage
     from app.infra.storage import upload_product_image as r2_upload
-    from app.infra.status_kit import generate_text_card, generate_photo_card
+    from app.infra.status_kit import generate_text_card, generate_photo_card  # Pillow fallback
+    from app.infra.status_kit import generate_card_async  # HTML/Playwright primary
     from app.infra.status_video import generate_ken_burns_video, pick_effect
 
     now = datetime.now(tz=timezone.utc)
@@ -439,27 +440,15 @@ async def _send_status_kit() -> None:
                     content_type = "video/mp4"
                     send_bytes = video_bytes
                     is_video = True
-                elif photo_bytes:
-                    card_bytes = generate_photo_card(
+                else:
+                    # Image card — try HTML/Playwright, fall back to Pillow
+                    from app.infra.status_kit import generate_card_async
+                    card_bytes = await generate_card_async(
                         trader_name=trader_name,
                         product_name=product_name,
                         price=price,
                         store_url=store_url,
                         photo_bytes=photo_bytes,
-                        color_index=day_index,
-                        product_index=card_count,
-                        category=trader.business_category or "",
-                    )
-                    card_key = f"status-kit/{trader.phone_number}/{day_index}-{_slugify(product_name)}.jpg"
-                    content_type = "image/jpeg"
-                    send_bytes = card_bytes
-                    is_video = False
-                else:
-                    card_bytes = generate_text_card(
-                        trader_name=trader_name,
-                        product_name=product_name,
-                        price=price,
-                        store_url=store_url,
                         color_index=day_index,
                         product_index=card_count,
                         category=trader.business_category or "",
