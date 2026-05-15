@@ -31,9 +31,9 @@ class ShowcaseTemplate(BaseTemplate):
     width: 1080px; height: 1920px;
     background: radial-gradient(ellipse 80% 60% at 50% 48%, var(--bg-stage) 0%, var(--bg-outer) 55%, var(--bg-vignette) 100%);
     color: var(--ink); position: relative; overflow: hidden;
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    padding: 40px 60px;
-    gap: 16px;
+    display: flex; flex-direction: column; align-items: center;
+    justify-content: space-between;
+    padding: 60px 60px 50px;
 }}
 .ad::before {{
     content: ""; position: absolute; inset: 0; pointer-events: none;
@@ -45,28 +45,25 @@ class ShowcaseTemplate(BaseTemplate):
     background: radial-gradient(ellipse at center, rgba(255,255,255,.03) 0%, transparent 70%);
     transform: rotate(-8deg); pointer-events: none;
 }}
-.brand {{
-    text-align: center; position: relative; z-index: 2;
+.top {{
+    text-align: center; position: relative; z-index: 2; width: 100%;
 }}
 .brand-name {{
-    font-size: 18px; font-weight: 600; letter-spacing: .4em;
-    text-transform: uppercase; color: var(--accent);
-}}
-.hero-title {{
-    text-align: center; position: relative; z-index: 2;
+    font-size: 20px; font-weight: 600; letter-spacing: .4em;
+    text-transform: uppercase; color: var(--accent); margin-bottom: 10px;
 }}
 .hero-label {{
-    font-size: 14px; font-weight: 500; letter-spacing: .35em;
-    text-transform: uppercase; color: var(--accent); margin-bottom: 6px;
+    font-size: 15px; font-weight: 500; letter-spacing: .35em;
+    text-transform: uppercase; color: var(--accent); margin-bottom: 8px;
 }}
 .hero-name {{
-    font-family: 'Cormorant Garamond', serif; font-size: 56px; font-weight: 600;
+    font-family: 'Cormorant Garamond', serif; font-size: 60px; font-weight: 600;
     color: var(--ink); line-height: 1.1;
 }}
 .product-stage {{
     display: flex; align-items: center; justify-content: center;
     position: relative; z-index: 2; width: 100%;
-    max-height: 900px;
+    flex: 1; min-height: 0;
 }}
 .product-stage::before {{
     content: ""; position: absolute; width: 65%; height: 60%; border-radius: 50%;
@@ -75,27 +72,27 @@ class ShowcaseTemplate(BaseTemplate):
 }}
 .product-image {{
     position: relative; z-index: 2;
-    max-width: 95%; max-height: 850px; object-fit: contain;
+    max-width: 95%; max-height: 100%; object-fit: contain;
     border-radius: 8px;
     filter: drop-shadow(0 30px 55px rgba(0,0,0,.7)) drop-shadow(0 10px 20px rgba(0,0,0,.5));
 }}
 .text-only {{ align-items: center; justify-content: center; }}
 .big-name {{
-    font-family: 'Cormorant Garamond', serif; font-size: 80px; font-weight: 600;
+    font-family: 'Cormorant Garamond', serif; font-size: 84px; font-weight: 600;
     color: var(--ink); text-align: center; line-height: 1.1; max-width: 90%;
 }}
 .bottom {{
     text-align: center; position: relative; z-index: 2; width: 100%;
 }}
 .price {{
-    font-size: 72px; font-weight: 300; color: var(--accent); line-height: 1;
+    font-size: 76px; font-weight: 300; color: var(--accent); line-height: 1;
     margin-bottom: 20px;
 }}
-.price span {{ font-size: 26px; vertical-align: super; margin-right: 2px; }}
+.price span {{ font-size: 28px; vertical-align: super; margin-right: 2px; }}
 .cta-btn {{
     display: inline-block; padding: 22px 68px;
     background: var(--accent); color: var(--bg-outer);
-    font-size: 16px; font-weight: 600; letter-spacing: .3em; text-transform: uppercase;
+    font-size: 17px; font-weight: 600; letter-spacing: .3em; text-transform: uppercase;
     text-decoration: none; margin-bottom: 16px; border-radius: 4px;
 }}
 .footer {{
@@ -107,10 +104,8 @@ class ShowcaseTemplate(BaseTemplate):
 </style></head>
 <body>
 <div class="ad">
-    <div class="brand">
+    <div class="top">
         <div class="brand-name">{ctx.trader_name}</div>
-    </div>
-    <div class="hero-title">
         <div class="hero-label">{ctx.category or 'New Collection'}</div>
         <div class="hero-name">{ctx.product_name}</div>
     </div>

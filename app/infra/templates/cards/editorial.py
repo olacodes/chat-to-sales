@@ -34,7 +34,8 @@ class EditorialTemplate(BaseTemplate):
     background: linear-gradient(170deg, var(--bg-stage) 0%, var(--bg-outer) 40%, var(--bg-vignette) 100%);
     color: var(--ink); position: relative; overflow: hidden;
     display: flex; flex-direction: column;
-    padding: 40px 60px;
+    justify-content: space-between;
+    padding: 50px 60px 50px;
 }}
 .ad::before {{
     content: ""; position: absolute; inset: 0; pointer-events: none;
@@ -43,19 +44,19 @@ class EditorialTemplate(BaseTemplate):
 }}
 .header {{
     display: flex; justify-content: space-between; align-items: flex-start;
-    position: relative; z-index: 2; margin-bottom: 16px;
+    position: relative; z-index: 2;
 }}
 .brand-name {{
     font-family: 'Cormorant Garamond', serif; font-style: italic; font-weight: 500;
-    font-size: 48px; color: var(--accent); line-height: 1;
+    font-size: 56px; color: var(--accent); line-height: 1;
 }}
 .brand-sub {{
-    font-size: 13px; font-weight: 500; letter-spacing: .35em;
+    font-size: 14px; font-weight: 500; letter-spacing: .35em;
     text-transform: uppercase; color: var(--ink-muted); margin-top: 6px;
 }}
 .badge {{
     border: 1px solid var(--accent); padding: 8px 18px;
-    font-size: 12px; font-weight: 600; letter-spacing: .3em;
+    font-size: 13px; font-weight: 600; letter-spacing: .3em;
     text-transform: uppercase; color: var(--accent); margin-top: 8px;
     border-radius: 4px;
 }}
@@ -63,6 +64,7 @@ class EditorialTemplate(BaseTemplate):
     display: flex; align-items: center; justify-content: center;
     position: relative; z-index: 2;
     flex: 1; min-height: 0;
+    width: 100%;
 }}
 .product-stage::before {{
     content: ""; position: absolute; width: 70%; height: 70%; border-radius: 50%;
@@ -79,15 +81,15 @@ class EditorialTemplate(BaseTemplate):
 .text-ornament {{ font-size: 60px; color: var(--accent); opacity: 0.25; }}
 .text-ornament-sm {{ font-size: 20px; color: var(--accent); opacity: 0.3; }}
 .text-product {{
-    font-family: 'Cormorant Garamond', serif; font-size: 68px; font-weight: 600;
+    font-family: 'Cormorant Garamond', serif; font-size: 72px; font-weight: 600;
     color: var(--ink); text-align: center; line-height: 1.15; max-width: 90%;
 }}
 .bottom {{
-    position: relative; z-index: 2; margin-top: 16px;
+    position: relative; z-index: 2;
 }}
 .product-title {{
-    font-size: 16px; font-weight: 600; letter-spacing: .25em;
-    text-transform: uppercase; color: var(--ink); text-align: center;
+    font-size: 20px; font-weight: 600; letter-spacing: .2em;
+    color: var(--ink); text-align: center;
     margin-bottom: 16px;
 }}
 .price-row {{
@@ -98,18 +100,18 @@ class EditorialTemplate(BaseTemplate):
     margin-bottom: 20px;
 }}
 .price-label {{
-    font-size: 14px; font-weight: 400; letter-spacing: .2em;
+    font-size: 15px; font-weight: 400; letter-spacing: .2em;
     text-transform: uppercase; color: var(--ink-muted);
 }}
 .price-value {{
-    font-size: 58px; font-weight: 300; color: var(--accent); line-height: 1;
+    font-size: 64px; font-weight: 300; color: var(--accent); line-height: 1;
 }}
-.price-value span {{ font-size: 22px; vertical-align: super; }}
+.price-value span {{ font-size: 24px; vertical-align: super; }}
 .cta-btn {{
     display: block; text-align: center; padding: 22px;
     background: var(--accent); color: var(--bg-outer);
-    font-size: 16px; font-weight: 600; letter-spacing: .3em; text-transform: uppercase;
-    text-decoration: none; margin-bottom: 16px; border-radius: 4px;
+    font-size: 17px; font-weight: 600; letter-spacing: .3em; text-transform: uppercase;
+    text-decoration: none; margin-bottom: 18px; border-radius: 4px;
 }}
 .footer-row {{
     display: flex; justify-content: space-between;

@@ -32,9 +32,9 @@ class MaisonTemplate(BaseTemplate):
     width: 1080px; height: 1920px;
     background: radial-gradient(ellipse 70% 55% at 50% 42%, var(--bg-stage) 0%, var(--bg-outer) 60%, var(--bg-vignette) 100%);
     color: var(--ink); position: relative; overflow: hidden;
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    padding: 40px 60px;
-    gap: 20px;
+    display: flex; flex-direction: column; align-items: center;
+    justify-content: space-between;
+    padding: 70px 60px 50px;
 }}
 .ad::before {{
     content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 1;
@@ -44,16 +44,17 @@ class MaisonTemplate(BaseTemplate):
 .brand-header {{ text-align: center; position: relative; z-index: 2; }}
 .brand-name {{
     font-family: 'Cormorant Garamond', serif; font-style: italic; font-weight: 500;
-    font-size: 52px; letter-spacing: .01em; color: var(--accent); line-height: 1;
+    font-size: 62px; letter-spacing: .01em; color: var(--accent); line-height: 1;
 }}
 .brand-category {{
-    margin-top: 8px; font-size: 14px; font-weight: 500;
+    margin-top: 10px; font-size: 16px; font-weight: 500;
     letter-spacing: .42em; text-transform: uppercase; color: var(--ink-muted);
 }}
 .product-stage {{
     position: relative; z-index: 2;
     display: flex; align-items: center; justify-content: center;
-    max-height: 900px;
+    flex: 1; min-height: 0;
+    width: 100%;
 }}
 .product-stage::before {{
     content: ""; position: absolute; width: 75%; height: 75%; border-radius: 50%;
@@ -62,31 +63,31 @@ class MaisonTemplate(BaseTemplate):
 }}
 .product-image {{
     position: relative; z-index: 2;
-    max-width: 95%; max-height: 850px; object-fit: contain;
+    max-width: 95%; max-height: 100%; object-fit: contain;
     border-radius: 8px;
     filter: drop-shadow(0 30px 50px rgba(0,0,0,.7)) drop-shadow(0 10px 20px rgba(0,0,0,.5));
 }}
 .text-hero {{ flex-direction: column; gap: 30px; }}
 .hero-diamond {{ font-size: 80px; color: var(--accent); opacity: 0.3; }}
 .hero-name {{
-    font-family: 'Cormorant Garamond', serif; font-size: 72px; font-weight: 600;
+    font-family: 'Cormorant Garamond', serif; font-size: 76px; font-weight: 600;
     color: var(--ink); text-align: center; line-height: 1.15; max-width: 85%;
 }}
-.footer-block {{ text-align: center; position: relative; z-index: 2; }}
+.footer-block {{ text-align: center; position: relative; z-index: 2; width: 100%; }}
 .product-code {{
-    font-size: 16px; font-weight: 600; letter-spacing: .32em;
-    text-transform: uppercase; color: var(--ink); margin-bottom: 12px;
+    font-size: 20px; font-weight: 600; letter-spacing: .2em;
+    color: var(--ink); margin-bottom: 12px;
 }}
 .product-price {{
-    font-size: 68px; font-weight: 300; letter-spacing: .02em;
+    font-size: 76px; font-weight: 300; letter-spacing: .02em;
     color: var(--accent); margin-bottom: 24px; line-height: 1;
 }}
-.product-price span {{ font-size: 28px; vertical-align: super; margin-right: 2px; }}
+.product-price span {{ font-size: 30px; vertical-align: super; margin-right: 2px; }}
 .cta-btn {{
-    display: inline-block; padding: 20px 60px;
+    display: inline-block; padding: 22px 64px;
     background: var(--accent); color: var(--bg-outer);
-    font-size: 16px; font-weight: 600; letter-spacing: .28em; text-transform: uppercase;
-    text-decoration: none; margin-bottom: 16px; border-radius: 4px;
+    font-size: 17px; font-weight: 600; letter-spacing: .28em; text-transform: uppercase;
+    text-decoration: none; margin-bottom: 18px; border-radius: 4px;
 }}
 .website {{
     font-size: 14px; font-weight: 500; letter-spacing: .22em; text-transform: uppercase;
