@@ -1,5 +1,6 @@
 """
 Template: Editorial — Brand header with badge, product hero, elegant price section.
+Fixed layout: header top, photo center (55%), price+CTA bottom.
 """
 
 from app.infra.templates.base import BaseTemplate, CardContext
@@ -11,15 +12,10 @@ class EditorialTemplate(BaseTemplate):
 
     def html(self, ctx: CardContext, scheme: dict) -> str:
         photo_block = f"""
-        <div class="product-stage">
           <img class="product-image" src="{ctx.photo_data_uri}" alt="{ctx.product_name}">
-        </div>
         """ if ctx.has_photo else """
-        <div class="product-stage text-only">
           <div class="text-ornament">&#9670;</div>
           <div class="text-product">{product_name}</div>
-          <div class="text-ornament-sm">&#9670;</div>
-        </div>
         """.format(product_name=ctx.product_name)
 
         return f"""<!DOCTYPE html>
@@ -33,9 +29,6 @@ class EditorialTemplate(BaseTemplate):
     width: 1080px; height: 1920px;
     background: linear-gradient(170deg, var(--bg-stage) 0%, var(--bg-outer) 40%, var(--bg-vignette) 100%);
     color: var(--ink); position: relative; overflow: hidden;
-    display: flex; flex-direction: column;
-    justify-content: space-between;
-    padding: 50px 60px 50px;
 }}
 .ad::before {{
     content: ""; position: absolute; inset: 0; pointer-events: none;
@@ -43,8 +36,9 @@ class EditorialTemplate(BaseTemplate):
     background-size: 4px 4px;
 }}
 .header {{
+    position: absolute; top: 40px; left: 60px; right: 60px;
     display: flex; justify-content: space-between; align-items: flex-start;
-    position: relative; z-index: 2;
+    z-index: 2;
 }}
 .brand-name {{
     font-family: 'Cormorant Garamond', serif; font-style: italic; font-weight: 500;
@@ -60,37 +54,36 @@ class EditorialTemplate(BaseTemplate):
     text-transform: uppercase; color: var(--accent); margin-top: 8px;
     border-radius: 4px;
 }}
-.product-stage {{
+.photo-zone {{
+    position: absolute; top: 180px; left: 60px; right: 60px; bottom: 520px;
     display: flex; align-items: center; justify-content: center;
-    position: relative; z-index: 2;
-    flex: 1; min-height: 0;
-    width: 100%;
+    z-index: 2;
 }}
-.product-stage::before {{
+.photo-zone::before {{
     content: ""; position: absolute; width: 70%; height: 70%; border-radius: 50%;
     background: radial-gradient(circle, rgba(255,255,255,.05) 0%, transparent 55%);
     filter: blur(25px);
 }}
 .product-image {{
     position: relative; z-index: 2;
-    max-width: 95%; max-height: 100%; object-fit: contain;
+    max-width: 100%; max-height: 100%; object-fit: contain;
     border-radius: 8px;
     filter: drop-shadow(0 30px 50px rgba(0,0,0,.7)) drop-shadow(0 10px 20px rgba(0,0,0,.5));
 }}
-.text-only {{ flex-direction: column; gap: 25px; }}
-.text-ornament {{ font-size: 60px; color: var(--accent); opacity: 0.25; }}
-.text-ornament-sm {{ font-size: 20px; color: var(--accent); opacity: 0.3; }}
+.text-ornament {{
+    font-size: 60px; color: var(--accent); opacity: 0.25; text-align: center;
+}}
 .text-product {{
     font-family: 'Cormorant Garamond', serif; font-size: 72px; font-weight: 600;
-    color: var(--ink); text-align: center; line-height: 1.15; max-width: 90%;
+    color: var(--ink); text-align: center; line-height: 1.15;
 }}
 .bottom {{
-    position: relative; z-index: 2;
+    position: absolute; bottom: 50px; left: 60px; right: 60px;
+    z-index: 2;
 }}
 .product-title {{
     font-size: 20px; font-weight: 600; letter-spacing: .2em;
-    color: var(--ink); text-align: center;
-    margin-bottom: 16px;
+    color: var(--ink); text-align: center; margin-bottom: 16px;
 }}
 .price-row {{
     display: flex; justify-content: space-between; align-items: baseline;
@@ -129,7 +122,9 @@ class EditorialTemplate(BaseTemplate):
         </div>
         <div class="badge">&#9733; Authentic</div>
     </div>
-    {photo_block}
+    <div class="photo-zone">
+        {photo_block}
+    </div>
     <div class="bottom">
         <div class="product-title">{ctx.product_name}</div>
         <div class="price-row">
