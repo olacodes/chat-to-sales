@@ -39,6 +39,8 @@ RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright
 ENV NUMBA_CACHE_DIR=/tmp/numba_cache
 ENV MPLCONFIGDIR=/tmp/matplotlib
+ENV U2NET_HOME=/opt/u2net
+ENV HOME=/tmp
 RUN pip install playwright==1.52.0 \
     && mkdir -p /opt/playwright \
     && playwright install chromium \
@@ -46,9 +48,9 @@ RUN pip install playwright==1.52.0 \
 
 # Pre-download rembg U2-Net model and pre-compile numba cache
 RUN pip install rembg[cpu]==2.0.57 \
-    && mkdir -p /tmp/numba_cache \
-    && NUMBA_CACHE_DIR=/tmp/numba_cache python -c "from rembg import remove; from PIL import Image; from io import BytesIO; img=Image.new('RGB',(10,10),(255,255,255)); remove(img)" 2>/dev/null || true \
-    && chmod -R 777 /tmp/numba_cache
+    && mkdir -p /tmp/numba_cache /opt/u2net \
+    && U2NET_HOME=/opt/u2net NUMBA_CACHE_DIR=/tmp/numba_cache python -c "from rembg import remove; from PIL import Image; img=Image.new('RGB',(10,10),(255,255,255)); remove(img)" 2>/dev/null || true \
+    && chmod -R 777 /tmp/numba_cache /opt/u2net
 
 WORKDIR /app
 
