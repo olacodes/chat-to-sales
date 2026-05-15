@@ -116,7 +116,7 @@ class EditorialTemplate(BaseTemplate):
     <div class="bottom">
         <div class="product-title">{ctx.product_name}</div>
         <div class="price-row">
-            <div class="price-label">Investment</div>
+            <div class="price-label">Price</div>
             <div class="price-value"><span>N</span>{ctx.price:,}</div>
         </div>
         <a class="cta-btn" href="#">Message to Order &rarr;</a>
