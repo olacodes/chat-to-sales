@@ -32,11 +32,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libgbm1 libpango-1.0-0 libcairo2 libasound2 libatspi2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Playwright Chromium browser
-RUN pip install playwright==1.52.0 && playwright install chromium
-
 # Non-root user for security
 RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser
+
+# Install Playwright Chromium (must be after user creation, with writable cache)
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright
+RUN pip install playwright==1.52.0 \
+    && mkdir -p /opt/playwright \
+    && playwright install chromium \
+    && chmod -R 755 /opt/playwright
 
 WORKDIR /app
 
