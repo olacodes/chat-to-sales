@@ -15,11 +15,13 @@ from app.infra.templates.schemes import SCHEMES, get_scheme
 from app.infra.templates.cards.maison import MaisonTemplate
 from app.infra.templates.cards.editorial import EditorialTemplate
 from app.infra.templates.cards.showcase import ShowcaseTemplate
+from app.infra.templates.cards.premium import PremiumTemplate
 
 _REGISTRY: list[BaseTemplate] = [
     MaisonTemplate(),
     EditorialTemplate(),
     ShowcaseTemplate(),
+    PremiumTemplate(),
 ]
 
 _BY_NAME: dict[str, BaseTemplate] = {t.name: t for t in _REGISTRY}

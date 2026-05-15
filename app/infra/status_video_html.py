@@ -24,11 +24,13 @@ logger = get_logger(__name__)
 from app.infra.templates.videos.maison_video import MaisonVideoTemplate
 from app.infra.templates.videos.editorial_video import EditorialVideoTemplate
 from app.infra.templates.videos.showcase_video import ShowcaseVideoTemplate
+from app.infra.templates.videos.premium_video import PremiumVideoTemplate
 
 _VIDEO_TEMPLATES = [
     MaisonVideoTemplate(),
     EditorialVideoTemplate(),
     ShowcaseVideoTemplate(),
+    PremiumVideoTemplate(),
 ]
 
 
