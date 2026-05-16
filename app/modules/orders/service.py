@@ -2164,6 +2164,14 @@ class OrderService:
                 tenant_id=tenant_id,
                 channel_tenant_id=channel_tenant_id,
             )
+        elif tap == "MENU_WHOIS":
+            await self._reply(
+                phone=trader_phone,
+                tenant_id=tenant_id,
+                event_id=f"trader.whois_prompt.{message_id}",
+                text="Type *WHO IS* followed by a customer name or phone number.\n\nExample: _WHO IS Bimpe_ or _WHO IS 08166041471_",
+                channel_tenant_id=channel_tenant_id,
+            )
         elif tap == "MENU_DEBTS":
             await self._do_list_debts(
                 trader_phone=trader_phone,
