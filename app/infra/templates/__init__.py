@@ -16,12 +16,14 @@ from app.infra.templates.cards.maison import MaisonTemplate
 from app.infra.templates.cards.editorial import EditorialTemplate
 from app.infra.templates.cards.showcase import ShowcaseTemplate
 from app.infra.templates.cards.premium import PremiumTemplate
+from app.infra.templates.cards.billboard import BillboardTemplate
 
 _REGISTRY: list[BaseTemplate] = [
     MaisonTemplate(),
     EditorialTemplate(),
     ShowcaseTemplate(),
     PremiumTemplate(),
+    BillboardTemplate(),
 ]
 
 _BY_NAME: dict[str, BaseTemplate] = {t.name: t for t in _REGISTRY}
