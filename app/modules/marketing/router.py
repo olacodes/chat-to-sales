@@ -100,7 +100,15 @@ class SegmentCountsResponse(BaseModel):
 
 
 async def _get_trader_phone(user: AuthenticatedUser, db: AsyncSession) -> str:
-    """Look up the trader's phone number from their tenant."""
+    """Look up the trader's phone number from the User record."""
+    from app.core.models.user import User
+    result = await db.execute(
+        select(User.phone_number).where(User.id == user.user_id)
+    )
+    phone = result.scalar_one_or_none()
+    if phone:
+        return phone
+    # Fallback: try Trader table by tenant
     from app.modules.onboarding.repository import TraderRepository
     repo = TraderRepository(db)
     trader = await repo.get_by_tenant(user.tenant_id)
