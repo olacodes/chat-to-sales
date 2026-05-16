@@ -1492,6 +1492,54 @@ def followup_notification_to_trader(
     )
 
 
+def who_is_result(
+    customer_name: str | None,
+    customer_phone: str,
+    total_orders: int,
+    total_spend: int,
+    first_order_date: str | None,
+    last_order_date: str | None,
+    segments: list[str],
+    outstanding_debt: int = 0,
+) -> str:
+    """Format customer summary for WHO IS command."""
+    display = customer_name or f"+{customer_phone}"
+    lines = [f"*{display}*", f"Phone: +{customer_phone}", ""]
+
+    # Orders & spend
+    lines.append(f"Orders: {total_orders}")
+    lines.append(f"Total spend: {_naira(total_spend)}")
+    if first_order_date:
+        lines.append(f"First order: {first_order_date}")
+    if last_order_date:
+        lines.append(f"Last order: {last_order_date}")
+
+    # Debt
+    if outstanding_debt > 0:
+        lines.append(f"Outstanding debt: {_naira(outstanding_debt)}")
+
+    # Segments
+    segment_labels = {
+        "vip": "VIP", "repeat_buyer": "Repeat Buyer", "paid_once": "Bought Once",
+        "new_lead": "New Lead", "lapsed": "Lapsed", "abandoned_cart": "Abandoned Cart",
+        "premium": "Premium", "price_sensitive": "Price Sensitive",
+        "diverse_buyer": "Diverse Buyer", "weekly": "Weekly Shopper",
+        "monthly": "Monthly Shopper", "payday": "Payday Buyer", "weekend": "Weekend Shopper",
+    }
+    if segments:
+        tags = ", ".join(segment_labels.get(s, s) for s in segments)
+        lines.append(f"\nSegments: {tags}")
+
+    return "\n".join(lines)
+
+
+def who_is_not_found(query: str) -> str:
+    return (
+        f"No customer found matching *{query}*.\n\n"
+        "Try the full phone number or name. Customers are added when orders are paid."
+    )
+
+
 def followup_converted_to_trader(
     customer_name: str | None,
     customer_phone: str,

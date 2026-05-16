@@ -54,6 +54,7 @@ CHITCHAT = "chitchat"
 TRADER_BANK = "trader_bank"
 TRADER_MENU = "trader_menu"
 TRADER_BROADCAST = "trader_broadcast"
+TRADER_WHO_IS = "trader_who_is"
 UNKNOWN = "unknown"
 
 
@@ -225,6 +226,11 @@ _MENU_RE = re.compile(
 # BROADCAST / SEND BROADCAST
 _BROADCAST_RE = re.compile(
     r"^(?:broadcast|send\s*broadcast|message\s*(?:all|customers)|blast)$",
+    re.IGNORECASE,
+)
+# WHO IS <name or phone>
+_WHO_IS_RE = re.compile(
+    r"^who\s*(?:is|are)\s+(.+)$",
     re.IGNORECASE,
 )
 
@@ -414,6 +420,15 @@ def _layer1(message: str) -> ParseResult:
 
     if _BROADCAST_RE.match(stripped):
         return ParseResult(intent=TRADER_BROADCAST, confidence=1.0)
+
+    m = _WHO_IS_RE.match(stripped)
+    if m:
+        query = m.group(1).strip()
+        return ParseResult(
+            intent=TRADER_WHO_IS,
+            items=[{"name": query, "qty": 1, "unit_price": None}],
+            confidence=1.0,
+        )
 
     # ── Customer YES / NO ─────────────────────────────────────────────────────
     if _YES_RE.match(stripped):

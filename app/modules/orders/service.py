@@ -40,6 +40,7 @@ from app.modules.orders.nlp import (
     ORDER,
     TRADER_ADD,
     TRADER_BROADCAST,
+    TRADER_WHO_IS,
     TRADER_CANCEL,
     TRADER_CATALOGUE,
     TRADER_CATEGORY,
@@ -1494,6 +1495,96 @@ class OrderService:
             remaining,
         )
         return True
+
+    # ── WHO IS command ─────────────────────────────────────────────────────────
+
+    async def _handle_who_is(
+        self,
+        *,
+        query: str,
+        trader_phone: str,
+        message_id: str,
+        tenant_id: str,
+        channel_tenant_id: str | None = None,
+    ) -> None:
+        """Look up a customer by name or phone and return a summary."""
+        from app.modules.marketing.customer_list import CustomerListService
+        from app.modules.marketing.models import CustomerListEntry
+
+        async with async_session_factory() as session:
+            cl_svc = CustomerListService(session)
+            customers = await cl_svc.get_customers_for_trader(
+                trader_phone, exclude_opted_out=False,
+            )
+
+        # Search by phone or name (fuzzy)
+        query_lower = query.lower().strip()
+        # Normalize phone: strip +, 0 prefix
+        query_digits = "".join(c for c in query if c.isdigit())
+
+        match: CustomerListEntry | None = None
+        for c in customers:
+            # Exact phone match
+            if query_digits and query_digits in c.customer_phone:
+                match = c
+                break
+            # Name match (case-insensitive, partial)
+            if c.customer_name and query_lower in c.customer_name.lower():
+                match = c
+                break
+
+        if not match:
+            await self._reply(
+                phone=trader_phone,
+                tenant_id=tenant_id,
+                event_id=f"trader.whois_notfound.{message_id}",
+                text=wa.who_is_not_found(query),
+                channel_tenant_id=channel_tenant_id,
+            )
+            return
+
+        # Check outstanding debt
+        outstanding = 0
+        try:
+            from app.modules.credit_sales.models import CreditSale, CreditSaleStatus
+            async with async_session_factory() as session:
+                from sqlalchemy import func as _fn
+                debt_result = await session.execute(
+                    select(_fn.coalesce(_fn.sum(CreditSale.amount), 0)).where(
+                        CreditSale.tenant_id == tenant_id,
+                        CreditSale.customer_name == (match.customer_name or ""),
+                        CreditSale.status == CreditSaleStatus.ACTIVE,
+                    )
+                )
+                outstanding = int(debt_result.scalar_one() or 0)
+        except Exception:
+            pass
+
+        def _fmt_date(dt) -> str | None:
+            if not dt:
+                return None
+            from datetime import datetime
+            if isinstance(dt, datetime):
+                return dt.strftime("%b %d, %Y")
+            return str(dt)
+
+        text = wa.who_is_result(
+            customer_name=match.customer_name,
+            customer_phone=match.customer_phone,
+            total_orders=match.total_orders,
+            total_spend=int(match.total_spend),
+            first_order_date=_fmt_date(match.first_order_date),
+            last_order_date=_fmt_date(match.last_order_date),
+            segments=match.segments or [],
+            outstanding_debt=outstanding,
+        )
+        await self._reply(
+            phone=trader_phone,
+            tenant_id=tenant_id,
+            event_id=f"trader.whois.{message_id}",
+            text=text,
+            channel_tenant_id=channel_tenant_id,
+        )
 
     # ── Interest tracking (for smart follow-up) ────────────────────────────────
 
@@ -4762,6 +4853,17 @@ class OrderService:
             await set_trader_session(trader_phone, {"state": TRADER_AWAITING_BANK_DETAILS})
             return
 
+        if result.intent == TRADER_WHO_IS:
+            query = result.items[0]["name"] if result.items else ""
+            await self._handle_who_is(
+                query=query,
+                trader_phone=trader_phone,
+                message_id=message_id,
+                tenant_id=tenant_id,
+                channel_tenant_id=channel_tenant_id,
+            )
+            return
+
         if result.intent == TRADER_BROADCAST:
             await self._start_broadcast_flow(
                 trader_phone=trader_phone,
@@ -4814,7 +4916,7 @@ class OrderService:
             import re as _cmd_re
             _COMMAND_HINT = _cmd_re.compile(
                 r"\b(menu|help|order|add|remove|price|catalogue|catalog|"
-                r"debt|paid|bank|credit|who owes|pricelist|category|store|commands|broadcast)\b",
+                r"debt|paid|bank|credit|who owes|who is|pricelist|category|store|commands|broadcast)\b",
                 _cmd_re.IGNORECASE,
             )
             if _COMMAND_HINT.search(message):
