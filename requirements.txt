@@ -40,4 +40,4 @@ boto3==1.38.0
 playwright==1.52.0
 
 # ── AI background removal for product photos ──────────────────────────────────
-rembg[cpu]==2.0.57
+rembg[cpu]==2.0.75
