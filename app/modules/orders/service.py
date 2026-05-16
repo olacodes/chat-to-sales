@@ -4517,12 +4517,11 @@ class OrderService:
         channel_tenant_id: str | None = None,
         silent: bool = False,
     ) -> None:
-        """Generate a Status image or video for a product and send it to the trader."""
-        from app.infra.storage import _get_client
-        from app.core.config import get_settings
-        from datetime import datetime, timezone
+        """
+        Generate a Status image or video — sends reply immediately, does heavy work in background.
+        """
+        import asyncio as _aio
 
-        settings = get_settings()
         catalogue: dict[str, int] = trader.get("catalogue", {})
         trader_name = trader.get("business_name", "My Store")
         store_slug = trader.get("store_slug", "")
@@ -4537,7 +4536,7 @@ class OrderService:
                     price = v
                     break
 
-        # Notify trader we're working on it (skip in silent mode)
+        # Reply immediately — handler returns, event loop is free
         if not silent:
             await self._reply(
                 phone=trader_phone, tenant_id=tenant_id,
@@ -4545,6 +4544,80 @@ class OrderService:
                 text=wa.status_generating(mode),
                 channel_tenant_id=channel_tenant_id,
             )
+
+        # Spawn background task for the heavy work
+        _aio.create_task(self._do_status_generation(
+            mode=mode,
+            product_name=product_name,
+            price=price,
+            trader_phone=trader_phone,
+            trader_name=trader_name,
+            store_url=store_url,
+            trader=trader,
+            message_id=message_id,
+            tenant_id=tenant_id,
+            channel_tenant_id=channel_tenant_id,
+            silent=silent,
+        ))
+
+    async def _do_status_generation(
+        self,
+        *,
+        mode: str,
+        product_name: str,
+        price: int,
+        trader_phone: str,
+        trader_name: str,
+        store_url: str,
+        trader: dict[str, Any],
+        message_id: str,
+        tenant_id: str,
+        channel_tenant_id: str | None = None,
+        silent: bool = False,
+    ) -> None:
+        """Background task: generate image/video, upload to R2, send to trader."""
+        try:
+            await self._do_status_generation_inner(
+                mode=mode, product_name=product_name, price=price,
+                trader_phone=trader_phone, trader_name=trader_name,
+                store_url=store_url, trader=trader, message_id=message_id,
+                tenant_id=tenant_id, channel_tenant_id=channel_tenant_id,
+                silent=silent,
+            )
+        except Exception as exc:
+            logger.error("Background status generation failed: %s", exc, exc_info=True)
+            if not silent:
+                try:
+                    await self._reply(
+                        phone=trader_phone, tenant_id=tenant_id,
+                        event_id=f"status.bg_err.{message_id}",
+                        text="Sorry, something went wrong generating your Status content. Please try again.",
+                        channel_tenant_id=channel_tenant_id,
+                    )
+                except Exception:
+                    pass
+
+    async def _do_status_generation_inner(
+        self,
+        *,
+        mode: str,
+        product_name: str,
+        price: int,
+        trader_phone: str,
+        trader_name: str,
+        store_url: str,
+        trader: dict[str, Any],
+        message_id: str,
+        tenant_id: str,
+        channel_tenant_id: str | None = None,
+        silent: bool = False,
+    ) -> None:
+        """The actual generation logic — called by the background task wrapper."""
+        from app.infra.storage import _get_client
+        from app.core.config import get_settings
+        from datetime import datetime, timezone
+
+        settings = get_settings()
 
         # Fetch product photo — prefer nobg (transparent) for Status cards
         photo_bytes: bytes | None = None
