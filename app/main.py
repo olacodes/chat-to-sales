@@ -251,6 +251,14 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    # ── Request ID tracing ──────────────────────────────────────────────────
+    from app.core.logging import RequestIdMiddleware
+    app.add_middleware(RequestIdMiddleware)
+
+    # ── Rate limiting ──────────────────────────────────────────────────────────
+    from app.infra.rate_limit import RateLimitMiddleware
+    app.add_middleware(RateLimitMiddleware)
+
     # ── Exception handlers ────────────────────────────────────────────────────
     app.add_exception_handler(ChatToSalesError, chattosales_error_handler)  # type: ignore[arg-type]
     app.add_exception_handler(Exception, unhandled_error_handler)  # type: ignore[arg-type]
@@ -277,11 +285,32 @@ def create_app() -> FastAPI:
     # ── Health check ──────────────────────────────────────────────────────────
     @app.get("/health", tags=["Health"], summary="Health check")
     async def health() -> dict[str, Any]:
+        checks: dict[str, str] = {}
+
+        # DB check
+        try:
+            from sqlalchemy import text
+            async with async_session_factory() as session:
+                await session.execute(text("SELECT 1"))
+            checks["database"] = "ok"
+        except Exception as exc:
+            checks["database"] = f"error: {exc}"
+
+        # Redis check
+        try:
+            from app.infra.cache import get_redis
+            await get_redis().ping()
+            checks["redis"] = "ok"
+        except Exception as exc:
+            checks["redis"] = f"error: {exc}"
+
+        all_ok = all(v == "ok" for v in checks.values())
         return {
-            "status": "ok",
+            "status": "ok" if all_ok else "degraded",
             "app": settings.APP_NAME,
             "version": settings.APP_VERSION,
             "environment": settings.ENVIRONMENT,
+            "checks": checks,
         }
 
     return app

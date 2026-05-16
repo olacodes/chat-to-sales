@@ -16,7 +16,8 @@ def test_health_returns_200(client: TestClient) -> None:
 
 def test_health_response_shape(client: TestClient) -> None:
     data = client.get("/health").json()
-    assert data["status"] == "ok"
+    assert data["status"] in ("ok", "degraded")
     assert "app" in data
     assert "version" in data
     assert "environment" in data
+    assert "checks" in data

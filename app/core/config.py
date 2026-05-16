@@ -143,6 +143,11 @@ class Settings(BaseSettings):
                 )
             if self.DEBUG:
                 raise ValueError("DEBUG must be False in production.")
+            if self.ALLOWED_HOSTS == ["*"]:
+                raise ValueError(
+                    "ALLOWED_HOSTS must be set to specific origins in production "
+                    "(e.g. ALLOWED_HOSTS='[\"https://www.chattosales.com\"]')."
+                )
         return self
 
     # ── Convenience properties ────────────────────────────────────────────────
