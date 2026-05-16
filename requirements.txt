@@ -41,10 +41,3 @@ playwright==1.52.0
 
 # ── AI background removal for product photos ──────────────────────────────────
 rembg[cpu]==2.0.57
-
-# ── Testing ───────────────────────────────────────────────────────────────────
-pytest==8.3.4
-pytest-asyncio==0.24.0
-httpx==0.28.1
-fakeredis[aioredis]>=2.26.2
-aiosqlite==0.20.0
