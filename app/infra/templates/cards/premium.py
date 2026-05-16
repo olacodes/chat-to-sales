@@ -51,7 +51,7 @@ body{{
     background:
       radial-gradient(ellipse at 30% 35%,{grad['accent_bg']} 0%,transparent 55%),
       linear-gradient(165deg,{grad['light']} 0%,{grad['dark']} 100%);
-    color:{scheme['text']};
+    color:{scheme['ink']};
 }}
 
 /* ── Decorative elements ── */
@@ -116,7 +116,7 @@ body{{
 }}
 .price-badge .small{{
     font-size:12px;font-weight:500;letter-spacing:.18em;
-    text-transform:uppercase;color:{scheme['muted']};margin-top:6px;
+    text-transform:uppercase;color:{scheme['ink_muted']};margin-top:6px;
 }}
 
 /* ── Product stage ── */
@@ -136,7 +136,7 @@ body{{
 }}
 .no-photo-name{{
     font-family:'Playfair Display',serif;font-size:80px;font-weight:700;
-    color:{scheme['text']};text-align:center;line-height:1.1;
+    color:{scheme['ink']};text-align:center;line-height:1.1;
     position:relative;z-index:2;
 }}
 
@@ -152,7 +152,7 @@ body{{
 .logo small{{
     display:block;font-family:'Inter',sans-serif;font-style:normal;
     font-weight:400;font-size:10px;letter-spacing:.3em;
-    text-transform:uppercase;color:{scheme['muted']};margin-top:-2px;
+    text-transform:uppercase;color:{scheme['ink_muted']};margin-top:-2px;
 }}
 .cta{{
     display:inline-flex;align-items:center;gap:10px;
@@ -165,7 +165,7 @@ body{{
 .cta .arr{{font-size:16px;letter-spacing:0}}
 .store-url{{
     font-size:12px;font-weight:500;letter-spacing:.15em;
-    text-transform:uppercase;color:{scheme['muted']};
+    text-transform:uppercase;color:{scheme['ink_muted']};
     text-align:right;
 }}
 </style></head>

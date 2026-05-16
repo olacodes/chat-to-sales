@@ -43,7 +43,7 @@ body{{margin:0;padding:0;font-family:'Inter',sans-serif;width:1080px;height:1920
     background:
       radial-gradient(ellipse at 30% 35%,{grad['accent_bg']} 0%,transparent 55%),
       linear-gradient(165deg,{grad['light']} 0%,{grad['dark']} 100%);
-    color:{scheme['text']};
+    color:{scheme['ink']};
 }}
 .dots-tr{{
     position:absolute;top:50px;right:50px;width:100px;height:70px;
@@ -64,18 +64,18 @@ body{{margin:0;padding:0;font-family:'Inter',sans-serif;width:1080px;height:1920
 .header h1 .light{{font-style:italic;font-weight:400;text-transform:capitalize;letter-spacing:0;}}
 .price-badge{{position:absolute;top:320px;right:50px;z-index:4;text-align:center;transform:rotate(-8deg);}}
 .price-badge .amount{{font-family:'Playfair Display',serif;font-weight:700;font-style:italic;font-size:72px;color:{scheme['accent']};line-height:.9;text-shadow:0 2px 10px rgba(0,0,0,.3);}}
-.price-badge .small{{font-size:12px;font-weight:500;letter-spacing:.18em;text-transform:uppercase;color:{scheme['muted']};margin-top:6px;}}
+.price-badge .small{{font-size:12px;font-weight:500;letter-spacing:.18em;text-transform:uppercase;color:{scheme['ink_muted']};margin-top:6px;}}
 .product-stage{{position:absolute;top:440px;bottom:340px;left:40px;right:40px;display:flex;align-items:center;justify-content:center;z-index:2;}}
 .product-stage::before{{content:"";position:absolute;width:85%;height:85%;background:radial-gradient(ellipse at center,rgba(255,255,255,.1) 0%,transparent 60%);filter:blur(25px);}}
 .photo-wrap{{position:relative;z-index:2;width:100%;display:flex;align-items:center;justify-content:center;overflow:hidden;border-radius:8px;}}
 .product-image{{width:100%;height:auto;display:block;filter:drop-shadow(0 35px 50px rgba(0,0,0,.5));}}
-.no-photo-name{{font-family:'Playfair Display',serif;font-size:80px;font-weight:700;color:{scheme['text']};text-align:center;line-height:1.1;}}
+.no-photo-name{{font-family:'Playfair Display',serif;font-size:80px;font-weight:700;color:{scheme['ink']};text-align:center;line-height:1.1;}}
 .footer{{position:absolute;bottom:40px;left:50px;right:50px;z-index:5;display:flex;justify-content:space-between;align-items:center;}}
 .logo{{font-family:'Playfair Display',serif;font-weight:700;font-style:italic;font-size:28px;letter-spacing:.04em;}}
-.logo small{{display:block;font-family:'Inter',sans-serif;font-style:normal;font-weight:400;font-size:10px;letter-spacing:.3em;text-transform:uppercase;color:{scheme['muted']};margin-top:-2px;}}
+.logo small{{display:block;font-family:'Inter',sans-serif;font-style:normal;font-weight:400;font-size:10px;letter-spacing:.3em;text-transform:uppercase;color:{scheme['ink_muted']};margin-top:-2px;}}
 .cta{{display:inline-flex;align-items:center;gap:10px;background:{scheme['accent']};color:{grad['dark']};padding:16px 36px;border-radius:999px;font-size:13px;font-weight:600;letter-spacing:.18em;text-transform:uppercase;text-decoration:none;box-shadow:0 8px 24px rgba(0,0,0,.3);}}
 .cta .arr{{font-size:16px;letter-spacing:0}}
-.store-url{{font-size:12px;font-weight:500;letter-spacing:.15em;text-transform:uppercase;color:{scheme['muted']};text-align:right;}}
+.store-url{{font-size:12px;font-weight:500;letter-spacing:.15em;text-transform:uppercase;color:{scheme['ink_muted']};text-align:right;}}
 </style></head>
 <body>
 <div class="ad">
