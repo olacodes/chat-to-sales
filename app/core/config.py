@@ -116,6 +116,10 @@ class Settings(BaseSettings):
 
     REPORT_SECRET: str = "change-this-report-secret"
 
+    # ── Smart follow-up ──────────────────────────────────────────────────────
+    # Hours to wait before sending a follow-up to a customer who showed interest.
+    FOLLOWUP_DELAY_HOURS: int = 24
+
     # ── Validators ────────────────────────────────────────────────────────────
 
     @field_validator("ENVIRONMENT", mode="before")

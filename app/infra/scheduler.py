@@ -607,7 +607,8 @@ async def _send_smart_followups() -> None:
     platform_tenant_id = settings.TENANT_ID
 
     async with async_session_factory() as session:
-        events = await get_pending_followups(session, min_age_hours=24, limit=30)
+        delay = settings.FOLLOWUP_DELAY_HOURS
+        events = await get_pending_followups(session, min_age_hours=delay, limit=30)
 
     if not events:
         return
