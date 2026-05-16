@@ -28,6 +28,8 @@ from app.modules.reports.models import TenantReportConfig, WeeklyReport  # noqa:
 from app.modules.payments.models import Payment  # noqa: F401
 from app.modules.onboarding.analytics import OnboardingEvent  # noqa: F401
 from app.modules.channels.models import TenantChannel  # noqa: F401
+from app.modules.marketing.models import CustomerListEntry, Broadcast, BroadcastRecipient  # noqa: F401
+from app.modules.marketing.followup import InterestEvent  # noqa: F401
 
 # ── SQLite async engine ──────────────────────────────────────────────────────
 

@@ -16,7 +16,7 @@ from sqlalchemy import (
     Boolean, DateTime, ForeignKey, Index, Integer,
     Numeric, String, Text, UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.models.base import BaseModel, TenantModel
@@ -54,7 +54,7 @@ class CustomerListEntry(TenantModel):
 
     # Computed segments (recomputed nightly)
     # e.g. ["vip", "weekend", "bought_phones", "premium"]
-    segments: Mapped[list | None] = mapped_column(JSONB, nullable=True, default=list)
+    segments: Mapped[list | None] = mapped_column(JSON, nullable=True, default=list)
     segments_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
