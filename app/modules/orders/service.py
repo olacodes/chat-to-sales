@@ -369,7 +369,7 @@ class OrderService:
         self, order_id: str, *, tenant_id: str | None = None
     ) -> Order:
         order = await self._get_or_404(order_id, tenant_id)
-        order = await self._transition(order, OrderState.PAID)
+        order = await self._do_paid_transition(order)
         await self._db.commit()
         return await self._reload(order.id)
 
@@ -401,7 +401,7 @@ class OrderService:
             return order
 
         try:
-            order = await self._transition(order, OrderState.PAID)
+            order = await self._do_paid_transition(order)
         except ConflictError as exc:
             logger.warning(
                 "handle_credit_sale_resolved: cannot transition order_id=%s state=%s: %s",
@@ -2195,7 +2195,7 @@ class OrderService:
                         order = await self._repo.get_by_id(order_id=order_id)
                         if order and order.state == OrderState.CONFIRMED:
                             try:
-                                await self._transition(order, OrderState.PAID)
+                                await self._do_paid_transition(order)
                                 await self._db.commit()
                             except ConflictError:
                                 pass
@@ -4153,7 +4153,7 @@ class OrderService:
                     if is_received:
                         # Mark order as PAID
                         try:
-                            await self._transition(order, OrderState.PAID)
+                            await self._do_paid_transition(order)
                             await self._db.commit()
                         except ConflictError as exc:
                             await self._reply(
@@ -4227,7 +4227,7 @@ class OrderService:
                     if is_full:
                         # Paid in full: order → PAID + settle linked credit sale
                         try:
-                            await self._transition(order, OrderState.PAID)
+                            await self._do_paid_transition(order)
                             await self._db.commit()
                         except ConflictError as exc:
                             await self._reply(
@@ -4747,7 +4747,7 @@ class OrderService:
 
         elif result.intent == TRADER_PAID:
             try:
-                await self._transition(order, OrderState.PAID)
+                await self._do_paid_transition(order)
                 await self._db.commit()
             except ConflictError as exc:
                 await self._reply(
