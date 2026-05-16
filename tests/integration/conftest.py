@@ -30,6 +30,8 @@ from app.modules.reports.models import TenantReportConfig, WeeklyReport  # noqa:
 from app.modules.payments.models import Payment  # noqa: F401
 from app.modules.onboarding.analytics import OnboardingEvent  # noqa: F401
 from app.modules.channels.models import TenantChannel  # noqa: F401
+from app.modules.marketing.models import CustomerListEntry, Broadcast, BroadcastRecipient  # noqa: F401
+from app.modules.marketing.followup import InterestEvent  # noqa: F401
 
 from app.infra.database import Base
 from app.core.dependencies import AuthenticatedUser, get_current_user, get_db
@@ -116,16 +118,26 @@ async def client(fake_redis):
     from fastapi import FastAPI
     from app.modules.dashboard.router import router as dashboard_router
     from app.modules.reports.router import router as reports_router
+    from app.modules.marketing.router import router as marketing_router
+
+    from app.core.exceptions import ChatToSalesError, chattosales_error_handler
 
     app = FastAPI()
+    app.add_exception_handler(ChatToSalesError, chattosales_error_handler)  # type: ignore
     app.include_router(dashboard_router, prefix="/api/v1")
     app.include_router(reports_router, prefix="/api/v1")
+    app.include_router(marketing_router, prefix="/api/v1")
     app.dependency_overrides[get_db] = _override_get_db
     app.dependency_overrides[get_current_user] = lambda: _override_get_current_user()
 
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
-        yield c
+    # Patch _get_trader_phone to return a fixed phone for tests
+    with patch(
+        "app.modules.marketing.router._get_trader_phone",
+        return_value="2348141605756",
+    ):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            yield c
 
 
 @pytest_asyncio.fixture
@@ -160,3 +172,60 @@ async def seed_orders(db_session: AsyncSession):
         db_session.add(order)
     await db_session.commit()
     return orders
+
+
+@pytest_asyncio.fixture
+async def seed_customers(db_session: AsyncSession):
+    """Seed customers for marketing API tests."""
+    from app.modules.marketing.models import CustomerListEntry
+    customers = [
+        CustomerListEntry(
+            tenant_id="test-tenant", trader_phone="2348141605756",
+            customer_phone="2348001111111", customer_name="Bimpe Adeyemi",
+            total_orders=5, total_spend=Decimal("250000"),
+            segments=["vip", "weekend"],
+        ),
+        CustomerListEntry(
+            tenant_id="test-tenant", trader_phone="2348141605756",
+            customer_phone="2348002222222", customer_name="Ade Bakare",
+            total_orders=2, total_spend=Decimal("15000"),
+            segments=["repeat_buyer"],
+        ),
+        CustomerListEntry(
+            tenant_id="test-tenant", trader_phone="2348141605756",
+            customer_phone="2348003333333", customer_name="Mama Tayo",
+            total_orders=1, total_spend=Decimal("5000"),
+            segments=["paid_once"],
+            opted_out=True,
+        ),
+    ]
+    for c in customers:
+        db_session.add(c)
+    await db_session.commit()
+    return customers
+
+
+@pytest_asyncio.fixture
+async def seed_broadcasts(db_session: AsyncSession):
+    """Seed broadcasts for marketing API tests."""
+    from app.modules.marketing.models import Broadcast, BroadcastStatus
+    from datetime import datetime, timezone
+    now = datetime.now(tz=timezone.utc)
+    broadcasts = [
+        Broadcast(
+            tenant_id="test-tenant", trader_phone="2348141605756",
+            segment="all_customers", message_text="Hello everyone!",
+            original_text="hi all", total_recipients=10, sent_count=8,
+            status=BroadcastStatus.SENT, completed_at=now,
+        ),
+        Broadcast(
+            tenant_id="test-tenant", trader_phone="2348141605756",
+            segment="vip", message_text="Special VIP offer!",
+            total_recipients=3, sent_count=0,
+            status=BroadcastStatus.DRAFT,
+        ),
+    ]
+    for b in broadcasts:
+        db_session.add(b)
+    await db_session.commit()
+    return broadcasts
