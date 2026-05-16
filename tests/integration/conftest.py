@@ -10,7 +10,10 @@ Provides a FastAPI test client with:
 from decimal import Decimal
 from unittest.mock import patch
 
-import fakeredis.aioredis
+try:
+    from fakeredis.aioredis import FakeServer, FakeRedis
+except (ImportError, AttributeError):
+    from fakeredis import FakeServer, FakeRedis
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
@@ -104,8 +107,8 @@ async def _setup_db():
 @pytest_asyncio.fixture
 async def fake_redis():
     """Provide fakeredis and patch get_redis globally."""
-    server = fakeredis.aioredis.FakeServer()
-    redis = fakeredis.aioredis.FakeRedis(server=server, decode_responses=True)
+    server = FakeServer()
+    redis = FakeRedis(server=server, decode_responses=True)
     with patch("app.infra.cache.get_redis", return_value=redis):
         with patch("app.modules.orders.session.get_redis", return_value=redis):
             yield redis

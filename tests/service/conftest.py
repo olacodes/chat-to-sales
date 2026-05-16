@@ -9,7 +9,10 @@ import asyncio
 from decimal import Decimal
 from unittest.mock import AsyncMock, patch
 
-import fakeredis.aioredis
+try:
+    from fakeredis.aioredis import FakeServer, FakeRedis
+except (ImportError, AttributeError):
+    from fakeredis import FakeServer, FakeRedis
 import pytest
 import pytest_asyncio
 from sqlalchemy import event
@@ -69,8 +72,8 @@ async def db_session(db_engine):
 @pytest_asyncio.fixture
 async def fake_redis():
     """Provide a fakeredis instance and patch get_redis() to return it."""
-    server = fakeredis.aioredis.FakeServer()
-    redis = fakeredis.aioredis.FakeRedis(server=server, decode_responses=True)
+    server = FakeServer()
+    redis = FakeRedis(server=server, decode_responses=True)
     with patch("app.infra.cache.get_redis", return_value=redis):
         # Also patch anywhere session.py imports get_redis
         with patch("app.modules.orders.session.get_redis", return_value=redis):
