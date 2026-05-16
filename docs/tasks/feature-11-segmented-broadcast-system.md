@@ -43,12 +43,12 @@ Phase 1 (Foundation) → Phase 3 (WhatsApp Flow) → Phase 4 (Anti-Spam) → Pha
 
 | # | Task | Status |
 |---|------|--------|
-| 4.1 | 7-day per-customer marketing cap | ⬜ |
-| 4.2 | 48-hour per-segment cap | ⬜ |
-| 4.3 | Open rate auto-pause (<40%) | ⬜ |
-| 4.4 | Wide audience warning (100+ people) | ⬜ |
-| 4.5 | Quality rating check → pause if low | ⬜ |
-| 4.6 | Message block list (caps, spam patterns) | ⬜ |
+| 4.1 | 7-day per-customer marketing cap | ✅ |
+| 4.2 | 48-hour per-segment cap | ✅ |
+| 4.3 | Open rate auto-pause (<40%) | ⬜ (needs delivery webhooks) |
+| 4.4 | Wide audience warning (100+ people) | ✅ |
+| 4.5 | Quality rating check → pause if low | ⬜ (needs Meta webhook) |
+| 4.6 | Message block list (caps, spam patterns) | ✅ |
 
 ## Phase 5: Results Tracking
 
@@ -82,7 +82,7 @@ Phase 1 (Foundation) → Phase 3 (WhatsApp Flow) → Phase 4 (Anti-Spam) → Pha
 
 | # | Task | Status |
 |---|------|--------|
-| 8.1 | Marketing sub-menu → Broadcast Message | ⬜ |
+| 8.1 | Marketing sub-menu → Broadcast Message | ✅ |
 | 8.2 | Dashboard /broadcasts page (create, history, stats) | ⬜ |
 | 8.3 | Dashboard /customers page (list, segments, history) | ⬜ |
 

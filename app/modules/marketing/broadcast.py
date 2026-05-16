@@ -55,6 +55,52 @@ def check_message_quality(text: str) -> list[str]:
     return issues
 
 
+# ── Anti-spam checks ─────────────────────────────────────────────────────────
+
+
+async def get_7day_skip_count(
+    trader_phone: str,
+    customer_phones: list[str],
+) -> int:
+    """Count how many customers would be skipped due to the 7-day cap."""
+    if not customer_phones:
+        return 0
+
+    now = datetime.now(tz=timezone.utc)
+    cutoff = now - timedelta(days=7)
+
+    async with async_session_factory() as session:
+        from sqlalchemy import func
+        result = await session.execute(
+            select(func.count(CustomerListEntry.id)).where(
+                CustomerListEntry.trader_phone == trader_phone,
+                CustomerListEntry.customer_phone.in_(customer_phones),
+                CustomerListEntry.last_broadcast_at > cutoff,
+            )
+        )
+        return result.scalar_one() or 0
+
+
+async def get_last_broadcast_to_segment(
+    trader_phone: str,
+    segment: str,
+) -> datetime | None:
+    """Return the completed_at of the most recent broadcast to this segment, or None."""
+    async with async_session_factory() as session:
+        result = await session.execute(
+            select(Broadcast.completed_at)
+            .where(
+                Broadcast.trader_phone == trader_phone,
+                Broadcast.segment == segment,
+                Broadcast.status == BroadcastStatus.SENT,
+            )
+            .order_by(Broadcast.completed_at.desc())
+            .limit(1)
+        )
+        row = result.scalar_one_or_none()
+        return row
+
+
 # ── Claude rewrite ───────────────────────────────────────────────────────────
 
 async def rewrite_broadcast_message(

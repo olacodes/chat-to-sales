@@ -1433,3 +1433,44 @@ def broadcast_no_customers() -> str:
 
 def broadcast_cancelled() -> str:
     return "Broadcast cancelled. No messages were sent."
+
+
+def broadcast_segment_cooldown(segment_label: str, hours_left: int) -> str:
+    return (
+        f"You already sent a broadcast to *{segment_label}* recently.\n\n"
+        f"To protect your WhatsApp reputation, you can broadcast to this "
+        f"group again in *{hours_left} hour{'s' if hours_left != 1 else ''}*.\n\n"
+        "Try a different segment, or wait and try again later."
+    )
+
+
+def broadcast_skip_warning(
+    segment_label: str, total: int, will_skip: int, will_receive: int,
+) -> str:
+    return (
+        f"Sending to *{segment_label}* ({total} customer{'s' if total != 1 else ''}).\n\n"
+        f"*{will_skip}* will be skipped (already messaged in the last 7 days).\n"
+        f"*{will_receive}* will receive your broadcast.\n\n"
+        "Type your broadcast message now. I'll polish it before sending.\n\n"
+        "Tips:\n"
+        "- Keep it short and warm\n"
+        "- Mention what's new or on offer\n"
+        "- No ALL CAPS or spam words"
+    )
+
+
+def broadcast_wide_audience_warning(
+    count: int, segment_label: str,
+) -> tuple[str, list[dict[str, str]]]:
+    """Extra confirmation for 100+ recipients."""
+    body = (
+        f"This broadcast will go to *{count}* customers ({segment_label}).\n\n"
+        "Sending to a large audience increases the risk of WhatsApp flagging "
+        "your number. Make sure your message is personal and relevant.\n\n"
+        "Do you want to proceed?"
+    )
+    buttons = [
+        {"id": "BCWIDEYES", "title": "Yes, proceed"},
+        {"id": "BCNO", "title": "Cancel"},
+    ]
+    return body, buttons

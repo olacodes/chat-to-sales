@@ -1509,10 +1509,16 @@ class OrderService:
         tenant_id: str,
         channel_tenant_id: str | None = None,
     ) -> None:
-        """Handle segment tap — show message composition prompt."""
+        """Handle segment tap — anti-spam checks, then show compose prompt."""
+        from datetime import datetime, timedelta, timezone
         from app.modules.marketing.customer_list import CustomerListService
+        from app.modules.marketing.broadcast import (
+            get_last_broadcast_to_segment,
+            get_7day_skip_count,
+        )
         from app.modules.orders.session import (
             set_trader_session,
+            clear_trader_session,
             TRADER_AWAITING_BROADCAST_MESSAGE,
         )
 
@@ -1531,6 +1537,7 @@ class OrderService:
 
         count = len(customers)
         if count == 0:
+            await clear_trader_session(trader_phone)
             await self._reply(
                 phone=trader_phone,
                 tenant_id=tenant_id,
@@ -1540,17 +1547,69 @@ class OrderService:
             )
             return
 
+        # ── Anti-spam: 48-hour per-segment cooldown ────────────────────────
+        last_broadcast_at = await get_last_broadcast_to_segment(trader_phone, segment)
+        if last_broadcast_at:
+            now = datetime.now(tz=timezone.utc)
+            elapsed = now - last_broadcast_at
+            if elapsed < timedelta(hours=48):
+                hours_left = int((timedelta(hours=48) - elapsed).total_seconds() / 3600) + 1
+                await clear_trader_session(trader_phone)
+                await self._reply(
+                    phone=trader_phone,
+                    tenant_id=tenant_id,
+                    event_id=f"trader.bc_cooldown.{message_id}",
+                    text=wa.broadcast_segment_cooldown(segment_label, hours_left),
+                    channel_tenant_id=channel_tenant_id,
+                )
+                return
+
+        # ── Anti-spam: 7-day per-customer skip count ───────────────────────
+        customer_phones = [c.customer_phone for c in customers]
+        will_skip = await get_7day_skip_count(trader_phone, customer_phones)
+        will_receive = count - will_skip
+
+        # ── Anti-spam: wide audience warning (100+) ────────────────────────
+        if will_receive >= 100:
+            await set_trader_session(trader_phone, {
+                "state": "awaiting_broadcast_wide_confirm",
+                "segment": segment,
+                "segment_label": segment_label,
+                "count": count,
+                "will_skip": will_skip,
+                "will_receive": will_receive,
+            })
+            body, buttons = wa.broadcast_wide_audience_warning(will_receive, segment_label)
+            await self._reply_interactive(
+                phone=trader_phone,
+                tenant_id=tenant_id,
+                event_id=f"trader.bc_wide_warn.{message_id}",
+                body_text=body,
+                buttons=buttons,
+                channel_tenant_id=channel_tenant_id,
+            )
+            return
+
+        # ── Show compose prompt (with skip warning if applicable) ──────────
         await set_trader_session(trader_phone, {
             "state": TRADER_AWAITING_BROADCAST_MESSAGE,
             "segment": segment,
             "segment_label": segment_label,
             "count": count,
+            "will_skip": will_skip,
+            "will_receive": will_receive,
         })
+        if will_skip > 0:
+            compose_text = wa.broadcast_skip_warning(
+                segment_label, count, will_skip, will_receive,
+            )
+        else:
+            compose_text = wa.broadcast_compose_prompt(segment_label, count)
         await self._reply_with_cancel(
             phone=trader_phone,
             tenant_id=tenant_id,
             event_id=f"trader.bc_compose.{message_id}",
-            text=wa.broadcast_compose_prompt(segment_label, count),
+            text=compose_text,
             channel_tenant_id=channel_tenant_id,
         )
 
@@ -1682,6 +1741,54 @@ class OrderService:
                 )
 
         asyncio.create_task(_run_broadcast())
+
+    async def _handle_broadcast_wide_confirmed(
+        self,
+        *,
+        trader_phone: str,
+        message_id: str,
+        tenant_id: str,
+        channel_tenant_id: str | None = None,
+    ) -> None:
+        """Wide audience warning accepted → proceed to compose prompt."""
+        from app.modules.orders.session import (
+            get_trader_session,
+            set_trader_session,
+            clear_trader_session,
+            TRADER_AWAITING_BROADCAST_MESSAGE,
+        )
+
+        tsession = await get_trader_session(trader_phone)
+        if not tsession or tsession.get("state") != "awaiting_broadcast_wide_confirm":
+            return
+
+        segment = tsession.get("segment", "all_customers")
+        segment_label = tsession.get("segment_label", "All Customers")
+        count = tsession.get("count", 0)
+        will_skip = tsession.get("will_skip", 0)
+        will_receive = tsession.get("will_receive", 0)
+
+        await set_trader_session(trader_phone, {
+            "state": TRADER_AWAITING_BROADCAST_MESSAGE,
+            "segment": segment,
+            "segment_label": segment_label,
+            "count": count,
+            "will_skip": will_skip,
+            "will_receive": will_receive,
+        })
+        if will_skip > 0:
+            compose_text = wa.broadcast_skip_warning(
+                segment_label, count, will_skip, will_receive,
+            )
+        else:
+            compose_text = wa.broadcast_compose_prompt(segment_label, count)
+        await self._reply_with_cancel(
+            phone=trader_phone,
+            tenant_id=tenant_id,
+            event_id=f"trader.bc_compose.{message_id}",
+            text=compose_text,
+            channel_tenant_id=channel_tenant_id,
+        )
 
     # ── Catalogue management helpers ─────────────────────────────────────────
 
@@ -2549,6 +2656,7 @@ class OrderService:
 
             segment = tsession.get("segment", "all_customers")
             count = tsession.get("count", 0)
+            will_receive = tsession.get("will_receive", count)
             segment_label = tsession.get("segment_label", "All Customers")
 
             # Save to session and show preview
@@ -2557,10 +2665,11 @@ class OrderService:
                 "segment": segment,
                 "segment_label": segment_label,
                 "count": count,
+                "will_receive": will_receive,
                 "original_text": text,
                 "rewritten_text": rewritten,
             })
-            body, buttons = wa.broadcast_preview(rewritten, segment_label, count)
+            body, buttons = wa.broadcast_preview(rewritten, segment_label, will_receive)
             await self._reply_interactive(
                 phone=trader_phone,
                 tenant_id=tenant_id,
@@ -4136,6 +4245,16 @@ class OrderService:
                 trader_phone=trader_phone,
                 message_id=message_id,
                 trader=trader,
+                tenant_id=tenant_id,
+                channel_tenant_id=channel_tenant_id,
+            )
+            return
+
+        # ── Handle wide audience warning confirm ─────────────────────
+        if stripped == "BCWIDEYES":
+            await self._handle_broadcast_wide_confirmed(
+                trader_phone=trader_phone,
+                message_id=message_id,
                 tenant_id=tenant_id,
                 channel_tenant_id=channel_tenant_id,
             )
