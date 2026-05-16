@@ -181,8 +181,8 @@ body{{
 
     <!-- Header -->
     <div class="header">
-        <div class="script">Premium</div>
-        <h1>{ctx.product_name.split()[0] if ctx.product_name else 'Product'} <span class="light">Collection</span></h1>
+        <div class="script">{ctx.trader_name}</div>
+        <h1>{ctx.product_name}</h1>
     </div>
 
     <!-- Price badge -->

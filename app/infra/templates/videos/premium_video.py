@@ -87,8 +87,8 @@ body{{margin:0;padding:0;font-family:'Inter',sans-serif;width:1080px;height:1920
       <path d="M 5 0 Q 25 15 5 30 Q 25 45 5 60 Q 25 75 5 90 Q 25 105 5 120" stroke="currentColor" stroke-width="2" fill="none"/>
     </svg>
     <div class="header">
-        <div class="script anim a1">Premium</div>
-        <h1 class="anim a2">{ctx.product_name.split()[0] if ctx.product_name else 'Product'} <span class="light">Collection</span></h1>
+        <div class="script anim a1">{ctx.trader_name}</div>
+        <h1 class="anim a2">{ctx.product_name}</h1>
     </div>
     <div class="price-badge anim a5">
         <div class="amount">{price_short}</div>
