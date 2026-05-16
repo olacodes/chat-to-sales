@@ -1460,6 +1460,50 @@ def broadcast_cancelled() -> str:
     return "Broadcast cancelled. No messages were sent."
 
 
+# ── Smart follow-up templates ───────────────────────────────────────────────
+
+
+def followup_to_customer(
+    customer_name: str | None,
+    product_name: str,
+    price: int | None,
+    trader_name: str,
+) -> str:
+    """Warm follow-up sent to customer 24h after they showed interest."""
+    greeting = f"Hi {customer_name}!" if customer_name else "Hi there!"
+    price_line = f" ({_naira(price)})" if price else ""
+    return (
+        f"{greeting} Still interested in *{product_name}*{price_line} "
+        f"from *{trader_name}*?\n\n"
+        "Reply *YES* to place your order, or just let me know if you need anything else."
+    )
+
+
+def followup_notification_to_trader(
+    customer_name: str | None,
+    customer_phone: str,
+    product_name: str,
+) -> str:
+    """Notify trader that an auto follow-up was sent."""
+    display = f"*{customer_name}*" if customer_name else f"+{customer_phone}"
+    return (
+        f"I sent a follow-up to {display} about *{product_name}*.\n\n"
+        "I'll let you know if they reply."
+    )
+
+
+def followup_converted_to_trader(
+    customer_name: str | None,
+    customer_phone: str,
+    product_name: str,
+) -> str:
+    """Notify trader that a follow-up converted into an order."""
+    display = f"*{customer_name}*" if customer_name else f"+{customer_phone}"
+    return (
+        f"The follow-up worked! {display} just ordered *{product_name}*."
+    )
+
+
 def broadcast_segment_cooldown(segment_label: str, hours_left: int) -> str:
     return (
         f"You already sent a broadcast to *{segment_label}* recently.\n\n"

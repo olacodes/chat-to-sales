@@ -587,6 +587,160 @@ async def _send_weekly_reports() -> None:
             )
 
 
+async def _send_smart_followups() -> None:
+    """
+    Hourly job: send follow-ups to customers who showed interest 24h+ ago
+    but didn't place an order. Business hours only (8am-8pm WAT).
+    """
+    from app.modules.marketing.followup import (
+        get_pending_followups, mark_followed_up, InterestEvent,
+    )
+    from app.modules.notifications.service import NotificationService
+    from app.modules.onboarding.repository import TraderRepository
+    import app.modules.orders.whatsapp as wa
+
+    now = datetime.now(tz=timezone.utc)
+    if not _is_business_hours(now):
+        return
+
+    settings = get_settings()
+    platform_tenant_id = settings.TENANT_ID
+
+    async with async_session_factory() as session:
+        events = await get_pending_followups(session, min_age_hours=24, limit=30)
+
+    if not events:
+        return
+
+    logger.info("Smart follow-up: %d pending events to process", len(events))
+    sent = 0
+
+    for event in events:
+        try:
+            # Skip events for generic photo inquiries where we never got the product name
+            if event.product_name == "(photo inquiry)":
+                async with async_session_factory.begin() as session:
+                    await mark_followed_up(session, event.id)
+                continue
+
+            # Check if customer already placed an order for this product
+            async with async_session_factory() as session:
+                from app.modules.orders.models import Order, OrderState
+                existing_order = (await session.execute(
+                    select(Order).where(
+                        Order.trader_phone == event.trader_phone,
+                        Order.customer_phone == event.customer_phone,
+                        Order.state.in_([OrderState.CONFIRMED, OrderState.PAID]),
+                        Order.created_at > event.created_at,
+                    ).limit(1)
+                )).scalar_one_or_none()
+
+            if existing_order:
+                # Customer already ordered — mark converted, skip follow-up
+                async with async_session_factory.begin() as session:
+                    from app.modules.marketing.followup import mark_converted
+                    await mark_converted(
+                        session,
+                        trader_phone=event.trader_phone,
+                        customer_phone=event.customer_phone,
+                        product_name=event.product_name,
+                        order_id=existing_order.id,
+                    )
+                continue
+
+            # Check product still in catalogue
+            async with async_session_factory() as session:
+                trader_repo = TraderRepository(session)
+                trader = await trader_repo.get_by_phone(event.trader_phone)
+            if not trader:
+                continue
+            catalogue = trader.catalogue or {}
+            # Product must still exist (case-insensitive check)
+            product_in_cat = any(
+                k.lower() == event.product_name.lower() for k in catalogue
+            )
+            if not product_in_cat and event.price is None:
+                # Product removed and no price — skip
+                async with async_session_factory.begin() as session:
+                    await mark_followed_up(session, event.id)
+                continue
+
+            trader_name = trader.business_name or "the trader"
+            price = event.price
+            if not price:
+                # Try to get current price from catalogue
+                for k, v in catalogue.items():
+                    if k.lower() == event.product_name.lower():
+                        price = v
+                        break
+
+            # Check 7-day broadcast cap
+            from app.modules.marketing.models import CustomerListEntry
+            async with async_session_factory() as session:
+                cle = (await session.execute(
+                    select(CustomerListEntry).where(
+                        CustomerListEntry.trader_phone == event.trader_phone,
+                        CustomerListEntry.customer_phone == event.customer_phone,
+                    )
+                )).scalar_one_or_none()
+            if cle and cle.opted_out:
+                async with async_session_factory.begin() as session:
+                    await mark_followed_up(session, event.id)
+                continue
+            if cle and cle.last_broadcast_at:
+                days_since = (now - cle.last_broadcast_at).days
+                if days_since < 7:
+                    async with async_session_factory.begin() as session:
+                        await mark_followed_up(session, event.id)
+                    continue
+
+            # Send follow-up to customer
+            msg = wa.followup_to_customer(
+                event.customer_name, event.product_name, price, trader_name,
+            )
+            async with async_session_factory.begin() as session:
+                svc = NotificationService(session)
+                await svc.send_message(
+                    tenant_id=platform_tenant_id,
+                    event_id=f"followup.{event.id}",
+                    recipient=event.customer_phone,
+                    message_text=msg,
+                    channel="whatsapp",
+                )
+
+            # Notify the trader
+            trader_msg = wa.followup_notification_to_trader(
+                event.customer_name, event.customer_phone, event.product_name,
+            )
+            async with async_session_factory.begin() as session:
+                svc = NotificationService(session)
+                await svc.send_message(
+                    tenant_id=platform_tenant_id,
+                    event_id=f"followup.trader.{event.id}",
+                    recipient=event.trader_phone,
+                    message_text=trader_msg,
+                    channel="whatsapp",
+                )
+
+            # Mark as followed up
+            async with async_session_factory.begin() as session:
+                await mark_followed_up(session, event.id)
+
+            sent += 1
+            logger.info(
+                "Follow-up sent: customer=%s product=%s trader=%s",
+                event.customer_phone, event.product_name, event.trader_phone,
+            )
+
+        except Exception:
+            logger.exception(
+                "Follow-up failed: event=%s customer=%s", event.id, event.customer_phone,
+            )
+
+    if sent:
+        logger.info("Smart follow-up complete: %d/%d sent", sent, len(events))
+
+
 async def _recompute_customer_segments() -> None:
     """Nightly job: recompute segments for all customers across all traders."""
     from app.modules.marketing.segments import recompute_all_segments
@@ -646,6 +800,14 @@ def start_scheduler() -> None:
         misfire_grace_time=3600,  # 1 hour grace — if server was down at 7am, still send
     )
     _scheduler.add_job(
+        _send_smart_followups,
+        trigger="interval",
+        hours=1,
+        id="send_smart_followups",
+        replace_existing=True,
+        misfire_grace_time=300,
+    )
+    _scheduler.add_job(
         _recompute_customer_segments,
         trigger="cron",
         hour=2,
@@ -658,7 +820,8 @@ def start_scheduler() -> None:
     logger.info(
         "Scheduler started — messages every 60s, order reminders every %dm, "
         "debt reminders every %dh, Status Kit daily 6:30am WAT, "
-        "weekly reports Mon 8am WAT, segment recompute daily 3am WAT",
+        "weekly reports Mon 8am WAT, smart follow-ups hourly, "
+        "segment recompute daily 3am WAT",
         _REMINDER_INTERVAL_MINUTES,
         _DEBT_REMINDER_INTERVAL_HOURS,
     )

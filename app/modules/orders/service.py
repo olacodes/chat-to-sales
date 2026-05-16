@@ -703,6 +703,19 @@ class OrderService:
                         channel_tenant_id=channel_tenant_id,
                     )
 
+                # Log interest for follow-up (customer showed intent but cancelled)
+                items = session.get("items", [])
+                if items:
+                    first_item = items[0]
+                    await self._log_interest(
+                        tenant_id=tenant_id,
+                        trader_phone=trader.get("phone_number", ""),
+                        customer_phone=customer_phone,
+                        customer_name=customer_name,
+                        product_name=first_item.get("name", ""),
+                        price=first_item.get("unit_price"),
+                        event_type="order_cancelled",
+                    )
                 logger.info("Customer cancelled order customer=%s", customer_phone)
                 return
 
@@ -1242,6 +1255,16 @@ class OrderService:
                 logger.warning("Claude Vision failed sender=%s: %s", customer_phone, exc)
 
         # ── Not matched: forward image to trader ──────────────────────────────
+        # Log interest for follow-up
+        await self._log_interest(
+            tenant_id=tenant_id,
+            trader_phone=trader_phone or "",
+            customer_phone=customer_phone,
+            customer_name=customer_name,
+            product_name="(photo inquiry)",
+            price=None,
+            event_type="image_inquiry",
+        )
         await self._reply(
             phone=customer_phone,
             tenant_id=tenant_id,
@@ -1416,6 +1439,25 @@ class OrderService:
             channel_tenant_id=channel_tenant_id,
         )
 
+        # Update interest event with actual product name (was "(photo inquiry)")
+        if customer_phone:
+            try:
+                from app.modules.marketing.followup import InterestEvent
+                from sqlalchemy import update as _upd
+                async with async_session_factory.begin() as _ie_sess:
+                    await _ie_sess.execute(
+                        _upd(InterestEvent)
+                        .where(
+                            InterestEvent.trader_phone == trader_phone,
+                            InterestEvent.customer_phone == customer_phone,
+                            InterestEvent.product_name == "(photo inquiry)",
+                            InterestEvent.converted == False,  # noqa: E712
+                        )
+                        .values(product_name=product_name, price=price)
+                    )
+            except Exception:
+                pass
+
         # Create order and notify customer
         if customer_phone and conversation_id:
             await self._create_image_order(
@@ -1452,6 +1494,36 @@ class OrderService:
             remaining,
         )
         return True
+
+    # ── Interest tracking (for smart follow-up) ────────────────────────────────
+
+    async def _log_interest(
+        self,
+        *,
+        tenant_id: str,
+        trader_phone: str,
+        customer_phone: str,
+        customer_name: str | None,
+        product_name: str,
+        price: int | None,
+        event_type: str,
+    ) -> None:
+        """Non-blocking: log a customer interest event for smart follow-up."""
+        try:
+            from app.modules.marketing.followup import log_interest
+            async with async_session_factory.begin() as session:
+                await log_interest(
+                    session,
+                    tenant_id=tenant_id,
+                    trader_phone=trader_phone,
+                    customer_phone=customer_phone,
+                    customer_name=customer_name,
+                    product_name=product_name,
+                    price=price,
+                    event_type=event_type,
+                )
+        except Exception as exc:
+            logger.warning("Interest logging failed (non-fatal): %s", exc)
 
     # ── Broadcast helpers ──────────────────────────────────────────────────────
 
