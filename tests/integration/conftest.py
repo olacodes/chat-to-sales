@@ -112,7 +112,10 @@ async def fake_redis():
     with patch("app.infra.cache.get_redis", return_value=redis):
         with patch("app.modules.orders.session.get_redis", return_value=redis):
             yield redis
-    await redis.aclose()
+    if hasattr(redis, "aclose"):
+        await redis.aclose()
+    elif hasattr(redis, "close"):
+        await redis.close()
 
 
 @pytest_asyncio.fixture

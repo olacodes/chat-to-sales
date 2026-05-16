@@ -78,7 +78,10 @@ async def fake_redis():
         # Also patch anywhere session.py imports get_redis
         with patch("app.modules.orders.session.get_redis", return_value=redis):
             yield redis
-    await redis.aclose()
+    if hasattr(redis, "aclose"):
+        await redis.aclose()
+    elif hasattr(redis, "close"):
+        await redis.close()
 
 
 # ── Order helpers ────────────────────────────────────────────────────────────
