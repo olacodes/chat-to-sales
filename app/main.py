@@ -56,6 +56,7 @@ from app.modules.shares.router import router as share_router
 from app.modules.credit_sales.router import router as credit_sales_router
 from app.modules.credit_sales.models import CreditSale  # noqa: F401 — registers model with Base
 from app.modules.orders.product_descriptions import ProductDescription  # noqa: F401 — registers model with Base
+from app.modules.marketing.models import CustomerListEntry, Broadcast, BroadcastRecipient  # noqa: F401
 from app.modules.orders.product_images import ProductImage  # noqa: F401 — registers model with Base
 
 logger = get_logger(__name__)

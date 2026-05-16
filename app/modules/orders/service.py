@@ -290,6 +290,21 @@ class OrderService:
         Does NOT commit — the caller owns the transaction.
         """
         order = await self._transition(order, OrderState.PAID)
+
+        # Auto-populate customer list for broadcast system
+        try:
+            from app.modules.marketing.customer_list import CustomerListService
+            cl_svc = CustomerListService(self._db)
+            await cl_svc.upsert_customer(
+                trader_phone=order.trader_phone or "",
+                tenant_id=order.tenant_id,
+                customer_phone=order.customer_phone or "",
+                customer_name=order.customer_name,
+                order_amount=order.amount or Decimal("0"),
+            )
+        except Exception as exc:
+            logger.warning("Customer list upsert failed (non-fatal): %s", exc)
+
         # Emit dedicated payment event for downstream modules
         await publish_event(
             Event(
