@@ -83,10 +83,15 @@ async def render_status_card(
     """
     from app.infra.templates import pick_template, pick_random_template, get_template
 
+    from app.infra.templates.base import detect_photo_brightness
+
     # Encode photo as-is (no background removal — works for all photo types)
     photo_b64 = ""
+    photo_is_light = False
     if photo_bytes:
         photo_b64 = base64.b64encode(photo_bytes).decode("ascii")
+        photo_is_light = detect_photo_brightness(photo_b64)
+        logger.info("Photo brightness: %s", "light" if photo_is_light else "dark")
 
     ctx = CardContext(
         trader_name=trader_name,
@@ -95,6 +100,7 @@ async def render_status_card(
         store_url=store_url,
         category=category,
         photo_b64=photo_b64,
+        photo_is_light=photo_is_light,
     )
 
     # Pick template
@@ -127,9 +133,13 @@ async def render_random_status_card(
     import random
     from app.infra.templates import pick_random_template
 
+    from app.infra.templates.base import detect_photo_brightness
+
     photo_b64 = ""
+    photo_is_light = False
     if photo_bytes:
         photo_b64 = base64.b64encode(photo_bytes).decode("ascii")
+        photo_is_light = detect_photo_brightness(photo_b64)
 
     ctx = CardContext(
         trader_name=trader_name,
@@ -138,6 +148,7 @@ async def render_random_status_card(
         store_url=store_url,
         category=category,
         photo_b64=photo_b64,
+        photo_is_light=photo_is_light,
     )
 
     tpl = pick_random_template()

@@ -41,6 +41,7 @@ class BillboardTemplate(BaseTemplate):
 <html><head><meta charset="UTF-8">
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Lobster&family=Playfair+Display:ital,wght@0,400;1,400;1,500&family=Inter:wght@300;400;500;600;700;800&display=swap');
+{self.photo_adaptive_css()}
 *{{margin:0;padding:0;box-sizing:border-box}}
 body{{margin:0;padding:0;font-family:'Inter',sans-serif;width:1080px;height:1920px;overflow:hidden;}}
 .ad{{
@@ -122,9 +123,8 @@ body{{margin:0;padding:0;font-family:'Inter',sans-serif;width:1080px;height:1920
     filter:blur(25px);
 }}
 .product-image{{
-    position:relative;z-index:2;max-width:95%;max-height:95%;object-fit:contain;
-    border-radius:8px;
-    filter:drop-shadow(0 25px 40px rgba(0,0,0,.5)) drop-shadow(0 8px 16px rgba(0,0,0,.35));
+    position:relative;z-index:2;
+    /* sizing controlled by .photo-light / .photo-dark */
 }}
 .no-photo{{
     font-family:'Lobster',cursive;font-size:90px;
@@ -134,7 +134,7 @@ body{{margin:0;padding:0;font-family:'Inter',sans-serif;width:1080px;height:1920
 }}
 </style></head>
 <body>
-<div class="ad">
+<div class="ad {"photo-light" if ctx.photo_is_light else "photo-dark"}">
     <div class="text-col">
         <div class="badge">
             <span class="badge-dot"></span>

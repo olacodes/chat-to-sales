@@ -7,6 +7,30 @@ The renderer calls `html()` → Playwright screenshots → JPEG bytes.
 
 import base64
 from dataclasses import dataclass, field
+from io import BytesIO
+
+
+def detect_photo_brightness(photo_b64: str) -> bool:
+    """Return True if the photo has a light/bright background. Uses edge sampling."""
+    if not photo_b64:
+        return False
+    try:
+        from PIL import Image
+        raw = base64.b64decode(photo_b64)
+        img = Image.open(BytesIO(raw)).convert("RGB")
+        w, h = img.size
+        # Sample pixels from all 4 edges
+        pixels = []
+        for x in range(0, w, max(1, w // 20)):
+            pixels.append(img.getpixel((x, 0)))
+            pixels.append(img.getpixel((x, h - 1)))
+        for y in range(0, h, max(1, h // 20)):
+            pixels.append(img.getpixel((0, y)))
+            pixels.append(img.getpixel((w - 1, y)))
+        avg = sum((r + g + b) / 3 for r, g, b in pixels) / max(len(pixels), 1)
+        return avg > 140  # light if edge brightness > 140
+    except Exception:
+        return False
 
 
 @dataclass
@@ -17,7 +41,8 @@ class CardContext:
     price: int
     store_url: str
     category: str = ""
-    photo_b64: str = ""  # base64-encoded JPEG (empty = text-only card)
+    photo_b64: str = ""  # base64-encoded JPEG/PNG
+    photo_is_light: bool = False  # auto-detected from photo edges
 
     @property
     def price_formatted(self) -> str:
@@ -67,6 +92,26 @@ class BaseTemplate:
             for k, v in scheme.items()
             if k != "name"
         )
+
+    def photo_adaptive_css(self) -> str:
+        """CSS classes for light vs dark photo presentation."""
+        return """
+/* Dark photos: full bleed, no border — photo blends with background */
+.photo-dark .product-image {
+    width: 100%; height: auto; border-radius: 0;
+    filter: drop-shadow(0 30px 50px rgba(0,0,0,.5));
+}
+/* Light photos: smaller, rounded, with inset shadow frame */
+.photo-light .product-image {
+    max-width: 85%; max-height: 100%; object-fit: contain;
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0,0,0,.7), 0 0 0 1px rgba(255,255,255,.06);
+    filter: drop-shadow(0 20px 40px rgba(0,0,0,.6));
+}
+.photo-light .photo-zone {
+    padding: 20px;
+}
+"""
 
     def base_styles(self) -> str:
         """Shared CSS reset + Google Fonts import used by all templates."""

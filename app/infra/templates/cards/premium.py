@@ -40,6 +40,7 @@ class PremiumTemplate(BaseTemplate):
 <html><head><meta charset="UTF-8">
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Allura&family=Playfair+Display:ital,wght@0,700;1,400&family=Inter:wght@300;400;500;600;700&display=swap');
+{self.photo_adaptive_css()}
 *{{margin:0;padding:0;box-sizing:border-box}}
 body{{
     margin:0;padding:0;
@@ -130,9 +131,7 @@ body{{
     filter:blur(25px);
 }}
 .product-image{{
-    position:relative;z-index:2;width:100%;height:auto;
-    border-radius:8px;
-    filter:drop-shadow(0 35px 50px rgba(0,0,0,.5)) drop-shadow(0 10px 20px rgba(0,0,0,.35));
+    position:relative;z-index:2;
 }}
 .no-photo-name{{
     font-family:'Playfair Display',serif;font-size:80px;font-weight:700;
@@ -170,7 +169,7 @@ body{{
 }}
 </style></head>
 <body>
-<div class="ad">
+<div class="ad {"photo-light" if ctx.photo_is_light else "photo-dark"}">
     <!-- Decorative -->
     <div class="dots-tr"></div>
     <div class="dots-bl"></div>

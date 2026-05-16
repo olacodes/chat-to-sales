@@ -21,6 +21,7 @@ class ShowcaseTemplate(BaseTemplate):
 <style>
 {self.base_styles()}
 :root {{ {self.css_vars(scheme)} }}
+{self.photo_adaptive_css()}
 .ad {{
     width:1080px;height:1920px;position:relative;overflow:hidden;
     background:radial-gradient(ellipse 80% 60% at 50% 48%,var(--bg-stage) 0%,var(--bg-outer) 55%,var(--bg-vignette) 100%);
@@ -61,9 +62,8 @@ class ShowcaseTemplate(BaseTemplate):
     filter:blur(30px);
 }}
 .product-image {{
-    position:relative;z-index:2;width:100%;height:auto;
-    border-radius:8px;
-    filter:drop-shadow(0 30px 55px rgba(0,0,0,.7)) drop-shadow(0 10px 20px rgba(0,0,0,.5));
+    position:relative;z-index:2;
+    /* sizing controlled by .photo-light / .photo-dark */
 }}
 .big-name {{
     font-family:'Cormorant Garamond',serif;font-size:84px;font-weight:600;
@@ -90,7 +90,7 @@ class ShowcaseTemplate(BaseTemplate):
 }}
 </style></head>
 <body>
-<div class="ad">
+<div class="ad {"photo-light" if ctx.photo_is_light else "photo-dark"}">
     <div class="top">
         <div class="brand-name">{ctx.trader_name}</div>
         <div class="hero-label">{ctx.category or 'New Collection'}</div>

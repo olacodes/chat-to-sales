@@ -22,6 +22,7 @@ class EditorialTemplate(BaseTemplate):
 <style>
 {self.base_styles()}
 :root {{ {self.css_vars(scheme)} }}
+{self.photo_adaptive_css()}
 .ad {{
     width:1080px;height:1920px;position:relative;overflow:hidden;
     background:linear-gradient(170deg,var(--bg-stage) 0%,var(--bg-outer) 40%,var(--bg-vignette) 100%);
@@ -59,9 +60,8 @@ class EditorialTemplate(BaseTemplate):
     filter:blur(25px);
 }}
 .product-image {{
-    position:relative;z-index:2;width:100%;height:auto;
-    border-radius:8px;
-    filter:drop-shadow(0 30px 50px rgba(0,0,0,.7)) drop-shadow(0 10px 20px rgba(0,0,0,.5));
+    position:relative;z-index:2;
+    /* sizing controlled by .photo-light / .photo-dark */
 }}
 .text-ornament {{ font-size:60px;color:var(--accent);opacity:0.25;text-align:center; }}
 .text-product {{
@@ -104,7 +104,7 @@ class EditorialTemplate(BaseTemplate):
 }}
 </style></head>
 <body>
-<div class="ad">
+<div class="ad {"photo-light" if ctx.photo_is_light else "photo-dark"}">
     <div class="header">
         <div>
             <div class="brand-name">{ctx.trader_name}</div>
