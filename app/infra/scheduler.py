@@ -587,6 +587,19 @@ async def _send_weekly_reports() -> None:
             )
 
 
+async def _recompute_customer_segments() -> None:
+    """Nightly job: recompute segments for all customers across all traders."""
+    from app.modules.marketing.segments import recompute_all_segments
+
+    logger.info("Starting nightly segment recompute...")
+    try:
+        async with async_session_factory.begin() as session:
+            updated = await recompute_all_segments(session)
+        logger.info("Segment recompute complete: %d customers updated", updated)
+    except Exception:
+        logger.exception("Segment recompute failed")
+
+
 def start_scheduler() -> None:
     """Add jobs and start the scheduler. Call once during app lifespan startup."""
     _scheduler.add_job(
@@ -632,10 +645,20 @@ def start_scheduler() -> None:
         replace_existing=True,
         misfire_grace_time=3600,  # 1 hour grace — if server was down at 7am, still send
     )
+    _scheduler.add_job(
+        _recompute_customer_segments,
+        trigger="cron",
+        hour=2,
+        minute=0,
+        id="recompute_customer_segments",
+        replace_existing=True,
+        misfire_grace_time=3600,
+    )
     _scheduler.start()
     logger.info(
         "Scheduler started — messages every 60s, order reminders every %dm, "
-        "debt reminders every %dh, Status Kit daily 6:30am WAT, weekly reports Mon 8am WAT",
+        "debt reminders every %dh, Status Kit daily 6:30am WAT, "
+        "weekly reports Mon 8am WAT, segment recompute daily 3am WAT",
         _REMINDER_INTERVAL_MINUTES,
         _DEBT_REMINDER_INTERVAL_HOURS,
     )

@@ -112,32 +112,45 @@ class CustomerListService:
         )
         return result.scalar_one() or 0
 
+    def _fallback_behaviour(self, c: CustomerListEntry) -> str:
+        """Fallback behaviour segment when stored segments not yet computed."""
+        if c.total_orders >= 5 or c.total_spend >= Decimal("200000"):
+            return "vip"
+        if c.total_orders >= 2:
+            return "repeat_buyer"
+        if c.total_orders == 1:
+            return "paid_once"
+        return "new_lead"
+
+    def _customer_segments(self, c: CustomerListEntry) -> list[str]:
+        """Return segments list — stored if available, otherwise fallback."""
+        if c.segments:
+            return c.segments
+        return [self._fallback_behaviour(c)]
+
     async def get_segment_counts(self, trader_phone: str) -> dict[str, int]:
         """
-        Return basic segment counts for a trader.
-        Full segment engine (Phase 2) replaces this with computed segments.
-        For Phase 1, we use simple order-count based segments.
+        Return segment counts for a trader.
+
+        Uses stored segments from nightly recompute. Falls back to
+        order-count heuristic for customers not yet computed.
         """
         customers = await self.get_customers_for_trader(trader_phone)
 
-        counts = {
-            "all_customers": 0,
-            "vip": 0,           # 5+ orders or N200k+
-            "repeat_buyers": 0, # 2-4 orders
-            "paid_once": 0,     # 1 order
-            "new_leads": 0,     # 0 orders (from conversations)
-        }
+        # Behaviour segments (mutually exclusive)
+        _BEHAVIOUR = {"new_lead", "browsed_only", "abandoned_cart", "paid_once",
+                       "repeat_buyer", "vip", "lapsed"}
+        # Interest segments
+        _INTEREST = {"diverse_buyer", "price_sensitive", "premium"}
+        # Timing segments
+        _TIMING = {"weekly", "monthly", "payday", "weekend"}
+
+        counts: dict[str, int] = {"all_customers": len(customers)}
 
         for c in customers:
-            counts["all_customers"] += 1
-            if c.total_orders >= 5 or c.total_spend >= Decimal("200000"):
-                counts["vip"] += 1
-            elif c.total_orders >= 2:
-                counts["repeat_buyers"] += 1
-            elif c.total_orders == 1:
-                counts["paid_once"] += 1
-            else:
-                counts["new_leads"] += 1
+            segs = self._customer_segments(c)
+            for s in segs:
+                counts[s] = counts.get(s, 0) + 1
 
         return counts
 
@@ -146,18 +159,10 @@ class CustomerListService:
         trader_phone: str,
         segment: str,
     ) -> list[CustomerListEntry]:
-        """Return customers matching a basic segment."""
+        """Return customers matching a segment tag."""
         customers = await self.get_customers_for_trader(trader_phone)
 
         if segment == "all_customers":
             return customers
-        elif segment == "vip":
-            return [c for c in customers if c.total_orders >= 5 or c.total_spend >= Decimal("200000")]
-        elif segment == "repeat_buyers":
-            return [c for c in customers if 2 <= c.total_orders < 5 and c.total_spend < Decimal("200000")]
-        elif segment == "paid_once":
-            return [c for c in customers if c.total_orders == 1]
-        elif segment == "new_leads":
-            return [c for c in customers if c.total_orders == 0]
-        else:
-            return []
+
+        return [c for c in customers if segment in self._customer_segments(c)]

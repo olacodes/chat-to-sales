@@ -20,10 +20,10 @@ Phase 1 (Foundation) → Phase 3 (WhatsApp Flow) → Phase 4 (Anti-Spam) → Pha
 
 | # | Task | Status |
 |---|------|--------|
-| 2.1 | Behaviour segments (new_lead → vip → lapsed) | ⬜ |
-| 2.2 | Interest segments (bought_X, interested_X, price_sensitive) | ⬜ |
-| 2.3 | Timing segments (weekly, monthly, payday, weekend) | ⬜ |
-| 2.4 | Nightly segment recompute scheduler job | ⬜ |
+| 2.1 | Behaviour segments (new_lead → vip → lapsed) | ✅ |
+| 2.2 | Interest segments (bought_X, interested_X, price_sensitive) | ✅ |
+| 2.3 | Timing segments (weekly, monthly, payday, weekend) | ✅ |
+| 2.4 | Nightly segment recompute scheduler job | ✅ |
 | 2.5 | Custom segment via DESCRIBE (Claude interprets) | ⬜ |
 
 ## Phase 3: Broadcast WhatsApp Flow

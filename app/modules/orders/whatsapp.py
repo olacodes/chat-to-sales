@@ -1333,22 +1333,44 @@ def image_processing_failed() -> str:
 # ── Broadcast templates ─────────────────────────────────────────────────────
 
 
+_SEGMENT_DISPLAY: dict[str, tuple[str, str]] = {
+    # key: (label, section)
+    "all_customers": ("All Customers", "Audience"),
+    # Behaviour
+    "vip": ("VIP Customers", "By Behaviour"),
+    "repeat_buyer": ("Repeat Buyers", "By Behaviour"),
+    "paid_once": ("Bought Once", "By Behaviour"),
+    "new_lead": ("New Leads", "By Behaviour"),
+    "lapsed": ("Lapsed Customers", "By Behaviour"),
+    "abandoned_cart": ("Abandoned Cart", "By Behaviour"),
+    "browsed_only": ("Browsed Only", "By Behaviour"),
+    # Interest
+    "diverse_buyer": ("Diverse Buyers", "By Interest"),
+    "price_sensitive": ("Price Sensitive", "By Interest"),
+    "premium": ("Premium Buyers", "By Interest"),
+    # Timing
+    "weekly": ("Weekly Shoppers", "By Timing"),
+    "monthly": ("Monthly Shoppers", "By Timing"),
+    "payday": ("Payday Buyers", "By Timing"),
+    "weekend": ("Weekend Shoppers", "By Timing"),
+}
+
+# Order segments should appear in the picker
+_SEGMENT_ORDER = [
+    "all_customers",
+    "vip", "repeat_buyer", "paid_once", "new_lead", "lapsed", "abandoned_cart",
+    "diverse_buyer", "price_sensitive", "premium",
+    "weekly", "monthly", "payday", "weekend",
+]
+
+
 def broadcast_segment_picker(
     segment_counts: dict[str, int],
 ) -> tuple[str, str, list[dict]]:
     """Return (body, button_label, sections) for picking a broadcast segment."""
     total = segment_counts.get("all_customers", 0)
     if total == 0:
-        # This shouldn't happen — caller should check first
         return "You have no customers yet.", "Select", []
-
-    _SEGMENT_LABELS = {
-        "all_customers": "All Customers",
-        "vip": "VIP Customers",
-        "repeat_buyers": "Repeat Buyers",
-        "paid_once": "Bought Once",
-        "new_leads": "New Leads",
-    }
 
     body = (
         f"You have *{total} customers* in total.\n\n"
@@ -1356,14 +1378,17 @@ def broadcast_segment_picker(
     )
     button_label = "Select audience"
     rows = []
-    for seg_key, label in _SEGMENT_LABELS.items():
+    for seg_key in _SEGMENT_ORDER:
         count = segment_counts.get(seg_key, 0)
         if count > 0:
+            label, _ = _SEGMENT_DISPLAY.get(seg_key, (seg_key, "Other"))
             rows.append({
                 "id": f"BCSEG_{seg_key}"[:72],
                 "title": label[:24],
                 "description": f"{count} customer{'s' if count != 1 else ''}",
             })
+    # WhatsApp max 10 rows
+    rows = rows[:10]
     sections = [{"title": "Audience", "rows": rows}]
     return body, button_label, sections
 

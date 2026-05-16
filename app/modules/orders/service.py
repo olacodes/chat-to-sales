@@ -1522,14 +1522,8 @@ class OrderService:
             TRADER_AWAITING_BROADCAST_MESSAGE,
         )
 
-        _SEGMENT_LABELS = {
-            "all_customers": "All Customers",
-            "vip": "VIP Customers",
-            "repeat_buyers": "Repeat Buyers",
-            "paid_once": "Bought Once",
-            "new_leads": "New Leads",
-        }
-        segment_label = _SEGMENT_LABELS.get(segment, segment)
+        from app.modules.orders.whatsapp import _SEGMENT_DISPLAY
+        segment_label = _SEGMENT_DISPLAY.get(segment, (segment.replace("_", " ").title(), ""))[0]
 
         async with async_session_factory() as session:
             cl_svc = CustomerListService(session)
