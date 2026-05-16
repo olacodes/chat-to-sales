@@ -54,6 +54,7 @@ from app.modules.reports.models import (  # noqa: F401 — registers models with
 from app.modules.admin.router import router as admin_router
 from app.modules.shares.router import router as share_router
 from app.modules.credit_sales.router import router as credit_sales_router
+from app.modules.marketing.router import router as marketing_router
 from app.modules.credit_sales.models import CreditSale  # noqa: F401 — registers model with Base
 from app.modules.orders.product_descriptions import ProductDescription  # noqa: F401 — registers model with Base
 from app.modules.marketing.models import CustomerListEntry, Broadcast, BroadcastRecipient  # noqa: F401
@@ -270,6 +271,7 @@ def create_app() -> FastAPI:
     app.include_router(store_router, prefix=prefix)
     app.include_router(admin_router, prefix=prefix)
     app.include_router(share_router, prefix=prefix)
+    app.include_router(marketing_router, prefix=prefix)
     app.include_router(realtime_router)  # no API prefix — /ws/{tenant_id}
 
     # ── Health check ──────────────────────────────────────────────────────────
