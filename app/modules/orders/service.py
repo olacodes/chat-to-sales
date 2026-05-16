@@ -39,6 +39,7 @@ from app.modules.orders.nlp import (
     CONFIRM,
     ORDER,
     TRADER_ADD,
+    TRADER_BROADCAST,
     TRADER_CANCEL,
     TRADER_CATALOGUE,
     TRADER_CATEGORY,
@@ -498,6 +499,27 @@ class OrderService:
         trader_name: str = trader.get("business_name", "the trader")
         category: str = trader.get("business_category", "")
         catalogue: dict[str, int] = trader.get("catalogue", {})
+        trader_phone_str: str = trader.get("phone_number", "")
+
+        # ── STOP reply: opt customer out of broadcasts ─────────────────────
+        if message.strip().upper() == "STOP":
+            try:
+                from app.modules.marketing.customer_list import CustomerListService
+                async with async_session_factory() as _stop_sess:
+                    cl_svc = CustomerListService(_stop_sess)
+                    opted_out = await cl_svc.opt_out(trader_phone_str, customer_phone)
+                    await _stop_sess.commit()
+                if opted_out:
+                    await self._reply(
+                        phone=customer_phone,
+                        tenant_id=tenant_id,
+                        event_id=f"customer.opted_out.{message_id}",
+                        text="You have been unsubscribed from marketing messages. You will no longer receive broadcasts.",
+                        channel_tenant_id=channel_tenant_id,
+                    )
+                    return
+            except Exception as exc:
+                logger.warning("STOP opt-out failed (non-fatal): %s", exc)
 
         # ── Post-order quiet mode: only respond to clear order intents ────
         from app.modules.orders.session import is_quiet_mode
@@ -1431,6 +1453,236 @@ class OrderService:
         )
         return True
 
+    # ── Broadcast helpers ──────────────────────────────────────────────────────
+
+    async def _start_broadcast_flow(
+        self,
+        *,
+        trader_phone: str,
+        message_id: str,
+        tenant_id: str,
+        channel_tenant_id: str | None = None,
+    ) -> None:
+        """Start the broadcast flow — show segment picker."""
+        from app.modules.marketing.customer_list import CustomerListService
+        from app.modules.orders.session import (
+            set_trader_session,
+            TRADER_AWAITING_BROADCAST_SEGMENT,
+        )
+
+        async with async_session_factory() as session:
+            cl_svc = CustomerListService(session)
+            segment_counts = await cl_svc.get_segment_counts(trader_phone)
+
+        total = segment_counts.get("all_customers", 0)
+        if total == 0:
+            await self._reply(
+                phone=trader_phone,
+                tenant_id=tenant_id,
+                event_id=f"trader.bc_no_customers.{message_id}",
+                text=wa.broadcast_no_customers(),
+                channel_tenant_id=channel_tenant_id,
+            )
+            return
+
+        await set_trader_session(trader_phone, {
+            "state": TRADER_AWAITING_BROADCAST_SEGMENT,
+        })
+        body, btn, sections = wa.broadcast_segment_picker(segment_counts)
+        await self._reply_list(
+            phone=trader_phone,
+            tenant_id=tenant_id,
+            event_id=f"trader.bc_segment_pick.{message_id}",
+            body_text=body,
+            button_label=btn,
+            sections=sections,
+            channel_tenant_id=channel_tenant_id,
+        )
+
+    async def _handle_broadcast_segment_selected(
+        self,
+        *,
+        segment: str,
+        trader_phone: str,
+        message_id: str,
+        trader: dict[str, Any],
+        tenant_id: str,
+        channel_tenant_id: str | None = None,
+    ) -> None:
+        """Handle segment tap — show message composition prompt."""
+        from app.modules.marketing.customer_list import CustomerListService
+        from app.modules.orders.session import (
+            set_trader_session,
+            TRADER_AWAITING_BROADCAST_MESSAGE,
+        )
+
+        _SEGMENT_LABELS = {
+            "all_customers": "All Customers",
+            "vip": "VIP Customers",
+            "repeat_buyers": "Repeat Buyers",
+            "paid_once": "Bought Once",
+            "new_leads": "New Leads",
+        }
+        segment_label = _SEGMENT_LABELS.get(segment, segment)
+
+        async with async_session_factory() as session:
+            cl_svc = CustomerListService(session)
+            customers = await cl_svc.get_customers_by_segment(trader_phone, segment)
+
+        count = len(customers)
+        if count == 0:
+            await self._reply(
+                phone=trader_phone,
+                tenant_id=tenant_id,
+                event_id=f"trader.bc_seg_empty.{message_id}",
+                text=f"No customers in the *{segment_label}* segment yet.",
+                channel_tenant_id=channel_tenant_id,
+            )
+            return
+
+        await set_trader_session(trader_phone, {
+            "state": TRADER_AWAITING_BROADCAST_MESSAGE,
+            "segment": segment,
+            "segment_label": segment_label,
+            "count": count,
+        })
+        await self._reply_with_cancel(
+            phone=trader_phone,
+            tenant_id=tenant_id,
+            event_id=f"trader.bc_compose.{message_id}",
+            text=wa.broadcast_compose_prompt(segment_label, count),
+            channel_tenant_id=channel_tenant_id,
+        )
+
+    async def _handle_broadcast_confirm(
+        self,
+        *,
+        confirmed: bool,
+        trader_phone: str,
+        message_id: str,
+        trader: dict[str, Any],
+        tenant_id: str,
+        channel_tenant_id: str | None = None,
+    ) -> None:
+        """Handle BCYES/BCNO taps after preview."""
+        from app.modules.orders.session import get_trader_session, clear_trader_session
+
+        tsession = await get_trader_session(trader_phone)
+        if not tsession or tsession.get("state") != "awaiting_broadcast_confirm":
+            return
+
+        await clear_trader_session(trader_phone)
+
+        if not confirmed:
+            await self._reply(
+                phone=trader_phone,
+                tenant_id=tenant_id,
+                event_id=f"trader.bc_cancelled.{message_id}",
+                text=wa.broadcast_cancelled(),
+                channel_tenant_id=channel_tenant_id,
+            )
+            return
+
+        segment = tsession.get("segment", "all_customers")
+        rewritten_text = tsession.get("rewritten_text", "")
+        original_text = tsession.get("original_text", "")
+        count = tsession.get("count", 0)
+
+        # Create broadcast + recipients in DB
+        import asyncio
+        from app.modules.marketing.models import (
+            Broadcast, BroadcastRecipient, BroadcastStatus,
+        )
+        from app.modules.marketing.customer_list import CustomerListService
+
+        async with async_session_factory.begin() as session:
+            cl_svc = CustomerListService(session)
+            customers = await cl_svc.get_customers_by_segment(trader_phone, segment)
+
+            broadcast = Broadcast(
+                tenant_id=tenant_id,
+                trader_phone=trader_phone,
+                segment=segment,
+                message_text=rewritten_text,
+                original_text=original_text,
+                total_recipients=len(customers),
+                status=BroadcastStatus.DRAFT,
+            )
+            session.add(broadcast)
+            await session.flush()
+
+            for c in customers:
+                session.add(BroadcastRecipient(
+                    broadcast_id=broadcast.id,
+                    customer_phone=c.customer_phone,
+                    customer_name=c.customer_name,
+                ))
+
+            broadcast_id = broadcast.id
+
+        # Notify trader that sending has started
+        await self._reply(
+            phone=trader_phone,
+            tenant_id=tenant_id,
+            event_id=f"trader.bc_sending.{message_id}",
+            text=wa.broadcast_sending(len(customers)),
+            channel_tenant_id=channel_tenant_id,
+        )
+
+        # Get platform tenant for sending customer messages
+        from app.core.config import get_settings
+        settings = get_settings()
+        platform_tenant_id = settings.TENANT_ID or tenant_id
+
+        # Launch paced sender as background task
+        from app.modules.marketing.broadcast import send_broadcast_paced
+
+        async def _on_progress(sent: int, total: int) -> None:
+            await self._reply(
+                phone=trader_phone,
+                tenant_id=tenant_id,
+                event_id=f"trader.bc_progress.{broadcast_id}.{sent}",
+                text=wa.broadcast_progress(sent, total),
+                channel_tenant_id=channel_tenant_id,
+            )
+
+        async def _run_broadcast() -> None:
+            try:
+                await send_broadcast_paced(
+                    broadcast_id=broadcast_id,
+                    trader_phone=trader_phone,
+                    tenant_id=tenant_id,
+                    platform_tenant_id=platform_tenant_id,
+                    on_progress=_on_progress,
+                )
+                # Send completion message
+                from app.modules.marketing.models import Broadcast as _B
+                async with async_session_factory() as _sess:
+                    _bc = (await _sess.execute(
+                        select(_B).where(_B.id == broadcast_id)
+                    )).scalar_one_or_none()
+                sent = _bc.sent_count if _bc else 0
+                total = _bc.total_recipients if _bc else 0
+                skipped = total - sent
+                await self._reply(
+                    phone=trader_phone,
+                    tenant_id=tenant_id,
+                    event_id=f"trader.bc_complete.{broadcast_id}",
+                    text=wa.broadcast_complete(sent, total, skipped),
+                    channel_tenant_id=channel_tenant_id,
+                )
+            except Exception as exc:
+                logger.error("Broadcast background task failed: %s", exc, exc_info=True)
+                await self._reply(
+                    phone=trader_phone,
+                    tenant_id=tenant_id,
+                    event_id=f"trader.bc_failed.{broadcast_id}",
+                    text="Something went wrong with the broadcast. Please try again later.",
+                    channel_tenant_id=channel_tenant_id,
+                )
+
+        asyncio.create_task(_run_broadcast())
+
     # ── Catalogue management helpers ─────────────────────────────────────────
 
     async def _send_trader_menu(
@@ -1655,6 +1907,13 @@ class OrderService:
                 tenant_id=tenant_id,
                 channel_tenant_id=channel_tenant_id,
             )
+        elif tap == "MENU_BROADCAST":
+            await self._start_broadcast_flow(
+                trader_phone=trader_phone,
+                message_id=message_id,
+                tenant_id=tenant_id,
+                channel_tenant_id=channel_tenant_id,
+            )
         elif tap == "MENU_HELP":
             await self._reply(
                 phone=trader_phone,
@@ -1690,6 +1949,9 @@ class OrderService:
             TRADER_AWAITING_BANK_CONFIRM,
             TRADER_AWAITING_CREDIT_PARTIAL,
             TRADER_AWAITING_PHOTO_PRODUCT,
+            TRADER_AWAITING_BROADCAST_SEGMENT,
+            TRADER_AWAITING_BROADCAST_MESSAGE,
+            TRADER_AWAITING_BROADCAST_CONFIRM,
         )
 
         state = tsession.get("state", "")
@@ -2258,6 +2520,53 @@ class OrderService:
                 tenant_id=tenant_id,
                 event_id=f"trader.price_invalid.{message_id}",
                 text="I didn't understand that. Just type the new price like:\n\n_9000_",
+                channel_tenant_id=channel_tenant_id,
+            )
+            return True
+
+        # ── Broadcast: awaiting message composition ────────────────────────
+        if state == TRADER_AWAITING_BROADCAST_MESSAGE:
+            from app.modules.marketing.broadcast import check_message_quality, rewrite_broadcast_message
+            text = message.strip()
+
+            # Quality check
+            issues = check_message_quality(text)
+            if issues:
+                await self._reply(
+                    phone=trader_phone,
+                    tenant_id=tenant_id,
+                    event_id=f"trader.bc_quality.{message_id}",
+                    text=wa.broadcast_quality_issues(issues),
+                    channel_tenant_id=channel_tenant_id,
+                )
+                return True
+
+            # Rewrite with Claude
+            trader_name = trader.get("business_name", "the trader")
+            store_slug = trader.get("store_slug", "")
+            store_url = f"https://chattosales.com/stores/{store_slug}" if store_slug else ""
+            rewritten = await rewrite_broadcast_message(text, trader_name, store_url)
+
+            segment = tsession.get("segment", "all_customers")
+            count = tsession.get("count", 0)
+            segment_label = tsession.get("segment_label", "All Customers")
+
+            # Save to session and show preview
+            await set_trader_session(trader_phone, {
+                "state": TRADER_AWAITING_BROADCAST_CONFIRM,
+                "segment": segment,
+                "segment_label": segment_label,
+                "count": count,
+                "original_text": text,
+                "rewritten_text": rewritten,
+            })
+            body, buttons = wa.broadcast_preview(rewritten, segment_label, count)
+            await self._reply_interactive(
+                phone=trader_phone,
+                tenant_id=tenant_id,
+                event_id=f"trader.bc_preview.{message_id}",
+                body_text=body,
+                buttons=buttons,
                 channel_tenant_id=channel_tenant_id,
             )
             return True
@@ -3807,6 +4116,31 @@ class OrderService:
             )
             return
 
+        # ── Handle broadcast segment tap (BCSEG_*) ─────────────────────
+        if stripped.startswith("BCSEG_"):
+            segment = message.strip()[6:]  # preserve case
+            await self._handle_broadcast_segment_selected(
+                segment=segment,
+                trader_phone=trader_phone,
+                message_id=message_id,
+                trader=trader,
+                tenant_id=tenant_id,
+                channel_tenant_id=channel_tenant_id,
+            )
+            return
+
+        # ── Handle broadcast confirm/cancel taps ─────────────────────
+        if stripped in ("BCYES", "BCNO"):
+            await self._handle_broadcast_confirm(
+                confirmed=(stripped == "BCYES"),
+                trader_phone=trader_phone,
+                message_id=message_id,
+                trader=trader,
+                tenant_id=tenant_id,
+                channel_tenant_id=channel_tenant_id,
+            )
+            return
+
         # ── Handle payment receipt taps (PAYRCVD *, PAYNOTRCVD *) ────────
         if stripped.startswith("PAYRCVD ") or stripped.startswith("PAYNOTRCVD "):
             is_received = stripped.startswith("PAYRCVD ")
@@ -4243,6 +4577,15 @@ class OrderService:
             await set_trader_session(trader_phone, {"state": TRADER_AWAITING_BANK_DETAILS})
             return
 
+        if result.intent == TRADER_BROADCAST:
+            await self._start_broadcast_flow(
+                trader_phone=trader_phone,
+                message_id=message_id,
+                tenant_id=tenant_id,
+                channel_tenant_id=channel_tenant_id,
+            )
+            return
+
         if result.intent == TRADER_MENU:
             await self._send_trader_menu(
                 trader_phone=trader_phone,
@@ -4286,7 +4629,7 @@ class OrderService:
             import re as _cmd_re
             _COMMAND_HINT = _cmd_re.compile(
                 r"\b(menu|help|order|add|remove|price|catalogue|catalog|"
-                r"debt|paid|bank|credit|who owes|pricelist|category|store|commands)\b",
+                r"debt|paid|bank|credit|who owes|pricelist|category|store|commands|broadcast)\b",
                 _cmd_re.IGNORECASE,
             )
             if _COMMAND_HINT.search(message):

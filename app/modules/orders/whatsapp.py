@@ -520,6 +520,7 @@ def trader_submenu_marketing() -> tuple[str, str, list[dict]]:
         {
             "title": "Marketing",
             "rows": [
+                {"id": "MENU_BROADCAST", "title": "\U0001f4e2 Broadcast Message", "description": "Send a message to your customers"},
                 {"id": "MENU_STATUS_IMAGE", "title": "\U0001f4f8 Status Image", "description": "Generate a product image for Status"},
                 {"id": "MENU_STATUS_VIDEO", "title": "\U0001f3ac Status Video", "description": "Generate a Ken Burns video for Status"},
                 {"id": "MENU_STATUS_POST", "title": "\U0001f4e3 Create Status Post", "description": "Auto-generate image + video for Status"},
@@ -1327,3 +1328,108 @@ def image_processing_failed() -> str:
         "I couldn't process that photo. \U0001f605\n\n"
         "Please send a clearer photo, or just tell me what you'd like to buy!"
     )
+
+
+# ── Broadcast templates ─────────────────────────────────────────────────────
+
+
+def broadcast_segment_picker(
+    segment_counts: dict[str, int],
+) -> tuple[str, str, list[dict]]:
+    """Return (body, button_label, sections) for picking a broadcast segment."""
+    total = segment_counts.get("all_customers", 0)
+    if total == 0:
+        # This shouldn't happen — caller should check first
+        return "You have no customers yet.", "Select", []
+
+    _SEGMENT_LABELS = {
+        "all_customers": "All Customers",
+        "vip": "VIP Customers",
+        "repeat_buyers": "Repeat Buyers",
+        "paid_once": "Bought Once",
+        "new_leads": "New Leads",
+    }
+
+    body = (
+        f"You have *{total} customers* in total.\n\n"
+        "Who should receive this broadcast?"
+    )
+    button_label = "Select audience"
+    rows = []
+    for seg_key, label in _SEGMENT_LABELS.items():
+        count = segment_counts.get(seg_key, 0)
+        if count > 0:
+            rows.append({
+                "id": f"BCSEG_{seg_key}"[:72],
+                "title": label[:24],
+                "description": f"{count} customer{'s' if count != 1 else ''}",
+            })
+    sections = [{"title": "Audience", "rows": rows}]
+    return body, button_label, sections
+
+
+def broadcast_compose_prompt(segment_label: str, count: int) -> str:
+    return (
+        f"Sending to *{segment_label}* ({count} customer{'s' if count != 1 else ''}).\n\n"
+        "Type your broadcast message now. I'll polish it before sending.\n\n"
+        "Tips:\n"
+        "- Keep it short and warm\n"
+        "- Mention what's new or on offer\n"
+        "- No ALL CAPS or spam words"
+    )
+
+
+def broadcast_quality_issues(issues: list[str]) -> str:
+    lines = "\n".join(f"  - {issue}" for issue in issues)
+    return (
+        f"Hold on — I found some issues with your message:\n\n"
+        f"{lines}\n\n"
+        "Please rewrite your message and try again."
+    )
+
+
+def broadcast_preview(
+    rewritten_text: str, segment_label: str, count: int,
+) -> tuple[str, list[dict[str, str]]]:
+    """Return (body, buttons) for the broadcast preview + confirm step."""
+    body = (
+        f"Here's how your broadcast will look:\n\n"
+        f"---\n{rewritten_text}\n---\n\n"
+        f"This will be sent to *{count}* {segment_label} customer{'s' if count != 1 else ''}."
+    )
+    buttons = [
+        {"id": "BCYES", "title": "Send now"},
+        {"id": "BCNO", "title": "Cancel"},
+    ]
+    return body, buttons
+
+
+def broadcast_sending(count: int) -> str:
+    return (
+        f"Sending your broadcast to {count} customer{'s' if count != 1 else ''}... "
+        "This may take a few minutes. I'll update you on progress."
+    )
+
+
+def broadcast_progress(sent: int, total: int) -> str:
+    pct = int(sent / total * 100) if total else 0
+    return f"Broadcast progress: {sent}/{total} sent ({pct}%)"
+
+
+def broadcast_complete(sent: int, total: int, skipped: int = 0) -> str:
+    parts = [f"Broadcast complete! Sent to *{sent}* customer{'s' if sent != 1 else ''}."]
+    if skipped:
+        parts.append(f"\n{skipped} skipped (opted out or recently messaged).")
+    return " ".join(parts)
+
+
+def broadcast_no_customers() -> str:
+    return (
+        "You don't have any customers yet.\n\n"
+        "Customers are added automatically when they place orders. "
+        "Once you have customers, you can send them broadcasts."
+    )
+
+
+def broadcast_cancelled() -> str:
+    return "Broadcast cancelled. No messages were sent."

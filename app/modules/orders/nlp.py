@@ -53,6 +53,7 @@ IGNORE = "ignore"
 CHITCHAT = "chitchat"
 TRADER_BANK = "trader_bank"
 TRADER_MENU = "trader_menu"
+TRADER_BROADCAST = "trader_broadcast"
 UNKNOWN = "unknown"
 
 
@@ -219,6 +220,11 @@ _BANK_RE = re.compile(
 # MENU / HELP
 _MENU_RE = re.compile(
     r"^(?:menu|help|commands|options)$",
+    re.IGNORECASE,
+)
+# BROADCAST / SEND BROADCAST
+_BROADCAST_RE = re.compile(
+    r"^(?:broadcast|send\s*broadcast|message\s*(?:all|customers)|blast)$",
     re.IGNORECASE,
 )
 
@@ -405,6 +411,9 @@ def _layer1(message: str) -> ParseResult:
 
     if _MENU_RE.match(stripped):
         return ParseResult(intent=TRADER_MENU, confidence=1.0)
+
+    if _BROADCAST_RE.match(stripped):
+        return ParseResult(intent=TRADER_BROADCAST, confidence=1.0)
 
     # ── Customer YES / NO ─────────────────────────────────────────────────────
     if _YES_RE.match(stripped):

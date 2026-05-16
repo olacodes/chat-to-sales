@@ -12,9 +12,9 @@ Phase 1 (Foundation) → Phase 3 (WhatsApp Flow) → Phase 4 (Anti-Spam) → Pha
 
 | # | Task | Status |
 |---|------|--------|
-| 1.1 | Customer list model + auto-populate | ⬜ |
-| 1.2 | Opt-out handling (STOP) | ⬜ |
-| 1.3 | Broadcast model + recipients model | ⬜ |
+| 1.1 | Customer list model + auto-populate | ✅ |
+| 1.2 | Opt-out handling (STOP) | ✅ |
+| 1.3 | Broadcast model + recipients model | ✅ |
 
 ## Phase 2: Segments Engine
 
@@ -30,14 +30,14 @@ Phase 1 (Foundation) → Phase 3 (WhatsApp Flow) → Phase 4 (Anti-Spam) → Pha
 
 | # | Task | Status |
 |---|------|--------|
-| 3.1 | BROADCAST command → segment list picker | ⬜ |
-| 3.2 | Segment selection → count + description | ⬜ |
-| 3.3 | Message composition + Claude rewrite + preview | ⬜ |
+| 3.1 | BROADCAST command → segment list picker | ✅ |
+| 3.2 | Segment selection → count + description | ✅ |
+| 3.3 | Message composition + Claude rewrite + preview | ✅ |
 | 3.4 | Voice note to broadcast text (Whisper + Claude) | ⬜ |
-| 3.5 | Pre-send quality check (caps, spam, links) | ⬜ |
-| 3.6 | Paced sending (10-30 min, individual messages) | ⬜ |
-| 3.7 | Background task (non-blocking) | ⬜ |
-| 3.8 | STOP reply processing during broadcast | ⬜ |
+| 3.5 | Pre-send quality check (caps, spam, links) | ✅ |
+| 3.6 | Paced sending (10-30 min, individual messages) | ✅ |
+| 3.7 | Background task (non-blocking) | ✅ |
+| 3.8 | STOP reply processing during broadcast | ✅ |
 
 ## Phase 4: Anti-Spam Protection
 

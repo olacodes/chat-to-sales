@@ -358,6 +358,9 @@ TRADER_AWAITING_BANK_DETAILS = "awaiting_bank_details"
 TRADER_AWAITING_BANK_CONFIRM = "awaiting_bank_confirm"
 TRADER_AWAITING_CREDIT_PARTIAL = "awaiting_credit_partial"
 TRADER_AWAITING_PHOTO_PRODUCT = "awaiting_photo_product"
+TRADER_AWAITING_BROADCAST_SEGMENT = "awaiting_broadcast_segment"
+TRADER_AWAITING_BROADCAST_MESSAGE = "awaiting_broadcast_message"
+TRADER_AWAITING_BROADCAST_CONFIRM = "awaiting_broadcast_confirm"
 
 
 def _trader_session_key(phone: str) -> str:
