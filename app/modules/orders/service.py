@@ -4571,6 +4571,7 @@ class OrderService:
         platform_tenant_id = settings.TENANT_ID
         day_index = (datetime.now(tz=timezone.utc) - datetime(2026, 1, 1, tzinfo=timezone.utc)).days
         # Manual generation: random template + color each time
+        share_url = ""  # populated after upload
         rand_color = _rand.randint(0, 3)
         rand_template = _rand.randint(0, 2)
         unique_suffix = int(_time.time()) % 100000  # unique per generation
@@ -4620,6 +4621,7 @@ class OrderService:
                         ContentType="video/mp4",
                     )
                     url = f"{settings.R2_PUBLIC_URL.rstrip('/')}/{key}" if settings.R2_PUBLIC_URL else f"https://{settings.R2_BUCKET_NAME}.{settings.R2_ACCOUNT_ID}.r2.cloudflarestorage.com/{key}"
+                    # Send video without caption
                     async with async_session_factory.begin() as svc_session:
                         from app.modules.notifications.service import NotificationService as _NS
                         svc = _NS(svc_session)
@@ -4628,9 +4630,25 @@ class OrderService:
                             event_id=f"status.manual.vid.{trader_phone}.{message_id}",
                             recipient=trader_phone,
                             video_url=url,
-                            caption=f"Share to your Status! {store_url}",
+                            caption=None,
                             channel_tenant_id=platform_tenant_id,
                         )
+
+                    # Create share link
+                    share_url = ""
+                    try:
+                        from app.modules.shares.router import create_share
+                        share_id = await create_share(
+                            media_url=url,
+                            media_type="video",
+                            trader_name=trader_name,
+                            product_name=product_name,
+                            price=price,
+                            store_url=store_url,
+                        )
+                        share_url = f"{settings.FRONTEND_URL}/share/{share_id}"
+                    except Exception as exc:
+                        logger.warning("Share link creation failed: %s", exc)
             except Exception as exc:
                 logger.warning("Status video send failed: %s", exc)
                 await self._reply(
@@ -4665,6 +4683,7 @@ class OrderService:
                         ContentType="image/jpeg",
                     )
                     url = f"{settings.R2_PUBLIC_URL.rstrip('/')}/{key}" if settings.R2_PUBLIC_URL else f"https://{settings.R2_BUCKET_NAME}.{settings.R2_ACCOUNT_ID}.r2.cloudflarestorage.com/{key}"
+                    # Send image without caption (clean for sharing)
                     async with async_session_factory.begin() as svc_session:
                         from app.modules.notifications.service import NotificationService as _NS
                         svc = _NS(svc_session)
@@ -4673,9 +4692,25 @@ class OrderService:
                             event_id=f"status.manual.img.{trader_phone}.{message_id}",
                             recipient=trader_phone,
                             image_url=url,
-                            caption=f"Share to your Status! {store_url}",
+                            caption=None,
                             channel_tenant_id=platform_tenant_id,
                         )
+
+                    # Create share link
+                    share_url = ""
+                    try:
+                        from app.modules.shares.router import create_share
+                        share_id = await create_share(
+                            media_url=url,
+                            media_type="image",
+                            trader_name=trader_name,
+                            product_name=product_name,
+                            price=price,
+                            store_url=store_url,
+                        )
+                        share_url = f"{settings.FRONTEND_URL}/share/{share_id}"
+                    except Exception as exc:
+                        logger.warning("Share link creation failed: %s", exc)
             except Exception as exc:
                 logger.warning("Status image send failed: %s", exc)
                 await self._reply(
@@ -4686,12 +4721,15 @@ class OrderService:
                 )
                 return
 
-        # Success prompt (skip in silent mode — the non-silent call already sent one)
+        # Success prompt with share link (skip in silent mode)
         if not silent:
+            share_msg = "Tap the image above, then forward (⤳) to your *Status*."
+            if share_url:
+                share_msg += f"\n\nOr tap to share directly:\n{share_url}"
             await self._reply(
                 phone=trader_phone, tenant_id=tenant_id,
                 event_id=f"status.done.{message_id}",
-                text=wa.status_share_prompt(),
+                text=share_msg,
                 channel_tenant_id=channel_tenant_id,
             )
         logger.info("Status %s generated: trader=%s product=%s", mode, trader_phone, product_name)
