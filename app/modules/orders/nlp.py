@@ -55,6 +55,7 @@ TRADER_BANK = "trader_bank"
 TRADER_MENU = "trader_menu"
 TRADER_BROADCAST = "trader_broadcast"
 TRADER_WHO_IS = "trader_who_is"
+TRADER_REFER = "trader_refer"
 UNKNOWN = "unknown"
 
 
@@ -231,6 +232,11 @@ _BROADCAST_RE = re.compile(
 # WHO IS <name or phone>
 _WHO_IS_RE = re.compile(
     r"^who\s*(?:is|are)\s+(.+)$",
+    re.IGNORECASE,
+)
+# REFER / MY REFERRALS / REFERRAL CODE
+_REFER_RE = re.compile(
+    r"^(?:refer|referral|my\s*referral(?:s)?|referral\s*code|share\s*link|invite)$",
     re.IGNORECASE,
 )
 
@@ -417,6 +423,9 @@ def _layer1(message: str) -> ParseResult:
 
     if _MENU_RE.match(stripped):
         return ParseResult(intent=TRADER_MENU, confidence=1.0)
+
+    if _REFER_RE.match(stripped):
+        return ParseResult(intent=TRADER_REFER, confidence=1.0)
 
     if _BROADCAST_RE.match(stripped):
         return ParseResult(intent=TRADER_BROADCAST, confidence=1.0)

@@ -522,6 +522,7 @@ def trader_submenu_marketing() -> tuple[str, str, list[dict]]:
             "title": "Marketing",
             "rows": [
                 {"id": "MENU_BROADCAST", "title": "\U0001f4e2 Broadcast Message", "description": "Send a message to your customers"},
+                {"id": "MENU_REFER", "title": "\U0001f91d Refer a Trader", "description": "Share your referral code"},
                 {"id": "MENU_STATUS_IMAGE", "title": "\U0001f4f8 Status Image", "description": "Generate a product image for Status"},
                 {"id": "MENU_STATUS_VIDEO", "title": "\U0001f3ac Status Video", "description": "Generate a Ken Burns video for Status"},
                 {"id": "MENU_STATUS_POST", "title": "\U0001f4e3 Create Status Post", "description": "Auto-generate image + video for Status"},
@@ -1539,6 +1540,37 @@ def who_is_not_found(query: str) -> str:
         f"No customer found matching *{query}*.\n\n"
         "Try the full phone number or name. Customers are added when orders are paid."
     )
+
+
+def referral_info(
+    referral_code: str,
+    store_slug: str,
+    total_referred: int,
+    active_referred: int,
+) -> str:
+    """Show trader their referral code, link, and stats."""
+    link = f"https://wa.me/+15551234567?text={referral_code}"
+    lines = [
+        f"Your referral code: *{referral_code}*",
+        "",
+        "Share this message with fellow traders:",
+        "",
+        f"_I'm using ChatToSales to manage my orders and track who owes me "
+        f"on WhatsApp. Set up your store free — just send \"{referral_code}\" "
+        f"to this number to get started._",
+        "",
+    ]
+    if total_referred > 0:
+        lines.append(f"You've referred *{total_referred}* trader{'s' if total_referred != 1 else ''}.")
+        if active_referred > 0:
+            lines.append(f"*{active_referred}* are actively using ChatToSales.")
+    else:
+        lines.append("You haven't referred anyone yet. Share your code to earn free months!")
+    return "\n".join(lines)
+
+
+def referral_no_code() -> str:
+    return "Your referral code is being generated. Please try again in a moment."
 
 
 def followup_converted_to_trader(

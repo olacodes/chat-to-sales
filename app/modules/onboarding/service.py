@@ -26,8 +26,11 @@ import re
 import time
 from typing import Any
 
+from sqlalchemy import select
+
 from app.core.logging import get_logger
 from app.infra.database import async_session_factory
+from app.modules.onboarding.models import Trader
 from app.infra.event_bus import Event, publish_event
 from app.modules.notifications.service import NotificationService
 from app.modules.onboarding import catalogue_templates
@@ -246,14 +249,30 @@ class OnboardingService:
         msg = message.strip()
 
         if state is None:
-            if msg.lower() not in _ONBOARDING_TRIGGERS:
+            # Check for referral/agent code in the message (e.g. "hi REF-MAMA-CARO")
+            import re as _ref_re
+            _ref_match = _ref_re.search(r"\b(REF-[A-Z0-9-]+)\b", msg.upper())
+            _agt_match = _ref_re.search(r"\b(AGT-[A-Z0-9-]+)\b", msg.upper())
+
+            if msg.lower() not in _ONBOARDING_TRIGGERS and not _ref_match and not _agt_match:
                 # Unknown number, not a trigger keyword — likely a customer messaging
                 # the platform number directly.  Do not start an onboarding flow.
                 return
+
+            # Store attribution in session for use at completion
+            attr_data: dict[str, str] = {}
+            if _ref_match:
+                attr_data["attribution_type"] = "referral"
+                attr_data["attribution_code"] = _ref_match.group(1)
+            elif _agt_match:
+                attr_data["attribution_type"] = "agent"
+                attr_data["attribution_code"] = _agt_match.group(1)
+
             await self._start(
                 phone_number=phone_number,
                 tenant_id=tenant_id,
                 message_id=message_id,
+                extra_state=attr_data,
             )
             return
 
@@ -310,14 +329,20 @@ class OnboardingService:
 
     # ── Step handlers ─────────────────────────────────────────────────────────
 
-    async def _start(self, *, phone_number: str, tenant_id: str, message_id: str) -> None:
+    async def _start(
+        self, *, phone_number: str, tenant_id: str, message_id: str,
+        extra_state: dict | None = None,
+    ) -> None:
         await track_onboarding_event(
             phone_number=phone_number, event_type=EVT_STARTED, step_name="welcome",
         )
+        initial_data: dict[str, Any] = {"_last_active": time.time()}
+        if extra_state:
+            initial_data.update(extra_state)
         await self._advance(
             phone_number,
             OnboardingStep.AWAITING_NAME,
-            {"_last_active": time.time()},
+            initial_data,
             _WELCOME,
             tenant_id,
             message_id,
@@ -935,6 +960,19 @@ class OnboardingService:
             existing = await repo.get_by_phone(phone_number)
             if existing is None:
                 slug = await _generate_unique_slug(repo, name)
+
+                # Generate referral code for this trader
+                from app.modules.marketing.referrals import (
+                    generate_referral_code, ensure_unique_referral_code,
+                    log_referral, AttributionType,
+                )
+                ref_code = generate_referral_code(name)
+                ref_code = await ensure_unique_referral_code(session, ref_code)
+
+                # Check for attribution (stored in onboarding session state)
+                attr_type = state.get("attribution_type") if state else None
+                attr_code = state.get("attribution_code") if state else None
+
                 await repo.create(
                     phone_number=phone_number,
                     business_name=name,
@@ -942,6 +980,34 @@ class OnboardingService:
                     store_slug=slug,
                     tenant_id=tenant_id,
                     onboarding_catalogue=onboarding_catalogue,
+                    referral_code=ref_code,
+                    attribution_type=attr_type,
+                    attribution_code=attr_code,
+                )
+
+                # Log the referral for tracking
+                referrer_phone = None
+                agent_code = None
+                a_type = AttributionType.ORGANIC
+                if attr_type == "referral" and attr_code:
+                    # Look up referrer by their referral code
+                    referrer = (await session.execute(
+                        select(Trader).where(Trader.referral_code == attr_code)
+                    )).scalar_one_or_none()
+                    if referrer:
+                        referrer_phone = referrer.phone_number
+                        a_type = AttributionType.REFERRAL
+                elif attr_type == "agent" and attr_code:
+                    agent_code = attr_code
+                    a_type = AttributionType.AGENT
+
+                await log_referral(
+                    session,
+                    referred_phone=phone_number,
+                    referred_name=name,
+                    referrer_phone=referrer_phone,
+                    agent_code=agent_code,
+                    attribution_type=a_type,
                 )
             else:
                 slug = existing.store_slug or ""

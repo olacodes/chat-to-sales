@@ -40,6 +40,7 @@ from app.modules.orders.nlp import (
     ORDER,
     TRADER_ADD,
     TRADER_BROADCAST,
+    TRADER_REFER,
     TRADER_WHO_IS,
     TRADER_CANCEL,
     TRADER_CATALOGUE,
@@ -306,6 +307,13 @@ class OrderService:
             )
         except Exception as exc:
             logger.warning("Customer list upsert failed (non-fatal): %s", exc)
+
+        # Advance referral milestone (first order for the TRADER, not customer)
+        try:
+            from app.modules.marketing.referrals import advance_referral_to_first_order
+            await advance_referral_to_first_order(self._db, order.trader_phone or "")
+        except Exception as exc:
+            logger.warning("Referral advance failed (non-fatal): %s", exc)
 
         # Emit dedicated payment event for downstream modules
         await publish_event(
@@ -1586,6 +1594,56 @@ class OrderService:
             channel_tenant_id=channel_tenant_id,
         )
 
+    # ── REFER command ─────────────────────────────────────────────────────────
+
+    async def _handle_refer(
+        self,
+        *,
+        trader_phone: str,
+        message_id: str,
+        trader: dict[str, Any],
+        tenant_id: str,
+        channel_tenant_id: str | None = None,
+    ) -> None:
+        """Show the trader their referral code and stats."""
+        from app.modules.onboarding.models import Trader as _Trader
+        from app.modules.marketing.referrals import get_referral_stats
+
+        # Get trader's referral code
+        async with async_session_factory() as session:
+            t = (await session.execute(
+                select(_Trader.referral_code, _Trader.store_slug).where(
+                    _Trader.phone_number == trader_phone
+                )
+            )).one_or_none()
+
+        if not t or not t.referral_code:
+            await self._reply(
+                phone=trader_phone,
+                tenant_id=tenant_id,
+                event_id=f"trader.refer_nocode.{message_id}",
+                text=wa.referral_no_code(),
+                channel_tenant_id=channel_tenant_id,
+            )
+            return
+
+        # Get referral stats
+        async with async_session_factory() as session:
+            stats = await get_referral_stats(session, trader_phone)
+
+        await self._reply(
+            phone=trader_phone,
+            tenant_id=tenant_id,
+            event_id=f"trader.refer.{message_id}",
+            text=wa.referral_info(
+                referral_code=t.referral_code,
+                store_slug=t.store_slug or "",
+                total_referred=stats["total"],
+                active_referred=stats["active"],
+            ),
+            channel_tenant_id=channel_tenant_id,
+        )
+
     # ── Interest tracking (for smart follow-up) ────────────────────────────────
 
     async def _log_interest(
@@ -2176,6 +2234,14 @@ class OrderService:
             await self._do_list_debts(
                 trader_phone=trader_phone,
                 message_id=message_id,
+                tenant_id=tenant_id,
+                channel_tenant_id=channel_tenant_id,
+            )
+        elif tap == "MENU_REFER":
+            await self._handle_refer(
+                trader_phone=trader_phone,
+                message_id=message_id,
+                trader=trader,
                 tenant_id=tenant_id,
                 channel_tenant_id=channel_tenant_id,
             )
@@ -4872,6 +4938,16 @@ class OrderService:
             )
             return
 
+        if result.intent == TRADER_REFER:
+            await self._handle_refer(
+                trader_phone=trader_phone,
+                message_id=message_id,
+                trader=trader,
+                tenant_id=tenant_id,
+                channel_tenant_id=channel_tenant_id,
+            )
+            return
+
         if result.intent == TRADER_BROADCAST:
             await self._start_broadcast_flow(
                 trader_phone=trader_phone,
@@ -4924,7 +5000,7 @@ class OrderService:
             import re as _cmd_re
             _COMMAND_HINT = _cmd_re.compile(
                 r"\b(menu|help|order|add|remove|price|catalogue|catalog|"
-                r"debt|paid|bank|credit|who owes|who is|pricelist|category|store|commands|broadcast)\b",
+                r"debt|paid|bank|credit|who owes|who is|pricelist|category|store|commands|broadcast|refer)\b",
                 _cmd_re.IGNORECASE,
             )
             if _COMMAND_HINT.search(message):

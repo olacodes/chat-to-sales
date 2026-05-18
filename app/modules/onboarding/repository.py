@@ -134,6 +134,9 @@ class TraderRepository:
         store_slug: str,
         tenant_id: str | None = None,
         onboarding_catalogue: str | None = None,
+        referral_code: str | None = None,
+        attribution_type: str | None = None,
+        attribution_code: str | None = None,
     ) -> Trader:
         trader = Trader(
             phone_number=phone_number,
@@ -144,6 +147,9 @@ class TraderRepository:
             onboarding_status=OnboardingStatus.COMPLETE,
             tier=TraderTier.OFE,
             onboarding_catalogue=onboarding_catalogue,
+            referral_code=referral_code,
+            attribution_type=attribution_type,
+            attribution_code=attribution_code,
         )
         self._db.add(trader)
         # Caller owns the commit via async_session_factory.begin()
