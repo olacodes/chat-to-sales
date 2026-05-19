@@ -99,11 +99,31 @@ services:
       timeout: 5s
       retries: 5
 
+  # ── Daily PostgreSQL backup ──────────────────────────────────────────────
+  db-backup:
+    image: postgres:16-alpine
+    container_name: chattosales_db_backup
+    restart: "no"
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+    volumes:
+      - db_backups:/backups
+    networks:
+      - chattosales_net
+    entrypoint: >
+      sh -c "pg_dump -h postgres -U ${POSTGRES_USER:-postgres} chattosales | gzip > /backups/chattosales_$$(date +%Y%m%d_%H%M%S).sql.gz && ls -t /backups/*.gz | tail -n +8 | xargs -r rm -- && echo Backup complete"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles:
+      - backup
+
 volumes:
   postgres_data:
   redis_data:
   certbot_webroot:
   certbot_certs:
+  db_backups:
 
 networks:
   chattosales_net:

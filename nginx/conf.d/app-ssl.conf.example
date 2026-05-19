@@ -9,7 +9,7 @@
 
 server {
     listen 80;
-    server_name chattosales.duckdns.org;
+    server_name api.chattosales.com;
 
     # Redirect all HTTP → HTTPS
     location /.well-known/acme-challenge/ {
@@ -24,11 +24,11 @@ server {
 server {
     listen 443 ssl;
     http2  on;
-    server_name chattosales.duckdns.org;
+    server_name api.chattosales.com;
 
     # ── TLS certificates (managed by Certbot) ─────────────────────────────
-    ssl_certificate     /etc/letsencrypt/live/chattosales.duckdns.org/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/chattosales.duckdns.org/privkey.pem;
+    ssl_certificate     /etc/letsencrypt/live/api.chattosales.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/api.chattosales.com/privkey.pem;
 
     # Modern TLS settings
     ssl_protocols             TLSv1.2 TLSv1.3;
